@@ -1,7 +1,7 @@
 /*
  * HTML 2 Fig — Plugin Canvas Renderer
  * Translates serialized DOM payloads into editable native Figma layers,
- * Auto-Layout frames, vector SVG nodes, and image fills.
+ * vector SVG nodes, high-fidelity typography, and image fills.
  */
 
 figma.showUI(__html__, { width: 360, height: 480, themeColors: true });
@@ -130,31 +130,7 @@ function applyOpacity(node, styles) {
 }
 
 /* ======================================================================
- *  5.  AUTO-LAYOUT CONVERTER
- * ====================================================================== */
-function applyAutoLayout(node, styles) {
-  // Only apply auto-layout if explicitly flex and without absolute positioned elements
-  const display = styles.display || '';
-  if (!display.includes('flex') && !display.includes('inline-flex')) return false;
-
-  const isCol = (styles.flexDirection || '').startsWith('column');
-  node.layoutMode = isCol ? 'VERTICAL' : 'HORIZONTAL';
-
-  // Gap
-  const gap = parseFloat(styles.gap || styles.columnGap || styles.rowGap) || 0;
-  if (gap > 0) node.itemSpacing = gap;
-
-  // Padding
-  node.paddingLeft = parseFloat(styles.paddingLeft) || 0;
-  node.paddingRight = parseFloat(styles.paddingRight) || 0;
-  node.paddingTop = parseFloat(styles.paddingTop) || 0;
-  node.paddingBottom = parseFloat(styles.paddingBottom) || 0;
-
-  return true;
-}
-
-/* ======================================================================
- *  6.  NODE RENDERERS
+ *  5.  NODE RENDERERS
  * ====================================================================== */
 let totalNodes = 0;
 let renderedNodes = 0;
@@ -167,16 +143,16 @@ function reportProgress(label) {
   }
 }
 
-async function renderNode(sNode, parentFrame, parentX, parentY, assets) {
+async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles) {
   if (!sNode) return;
 
   if (sNode.nodeType === 3 /* TEXT */) {
-    await renderTextNode(sNode, parentFrame, parentX, parentY);
+    await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles);
     reportProgress();
     return;
   }
 
-  const s = sNode.styles || {};
+  const s = sNode.styles || inheritedStyles || {};
   const x = Math.round((sNode.rect?.x || 0) - parentX);
   const y = Math.round((sNode.rect?.y || 0) - parentY);
   const w = Math.max(1, Math.round(sNode.rect?.width || 0));
@@ -184,7 +160,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets) {
 
   // Pseudo-element ::before
   if (sNode.pseudoElementNodes?.before) {
-    await renderNode(sNode.pseudoElementNodes.before, parentFrame, parentX, parentY, assets);
+    await renderNode(sNode.pseudoElementNodes.before, parentFrame, parentX, parentY, assets, s);
   }
 
   // SVG Vector element
@@ -266,23 +242,23 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets) {
 
   if (sNode.childNodes) {
     for (const child of sNode.childNodes) {
-      await renderNode(child, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets);
+      await renderNode(child, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
     }
   }
 
   // Pseudo-element ::after
   if (sNode.pseudoElementNodes?.after) {
-    await renderNode(sNode.pseudoElementNodes.after, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets);
+    await renderNode(sNode.pseudoElementNodes.after, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
   }
 
   reportProgress();
 }
 
-async function renderTextNode(sNode, parentFrame, parentX, parentY) {
+async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles) {
   const text = (sNode.text || '').trim();
   if (!text) return;
 
-  const s = parentFrame.styles || {};
+  const s = sNode.styles || inheritedStyles || parentFrame.styles || {};
   const textNode = figma.createText();
 
   const fontName = await loadFont(s.fontFamily, s.fontWeight || '400', s.fontStyle === 'italic');
@@ -293,8 +269,23 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY) {
   else if (s.textTransform === 'lowercase') finalText = text.toLowerCase();
   textNode.characters = finalText;
 
-  textNode.fontSize = parseFloat(s.fontSize) || 15;
-  const color = parseColor(s.color || '#000000');
+  const fontSize = parseFloat(s.fontSize) || 16;
+  textNode.fontSize = fontSize;
+
+  if (s.lineHeight && s.lineHeight !== 'normal') {
+    const lh = parseFloat(s.lineHeight);
+    if (!isNaN(lh)) textNode.lineHeight = { value: lh, unit: 'PIXELS' };
+  }
+
+  if (s.letterSpacing && s.letterSpacing !== 'normal' && s.letterSpacing !== '0px') {
+    const ls = parseFloat(s.letterSpacing);
+    if (!isNaN(ls)) textNode.letterSpacing = { value: ls, unit: 'PIXELS' };
+  }
+
+  const alignMap = { 'left': 'LEFT', 'start': 'LEFT', 'center': 'CENTER', 'right': 'RIGHT', 'end': 'RIGHT', 'justify': 'JUSTIFIED' };
+  textNode.textAlignHorizontal = alignMap[s.textAlign] || 'LEFT';
+
+  const color = parseColor(s.webkitTextFillColor || s.color || '#000000');
   if (color) {
     textNode.fills = [{ type: 'SOLID', color: { r: color.r, g: color.g, b: color.b }, opacity: clamp01(color.a) }];
   }
@@ -306,7 +297,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY) {
   const w = sNode.rect?.width || 0;
   if (w > 0) {
     textNode.textAutoResize = 'NONE';
-    textNode.resize(Math.ceil(w) + 2, Math.max(1, textNode.height));
+    textNode.resize(Math.ceil(w) + 4, Math.max(1, textNode.height));
     textNode.textAutoResize = 'HEIGHT';
   }
 }
@@ -326,7 +317,6 @@ async function renderTree(data) {
   const rootFrame = figma.createFrame();
   rootFrame.name = data.documentTitle || 'HTML 2 Fig Import';
 
-  // Use full document dimensions so entire webpage height is rendered
   const dw = Math.round(data.documentRect?.width || data.viewportRect?.width || 1440);
   const dh = Math.round(data.documentRect?.height || data.viewportRect?.height || 900);
   rootFrame.resize(dw, dh);
@@ -339,7 +329,7 @@ async function renderTree(data) {
 
   if (data.root?.childNodes) {
     for (const child of data.root.childNodes) {
-      await renderNode(child, rootFrame, data.root.rect?.x || 0, data.root.rect?.y || 0, data.assets);
+      await renderNode(child, rootFrame, data.root.rect?.x || 0, data.root.rect?.y || 0, data.assets, data.root.styles);
     }
   }
 

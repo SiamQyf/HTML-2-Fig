@@ -1,6 +1,6 @@
 /*
  * HTML 2 Fig — High-Fidelity Capture Engine
- * Captures the full document height, geometry, computed styles, text bounding boxes,
+ * Captures live DOM geometry, computed styles, text bounding boxes,
  * vector SVGs, canvases, and images with automatic PNG conversion.
  */
 ;(async function html2FigCapture() {
@@ -86,7 +86,7 @@
   }
 
   /* ======================================================================
-   *  3.  UNIVERSAL ASSET & IMAGE CONVERTER (Transcodes AVIF, WebP, SVG to PNG)
+   *  3.  UNIVERSAL ASSET & IMAGE CONVERTER
    * ====================================================================== */
   async function convertToPngBlob(blob) {
     if (!blob) return null;
@@ -257,7 +257,7 @@
   }
 
   /* ======================================================================
-   *  5.  DOM SERIALIZATION WITH DOCUMENT-RELATIVE COORDINATES
+   *  5.  DOM SERIALIZATION WITH INHERITED STYLES
    * ====================================================================== */
   let nodeCounter = 0;
   function getNodeId(prefix = 'h2f') { return `${prefix}-node-${++nodeCounter}`; }
@@ -271,6 +271,17 @@
         styles[prop] = val;
       }
     }
+    // Always preserve essential typography on every element container
+    styles.fontFamily = cs.fontFamily;
+    styles.fontSize = cs.fontSize;
+    styles.fontWeight = cs.fontWeight;
+    styles.fontStyle = cs.fontStyle;
+    styles.color = cs.color;
+    styles.lineHeight = cs.lineHeight;
+    styles.letterSpacing = cs.letterSpacing;
+    styles.textAlign = cs.textAlign;
+    styles.textTransform = cs.textTransform;
+
     return styles;
   }
 
@@ -337,7 +348,7 @@
     }
   }
 
-  function serializeNode(node, assets, fonts, scrollX, scrollY) {
+  function serializeNode(node, assets, fonts, scrollX, scrollY, parentStyles) {
     if (node.nodeType === TEXT_NODE) {
       const text = (node.textContent || '').trim();
       if (!text) return null;
@@ -353,9 +364,10 @@
         rect: {
           x: rect.x + scrollX,
           y: rect.y + scrollY,
-          width: rect.width,
-          height: rect.height
+          width: Math.ceil(rect.width),
+          height: Math.ceil(rect.height)
         },
+        styles: parentStyles || {},
         lineCount: 1
       };
     }
@@ -409,7 +421,7 @@
     if (!svgContent) {
       const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
       for (const child of sourceNodes) {
-        const sChild = serializeNode(child, assets, fonts, scrollX, scrollY);
+        const sChild = serializeNode(child, assets, fonts, scrollX, scrollY, styles);
         if (sChild) childNodes.push(sChild);
       }
     }
@@ -421,6 +433,7 @@
           id: getNodeId('val'),
           text: el.value,
           rect: docRect,
+          styles,
           lineCount: 1
         });
       }
@@ -480,7 +493,7 @@
     const scrollX = window.scrollX || window.pageXOffset || 0;
     const scrollY = window.scrollY || window.pageYOffset || 0;
 
-    const root = serializeNode(document.documentElement, assets, fonts, scrollX, scrollY);
+    const root = serializeNode(document.documentElement, assets, fonts, scrollX, scrollY, null);
     const assetMap = await assets.getBlobMap();
 
     const fullDocWidth = Math.max(
