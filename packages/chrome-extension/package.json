@@ -2,8 +2,5 @@
   "name": "@html-2-fig/chrome-extension",
   "version": "1.0.0",
   "description": "Chrome MV3 Extension for deep DOM extraction and Figma serialization",
-  "private": true,
-  "scripts": {
-    "lint": "eslint ."
-  }
+  "private": true
 }
