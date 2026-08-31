@@ -1,7 +1,7 @@
 /*
  * HTML 2 Fig — High-Fidelity Capture Engine
- * Captures live DOM geometry, computed styles, text bounding boxes,
- * vector SVGs, canvases, videos, and transcodes all image formats to PNG.
+ * Captures the full document height, geometry, computed styles, text bounding boxes,
+ * vector SVGs, canvases, and images with automatic PNG conversion.
  */
 ;(async function html2FigCapture() {
   'use strict';
@@ -9,12 +9,12 @@
   if (window.__html2FigRunning) return;
   window.__html2FigRunning = true;
 
-  const FETCH_TIMEOUT = 10000;
+  const FETCH_TIMEOUT = 12000;
   const ELEMENT_NODE = 1;
   const TEXT_NODE = 3;
 
   /* ======================================================================
-   *  1.  CSS DEFAULTS MAP (Browser initial values for delta serialization)
+   *  1.  CSS DEFAULTS MAP
    * ====================================================================== */
   const CSS_DEFAULTS = {
     alignContent: 'normal', alignItems: 'normal', alignSelf: 'auto',
@@ -257,7 +257,7 @@
   }
 
   /* ======================================================================
-   *  5.  DOM SERIALIZATION
+   *  5.  DOM SERIALIZATION WITH DOCUMENT-RELATIVE COORDINATES
    * ====================================================================== */
   let nodeCounter = 0;
   function getNodeId(prefix = 'h2f') { return `${prefix}-node-${++nodeCounter}`; }
@@ -307,7 +307,7 @@
     }
   }
 
-  function serializePseudo(el, pseudo, fonts) {
+  function serializePseudo(el, pseudo, fonts, parentRect) {
     try {
       const cs = window.getComputedStyle(el, pseudo);
       const content = cs.content;
@@ -329,6 +329,7 @@
         tag: 'SPAN',
         attributes: { class: pseudo.replace('::', '__') },
         styles,
+        rect: parentRect,
         text
       };
     } catch {
@@ -336,7 +337,7 @@
     }
   }
 
-  function serializeNode(node, assets, fonts) {
+  function serializeNode(node, assets, fonts, scrollX, scrollY) {
     if (node.nodeType === TEXT_NODE) {
       const text = (node.textContent || '').trim();
       if (!text) return null;
@@ -349,7 +350,12 @@
         nodeType: TEXT_NODE,
         id: getNodeId('text'),
         text: node.textContent || '',
-        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        rect: {
+          x: rect.x + scrollX,
+          y: rect.y + scrollY,
+          width: rect.width,
+          height: rect.height
+        },
         lineCount: 1
       };
     }
@@ -360,6 +366,7 @@
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'IFRAME', 'LINK', 'TEMPLATE'].includes(tag)) return null;
 
     const styles = getElementStyles(el);
+    if (styles.display === 'none' || styles.visibility === 'hidden') return null;
     if (styles.fontFamily) fonts.addFont(styles.fontFamily);
 
     if (el instanceof HTMLImageElement) {
@@ -381,21 +388,28 @@
       else placeholderUrl = assets.addVideo(el);
     }
 
-    const rect = el.getBoundingClientRect();
+    const clientRect = el.getBoundingClientRect();
+    const docRect = {
+      x: clientRect.x + scrollX,
+      y: clientRect.y + scrollY,
+      width: clientRect.width,
+      height: clientRect.height
+    };
+
     let svgContent = null;
     if (tag === 'SVG' || el instanceof SVGElement) {
       svgContent = serializeSVG(el);
     }
 
-    const before = serializePseudo(el, '::before', fonts);
-    const after = serializePseudo(el, '::after', fonts);
+    const before = serializePseudo(el, '::before', fonts, docRect);
+    const after = serializePseudo(el, '::after', fonts, docRect);
     const pseudoElementNodes = (before || after) ? { before, after } : undefined;
 
     const childNodes = [];
     if (!svgContent) {
       const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
       for (const child of sourceNodes) {
-        const sChild = serializeNode(child, assets, fonts);
+        const sChild = serializeNode(child, assets, fonts, scrollX, scrollY);
         if (sChild) childNodes.push(sChild);
       }
     }
@@ -406,7 +420,7 @@
           nodeType: TEXT_NODE,
           id: getNodeId('val'),
           text: el.value,
-          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+          rect: docRect,
           lineCount: 1
         });
       }
@@ -418,7 +432,7 @@
       tag,
       attributes: getAttributes(el),
       styles,
-      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      rect: docRect,
       childNodes,
       content: svgContent || undefined,
       placeholderUrl: placeholderUrl || undefined,
@@ -463,8 +477,22 @@
     const assets = new AssetCollector();
     const fonts = new FontCollector();
 
-    const root = serializeNode(document.documentElement, assets, fonts);
+    const scrollX = window.scrollX || window.pageXOffset || 0;
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+
+    const root = serializeNode(document.documentElement, assets, fonts, scrollX, scrollY);
     const assetMap = await assets.getBlobMap();
+
+    const fullDocWidth = Math.max(
+      document.documentElement.scrollWidth,
+      document.body ? document.body.scrollWidth : 0,
+      window.innerWidth
+    );
+    const fullDocHeight = Math.max(
+      document.documentElement.scrollHeight,
+      document.body ? document.body.scrollHeight : 0,
+      window.innerHeight
+    );
 
     const payload = {
       version: 2,
@@ -473,8 +501,8 @@
       documentRect: {
         x: 0,
         y: 0,
-        width: document.documentElement.scrollWidth,
-        height: document.documentElement.scrollHeight
+        width: fullDocWidth,
+        height: fullDocHeight
       },
       viewportRect: {
         x: 0,
@@ -494,7 +522,7 @@
     try { toast.remove(); } catch {}
 
     if (ok) {
-      showToast('✅ Captured! Open Figma plugin → Import from Clipboard', 6000);
+      showToast('✅ Captured full page! Paste into Figma plugin (Ctrl+V)', 6000);
     } else {
       showToast('⚠️ Capture complete. Please allow clipboard access.', 6000);
     }

@@ -133,6 +133,7 @@ function applyOpacity(node, styles) {
  *  5.  AUTO-LAYOUT CONVERTER
  * ====================================================================== */
 function applyAutoLayout(node, styles) {
+  // Only apply auto-layout if explicitly flex and without absolute positioned elements
   const display = styles.display || '';
   if (!display.includes('flex') && !display.includes('inline-flex')) return false;
 
@@ -176,10 +177,15 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets) {
   }
 
   const s = sNode.styles || {};
-  const x = (sNode.rect?.x || 0) - parentX;
-  const y = (sNode.rect?.y || 0) - parentY;
+  const x = Math.round((sNode.rect?.x || 0) - parentX);
+  const y = Math.round((sNode.rect?.y || 0) - parentY);
   const w = Math.max(1, Math.round(sNode.rect?.width || 0));
   const h = Math.max(1, Math.round(sNode.rect?.height || 0));
+
+  // Pseudo-element ::before
+  if (sNode.pseudoElementNodes?.before) {
+    await renderNode(sNode.pseudoElementNodes.before, parentFrame, parentX, parentY, assets);
+  }
 
   // SVG Vector element
   if (sNode.content && (sNode.tag === 'SVG' || sNode.content.includes('<svg'))) {
@@ -221,6 +227,30 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets) {
     }
   }
 
+  // Canvas / Video placeholder element
+  if (sNode.placeholderUrl) {
+    const assetData = assets?.[sNode.placeholderUrl];
+    const blobObj = assetData?.blob || assetData?.base64Blob || assetData;
+    if (blobObj) {
+      const bytes = decodeBase64Image(blobObj);
+      if (bytes) {
+        try {
+          const rect = figma.createRectangle();
+          rect.name = sNode.tag.toLowerCase();
+          parentFrame.appendChild(rect);
+          rect.x = x; rect.y = y;
+          rect.resize(w, h);
+          const img = figma.createImage(bytes);
+          rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+          applyCornerRadius(rect, s);
+          applyOpacity(rect, s);
+          reportProgress();
+          return;
+        } catch {}
+      }
+    }
+  }
+
   // Frame container
   const frame = figma.createFrame();
   frame.name = sNode.tag.toLowerCase() + (sNode.attributes?.id ? `#${sNode.attributes.id}` : '');
@@ -233,12 +263,16 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets) {
   applyFills(frame, s, assets);
   applyCornerRadius(frame, s);
   applyOpacity(frame, s);
-  applyAutoLayout(frame, s);
 
   if (sNode.childNodes) {
     for (const child of sNode.childNodes) {
       await renderNode(child, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets);
     }
+  }
+
+  // Pseudo-element ::after
+  if (sNode.pseudoElementNodes?.after) {
+    await renderNode(sNode.pseudoElementNodes.after, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets);
   }
 
   reportProgress();
@@ -266,8 +300,8 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY) {
   }
 
   parentFrame.appendChild(textNode);
-  textNode.x = (sNode.rect?.x || 0) - parentX;
-  textNode.y = (sNode.rect?.y || 0) - parentY;
+  textNode.x = Math.round((sNode.rect?.x || 0) - parentX);
+  textNode.y = Math.round((sNode.rect?.y || 0) - parentY);
 
   const w = sNode.rect?.width || 0;
   if (w > 0) {
@@ -291,13 +325,15 @@ async function renderTree(data) {
 
   const rootFrame = figma.createFrame();
   rootFrame.name = data.documentTitle || 'HTML 2 Fig Import';
-  const vw = data.viewportRect?.width || 1440;
-  const vh = data.viewportRect?.height || 900;
-  rootFrame.resize(vw, vh);
-  rootFrame.x = figma.viewport.center.x - vw / 2;
-  rootFrame.y = figma.viewport.center.y - vh / 2;
+
+  // Use full document dimensions so entire webpage height is rendered
+  const dw = Math.round(data.documentRect?.width || data.viewportRect?.width || 1440);
+  const dh = Math.round(data.documentRect?.height || data.viewportRect?.height || 900);
+  rootFrame.resize(dw, dh);
+  rootFrame.x = figma.viewport.center.x - dw / 2;
+  rootFrame.y = figma.viewport.center.y - dh / 2;
   rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
-  rootFrame.clipsContent = true;
+  rootFrame.clipsContent = false;
 
   figma.currentPage.appendChild(rootFrame);
 
