@@ -242,6 +242,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
   if (sNode.childNodes) {
     for (const child of sNode.childNodes) {
+      // Child coordinate offset is relative to this frame
       await renderNode(child, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
     }
   }
@@ -297,7 +298,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const w = sNode.rect?.width || 0;
   if (w > 0) {
     textNode.textAutoResize = 'NONE';
-    textNode.resize(Math.ceil(w) + 4, Math.max(1, textNode.height));
+    textNode.resize(Math.ceil(w) + 6, Math.max(1, textNode.height));
     textNode.textAutoResize = 'HEIGHT';
   }
 }

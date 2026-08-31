@@ -1,7 +1,7 @@
 /*
  * HTML 2 Fig — High-Fidelity Capture Engine
- * Captures live DOM geometry, computed styles, text bounding boxes,
- * vector SVGs, canvases, and images with automatic PNG conversion.
+ * Automatically pre-scrolls the page to trigger lazy-loaded sections & images,
+ * then serializes exact document layout geometry and computed typography.
  */
 ;(async function html2FigCapture() {
   'use strict';
@@ -86,7 +86,26 @@
   }
 
   /* ======================================================================
-   *  3.  UNIVERSAL ASSET & IMAGE CONVERTER
+   *  3.  PAGE PRE-SCROLLER (Triggers lazy-loaded images & animations)
+   * ====================================================================== */
+  async function prepareAndScrollPage() {
+    const origX = window.scrollX;
+    const origY = window.scrollY;
+    const scrollHeight = document.documentElement.scrollHeight;
+    const step = window.innerHeight * 0.75;
+
+    for (let y = 0; y < scrollHeight; y += step) {
+      window.scrollTo(0, y);
+      await new Promise(r => setTimeout(r, 60));
+    }
+    window.scrollTo(0, scrollHeight);
+    await new Promise(r => setTimeout(r, 80));
+    window.scrollTo(origX, origY);
+    await new Promise(r => setTimeout(r, 80));
+  }
+
+  /* ======================================================================
+   *  4.  UNIVERSAL ASSET & IMAGE CONVERTER
    * ====================================================================== */
   async function convertToPngBlob(blob) {
     if (!blob) return null;
@@ -240,7 +259,7 @@
   }
 
   /* ======================================================================
-   *  4.  FONT COLLECTOR
+   *  5.  FONT COLLECTOR
    * ====================================================================== */
   class FontCollector {
     constructor() {
@@ -257,7 +276,7 @@
   }
 
   /* ======================================================================
-   *  5.  DOM SERIALIZATION WITH INHERITED STYLES
+   *  6.  DOM TRAVERSAL WITH INHERITED STYLES & ABSOLUTE POSITIONING
    * ====================================================================== */
   let nodeCounter = 0;
   function getNodeId(prefix = 'h2f') { return `${prefix}-node-${++nodeCounter}`; }
@@ -271,7 +290,6 @@
         styles[prop] = val;
       }
     }
-    // Always preserve essential typography on every element container
     styles.fontFamily = cs.fontFamily;
     styles.fontSize = cs.fontSize;
     styles.fontWeight = cs.fontWeight;
@@ -348,7 +366,7 @@
     }
   }
 
-  function serializeNode(node, assets, fonts, scrollX, scrollY, parentStyles) {
+  function serializeNode(node, assets, fonts, parentStyles) {
     if (node.nodeType === TEXT_NODE) {
       const text = (node.textContent || '').trim();
       if (!text) return null;
@@ -362,8 +380,8 @@
         id: getNodeId('text'),
         text: node.textContent || '',
         rect: {
-          x: rect.x + scrollX,
-          y: rect.y + scrollY,
+          x: rect.x + window.scrollX,
+          y: rect.y + window.scrollY,
           width: Math.ceil(rect.width),
           height: Math.ceil(rect.height)
         },
@@ -402,8 +420,8 @@
 
     const clientRect = el.getBoundingClientRect();
     const docRect = {
-      x: clientRect.x + scrollX,
-      y: clientRect.y + scrollY,
+      x: clientRect.x + window.scrollX,
+      y: clientRect.y + window.scrollY,
       width: clientRect.width,
       height: clientRect.height
     };
@@ -421,7 +439,7 @@
     if (!svgContent) {
       const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
       for (const child of sourceNodes) {
-        const sChild = serializeNode(child, assets, fonts, scrollX, scrollY, styles);
+        const sChild = serializeNode(child, assets, fonts, styles);
         if (sChild) childNodes.push(sChild);
       }
     }
@@ -454,7 +472,7 @@
   }
 
   /* ======================================================================
-   *  6.  CLIPBOARD WRITER & INITIATOR
+   *  7.  CLIPBOARD WRITER & INITIATOR
    * ====================================================================== */
   async function writeClipboard(text) {
     try {
@@ -478,8 +496,12 @@
   }
 
   try {
-    const toast = showToast('⏳ Capturing webpage…');
+    const toast = showToast('⏳ Pre-rendering full webpage…');
 
+    // 1. Scroll through page to activate lazy-loaded elements & image sources
+    await prepareAndScrollPage();
+
+    // 2. Decode all visible and lazy-loaded images
     const images = Array.from(document.images || []);
     images.forEach(img => {
       if (img.decoding !== 'sync') img.decoding = 'sync';
@@ -490,10 +512,7 @@
     const assets = new AssetCollector();
     const fonts = new FontCollector();
 
-    const scrollX = window.scrollX || window.pageXOffset || 0;
-    const scrollY = window.scrollY || window.pageYOffset || 0;
-
-    const root = serializeNode(document.documentElement, assets, fonts, scrollX, scrollY, null);
+    const root = serializeNode(document.documentElement, assets, fonts, null);
     const assetMap = await assets.getBlobMap();
 
     const fullDocWidth = Math.max(
@@ -535,7 +554,7 @@
     try { toast.remove(); } catch {}
 
     if (ok) {
-      showToast('✅ Captured full page! Paste into Figma plugin (Ctrl+V)', 6000);
+      showToast('✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
     } else {
       showToast('⚠️ Capture complete. Please allow clipboard access.', 6000);
     }
