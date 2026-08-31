@@ -1,0 +1,1146 @@
+{
+   "actionTitle": {
+      "description": "[internal] Tooltip on the browser-toolbar icon. Same product name as extName. [max:0]",
+      "message": "Export to Figma"
+   },
+   "authConnectionError": {
+      "description": "Bottom-row message when the usage-status request fails outright. [max:240px] [font:12/600]",
+      "message": "Erro de conexão. Tente de novo."
+   },
+   "authExportsLeft_many": {
+      "description": "Bottom-row export counter, PLURAL form. {n}=88 [max:170px] [font:12/600]",
+      "message": "Restam {n}"
+   },
+   "authExportsLeft_one": {
+      "description": "Bottom-row export counter, SINGULAR form. NOTE: English is intentionally left uninflected here (it renders '1 Exports Left') because the shipped English wording is frozen — do NOT copy that quirk, inflect your own language correctly. {n}=88 [max:170px] [font:12/600]",
+      "message": "Resta {n}"
+   },
+   "authExportsLeft_other": {
+      "description": "Bottom-row export counter, PLURAL form. {n}=88 [max:170px] [font:12/600]",
+      "message": "Restam {n}"
+   },
+   "authLimitReached": {
+      "description": "Bottom-row headline when a free user has used every export this month. Distinct from tbFreeLimitReached, which is the toolbar's own wording — both are frozen English, keep them as separate keys. [max:200px] [font:12/600]",
+      "message": "Limite mensal atingido"
+   },
+   "authPro": {
+      "description": "Small green pill badge marking a paid account. A product plan name — keep it as 'Pro' unless your language genuinely never borrows it. [max:70px] [font:11/600]",
+      "message": "Pro"
+   },
+   "authSessionExpired": {
+      "description": "Bottom-row headline when the stored login is no longer valid. Paired with authSignInAgain directly beneath it. [max:160px] [font:12/600]",
+      "message": "Sessão expirada"
+   },
+   "authSignInAgain": {
+      "description": "Bottom-row sub-line under authSessionExpired. Truncates with an ellipsis past the budget. [max:260px] [font:12/400]",
+      "message": "Entre novamente"
+   },
+   "authSignInLink": {
+      "description": "Small text link at the right of the bottom row (NOT the big button — that is tbSignInBtn). Keep it short. [max:120px] [font:12/600]",
+      "message": "Entrar"
+   },
+   "authTryNextMonth": {
+      "description": "Bottom-row sub-line under authLimitReached: the free quota resets monthly. [max:260px] [font:12/400]",
+      "message": "Tente no próximo mês"
+   },
+   "authUnlimitedExports": {
+      "description": "Bottom-row headline for Pro users, meaning their export count is not capped. [max:160px] [font:11/600]",
+      "message": "Exportações ilimitadas"
+   },
+   "authUpgradeArrow": {
+      "description": "Gold call-to-action at the right of the bottom row when the free limit is reached. KEEP the ✦ and → characters exactly; translate only the word. [max:150px] [font:12/700]",
+      "message": "✦ Upgrade →"
+   },
+   "capGettingReady": {
+      "description": "Progress toast shown in the page while the capture engine works, before the clipboard write. Rendered by an E2F patch INSIDE capture.js (see CAPTURE_JS_REFERENCE.md §11), not by background.js — KEEP THE TRAILING PERIOD, gate C8 byte-compares it against the inline default there. The pill is white-space:nowrap and width:max-content, so it grows rather than clipping. [max:260px] [font:12/500]",
+      "message": "Preparando tudo para o Figma."
+   },
+   "cardHint": {
+      "description": "Instruction under the success card, immediately above the rendered keyboard keys (⌘V / Ctrl V). Wraps freely. [max:300px] [font:12/500]",
+      "message": "Abra o Figma e cole seu design"
+   },
+   "cardKeyCtrl": {
+      "description": "PHYSICAL KEYCAP label, shown on Windows/Linux only (macOS shows the ⌘ glyph instead). Use whatever is actually printed on that language's keyboards — German keyboards say 'Strg'. Do NOT translate the word 'control'. Rendered in a fixed-height key box that grows to fit. [max:70px] [font:15/500]",
+      "message": "Ctrl"
+   },
+   "cardReady": {
+      "description": "Headline on the post-export success card. 'Figma' is a product name — never translate it. Wraps to a second line if needed. [max:284px] [font:13/500]",
+      "message": "Tudo pronto! Cole no Figma."
+   },
+   "cmdSelectElement": {
+      "description": "TWO surfaces: the row label in the Settings panel's Shortcuts section, AND the command's own description in Chrome's shortcut editor (manifest __MSG_cmdSelectElement__ — Chrome resolves that one from the BROWSER ui language rather than our picker, so the two can legitimately differ on screen). Ships with no binding by default. Left-hand label of a row in the Settings panel's Shortcuts section; the key combination renders to its right as keycaps. Free to wrap onto a second line if a locale needs it. [max:230px] [font:12/400]",
+      "message": "Selecionar um elemento"
+   },
+   "colDownloadAllAria": {
+      "description": "Screen-reader label for the same button. Never rendered visually. [max:0]",
+      "message": "Baixar tudo"
+   },
+   "colDownloadAllTip": {
+      "description": "Native browser tooltip on the Colors download button. '.zip' is a file extension — keep it. [max:0]",
+      "message": "Baixar tudo (.zip)"
+   },
+   "colEmpty": {
+      "description": "Colors panel empty state. Wraps freely. [max:0]",
+      "message": "Nenhuma cor detectada nesta página."
+   },
+   "colGradient": {
+      "description": "Label for a colour entry that is a gradient rather than a solid. Composed in code with the gradient TYPE, which stays English as a CSS keyword: 'Linear Gradient', 'Repeating Radial Gradient'. [max:0]",
+      "message": "Gradiente"
+   },
+   "colGradientRepeating": {
+      "description": "Prefix for CSS repeating-* gradients, placed before the type and colGradient: 'Repeating Linear Gradient'. Order is fixed in code as prefix + type + Gradient — if your language needs a different order, tell the maintainer rather than reordering here. [max:0]",
+      "message": "Repetido"
+   },
+   "colGroupGradients": {
+      "description": "Group heading in the Colors panel's Categories tab for gradient fills. Rendered UPPERCASE with a count appended in code. [max:0]",
+      "message": "gradientes"
+   },
+   "colGroupOther": {
+      "description": "Fallback group heading in the Colors panel's Categories tab, for colours that match no Tailwind hue. Rendered UPPERCASE with a count appended in code. The OTHER group headings on that tab are Tailwind palette names (slate, zinc, amber...) and are deliberately NOT translated — this one is ordinary English. [max:0]",
+      "message": "outros"
+   },
+   "colInstances_many": {
+      "description": "How many times one colour appears, PLURAL. {n}=88 [max:0]",
+      "message": "{n} ocorrências"
+   },
+   "colInstances_one": {
+      "description": "How many times one colour appears, SINGULAR. Secondary line inside a swatch card. {n}=1 [max:0]",
+      "message": "{n} ocorrência"
+   },
+   "colInstances_other": {
+      "description": "How many times one colour appears, PLURAL. {n}=88 [max:0]",
+      "message": "{n} ocorrências"
+   },
+   "colScanning": {
+      "description": "Colors panel placeholder while the page is being scanned. [max:0]",
+      "message": "Analisando a página…"
+   },
+   "colTabCategories": {
+      "description": "Colors panel tab: swatches grouped by role (text, background, border). [max:130px] [font:12/500]",
+      "message": "Categorias"
+   },
+   "colTabPalette": {
+      "description": "Colors panel tab: a flat swatch grid. Tab pills do not shrink, so a long word pushes the row to a second line. [max:130px] [font:12/500]",
+      "message": "Paleta"
+   },
+   "colTotal_many": {
+      "description": "Colors panel total, PLURAL. English lists both kinds ('colors / gradients') because the count covers solid colours AND gradients — keep that sense. Full-width block label, wraps freely. {n}=88 [max:0]",
+      "message": "{n} cores / gradientes"
+   },
+   "colTotal_one": {
+      "description": "Colors panel total, SINGULAR. Full-width block label under the tabs — wraps freely, no width constraint. {n}=1 [max:0]",
+      "message": "{n} cor"
+   },
+   "colTotal_other": {
+      "description": "Colors panel total, PLURAL. English lists both kinds ('colors / gradients') because the count covers solid colours AND gradients — keep that sense. Full-width block label, wraps freely. {n}=88 [max:0]",
+      "message": "{n} cores / gradientes"
+   },
+   "colUses_many": {
+      "description": "Usage count in a swatch's native browser tooltip, PLURAL. {n}=88 [max:0]",
+      "message": "{n} usos"
+   },
+   "colUses_one": {
+      "description": "Usage count in a swatch's native browser tooltip, SINGULAR. {n}=1 [max:0]",
+      "message": "{n} uso"
+   },
+   "colUses_other": {
+      "description": "Usage count in a swatch's native browser tooltip, PLURAL. {n}=88 [max:0]",
+      "message": "{n} usos"
+   },
+   "cssAccessibility": {
+      "description": "Section heading in the element CSS panel, covering the contrast check. Rendered UPPERCASE. [max:330px] [font:10/600]",
+      "message": "Acessibilidade"
+   },
+   "cssBackground": {
+      "description": "Section heading in the element CSS panel, covering background colour and image. Rendered UPPERCASE. [max:330px] [font:10/600]",
+      "message": "Fundo"
+   },
+   "cssContrastRatio": {
+      "description": "Row label for the computed foreground/background contrast ratio (e.g. 4.53:1). [max:0]",
+      "message": "Taxa de contraste"
+   },
+   "cssLayout": {
+      "description": "Section heading in the element CSS panel, covering display/position/padding/margin. Rendered UPPERCASE — avoid German ß (Chrome uppercases it to SS). The lowercase property names UNDER this heading are CSS spec terms and stay English. [max:330px] [font:10/600]",
+      "message": "Layout"
+   },
+   "cssSection": {
+      "description": "Section heading above the copyable CSS block. 'CSS' is a technical acronym — keep it. Rendered UPPERCASE. [max:330px] [font:10/600]",
+      "message": "CSS"
+   },
+   "cssTypography": {
+      "description": "Section heading in the element CSS panel, covering font family/size/weight/line-height. Rendered UPPERCASE. [max:330px] [font:10/600]",
+      "message": "Tipografia"
+   },
+   "cssWcagNote": {
+      "description": "Caption under the Accessibility heading. 'WCAG 2.0' is a standard's name — never translate or renumber it. [max:0]",
+      "message": "Análise de contraste WCAG 2.0"
+   },
+   "ctrBackTip": {
+      "description": "Tooltip on the back arrow returning from Contrast Scanner to the Overview panel. [max:200px] [font:11/500]",
+      "message": "Voltar à visão geral"
+   },
+   "ctrEmpty": {
+      "description": "Empty state when the contrast scan finds no text to measure. Wraps freely. [max:0]",
+      "message": "Nenhum texto detectado nesta página."
+   },
+   "ctrFail": {
+      "description": "Badge on a contrast result below WCAG minimums. Keep it to one short word. [max:80px] [font:11/600]",
+      "message": "Falha"
+   },
+   "ctrFailPassCount": {
+      "description": "Sub-heading of the Contrast Scanner: how many text elements fail vs pass WCAG. Keep the ' · ' separator. {fail}=7 {pass}=42 [max:0]",
+      "message": "{fail} reprovados · {pass} aprovados"
+   },
+   "ctrFailing": {
+      "description": "Group heading over the contrast results that do NOT meet WCAG. Adjective describing the results below it. [max:0]",
+      "message": "Reprovados"
+   },
+   "ctrLarge": {
+      "description": "Appended after a contrast result's font size to flag WCAG 'large text', which has a lower contrast threshold. Rendered as ' · large' with the separator added in code, so translate the word only. [max:0]",
+      "message": "grande"
+   },
+   "ctrLocateTip": {
+      "description": "Tooltip on a result row; scrolls to and highlights that text on the page. [max:200px] [font:11/500]",
+      "message": "Localizar na página"
+   },
+   "ctrPass": {
+      "description": "Badge on a contrast result meeting WCAG minimums. Keep it to one short word. [max:80px] [font:11/600]",
+      "message": "OK"
+   },
+   "ctrPassing": {
+      "description": "Group heading over the contrast results that DO meet WCAG. Keep parallel with ctrFailing. [max:0]",
+      "message": "Aprovados"
+   },
+   "ctrTitle": {
+      "description": "Heading of the contrast-scanning panel, which lists text failing WCAG contrast. [max:200px] [font:12/600]",
+      "message": "Analisador de contraste"
+   },
+   "docCopyFile": {
+      "description": "Native browser tooltip: copy the generated DESIGN.md / SKILL.md to the clipboard. [max:0]",
+      "message": "Copiar arquivo"
+   },
+   "docDownloadFile": {
+      "description": "Native browser tooltip: save the generated DESIGN.md / SKILL.md. [max:0]",
+      "message": "Baixar arquivo"
+   },
+   "docFailedDesign": {
+      "description": "Heading shown in the document pane when DESIGN.md generation fails. The leading '# ' is Markdown — keep it. 'DESIGN.md' is a filename, never translated. [max:0]",
+      "message": "# Falha ao gerar DESIGN.md"
+   },
+   "docFailedSkill": {
+      "description": "Heading shown in the document pane when SKILL.md generation fails. Keep the leading '# '. 'SKILL.md' is a filename. [max:0]",
+      "message": "# Falha ao gerar SKILL.md"
+   },
+   "docSaveClaude": {
+      "description": "Native browser tooltip on the design.md footer button that saves the generated skill file. 'SKILL.md' is a filename and 'Claude Code' is a product name — keep BOTH verbatim in every locale; translate only the surrounding sentence. [max:0]",
+      "message": "Salvar SKILL.md para o Claude Code"
+   },
+   "docSaveCodex": {
+      "description": "Native browser tooltip on the design.md footer button that saves the design document as an agent instruction file. 'AGENTS.md' is a filename and 'Codex' is a product name — keep BOTH verbatim in every locale; translate only the surrounding sentence. [max:0]",
+      "message": "Salvar AGENTS.md para o Codex"
+   },
+   "docSaveCursor": {
+      "description": "Native browser tooltip on the design.md footer button that saves the Cursor project rule. 'design-system.mdc' is a filename and 'Cursor' is a product name — keep BOTH verbatim in every locale; translate only the surrounding sentence. [max:0]",
+      "message": "Salvar design-system.mdc para o Cursor"
+   },
+   "docUnknownError": {
+      "description": "Fallback text when DESIGN.md/SKILL.md generation fails with no message. Rendered into the document body the user sees. [max:0]",
+      "message": "Erro desconhecido"
+   },
+   "extDescription": {
+      "description": "[internal] The Web Store short description — the single highest-value ASO field, indexed IN THE USER'S LANGUAGE. Chrome hard-caps it at 132 chars PER LOCALE and English already uses 122, so most translations must be shorter than a literal rendering. Must contain the word 'Figma'. Lead with what the user searches for (e.g. 'website to Figma'), not with the brand. [max:0]",
+      "message": "Site para Figma em um clique: copie qualquer página ou elemento como camadas editáveis. Converta HTML em design Figma."
+   },
+   "extName": {
+      "description": "[internal] The extension's name in Chrome and the Web Store. A PRODUCT NAME — keep 'Export to Figma' verbatim in every locale; 'Figma' is a trademark and the brand must stay searchable. Chrome hard-caps this at 75 chars; the store truncates around 45 in search results. [max:0]",
+      "message": "Export to Figma"
+   },
+   "eyedNeedsChrome": {
+      "description": "Shown when the browser is too old for the native EyeDropper API. 'Chrome 95+' is a version requirement — keep the number and the plus sign. [max:0]",
+      "message": "O conta-gotas requer Chrome 95+"
+   },
+   "fntContrast": {
+      "description": "Row label for a text style's contrast ratio against its background. Sits in a fixed label column. [max:92px] [font:11/400]",
+      "message": "Contraste"
+   },
+   "fntDetailsTip": {
+      "description": "Native browser tooltip on the details toggle. [max:0]",
+      "message": "Detalhes"
+   },
+   "fntDontShowAgain": {
+      "description": "Dismisses the hover-hint banner in the Fonts panel permanently. Uses a straight apostrophe in English; use your language's own punctuation. [max:0]",
+      "message": "Não mostrar de novo"
+   },
+   "fntDownloadTip": {
+      "description": "Native browser tooltip on the Fonts download button. [max:0]",
+      "message": "Baixar fontes (.zip)"
+   },
+   "fntEmpty": {
+      "description": "Fonts panel empty state. Wraps freely. [max:0]",
+      "message": "Nenhum texto encontrado."
+   },
+   "fntFamilies_many": {
+      "description": "Fonts panel total, PLURAL. Full-width block label, wraps freely. {n}=88 [max:0]",
+      "message": "{n} famílias de fontes"
+   },
+   "fntFamilies_one": {
+      "description": "Fonts panel total, SINGULAR. A 'font family' is e.g. Inter, as opposed to its individual weights. Full-width block label, wraps freely. {n}=1 [max:0]",
+      "message": "{n} família de fonte"
+   },
+   "fntFamilies_other": {
+      "description": "Fonts panel total, PLURAL. Full-width block label, wraps freely. {n}=88 [max:0]",
+      "message": "{n} famílias de fontes"
+   },
+   "fntHideDetails": {
+      "description": "Collapses the expanded font row. Keep it parallel with fntShowDetails. [max:150px] [font:11/500]",
+      "message": "Ocultar detalhes"
+   },
+   "fntHintSub": {
+      "description": "Muted second line, continues fntHintTitle. The '&' has no CJK equivalent — use the natural list form for your language. [max:0]",
+      "message": "para ver fonte, tamanho, peso e cor."
+   },
+   "fntHintTitle": {
+      "description": "Bold first line of the Fonts hint. Runs into fntHintSub as ONE sentence — translate the pair together and feel free to move words between the two lines. [max:0]",
+      "message": "Passe o cursor sobre um texto"
+   },
+   "fntLineLabel": {
+      "description": "Inline label in the compact font-variant summary, e.g. '16px · 500 · line 24px'. Lowercase on purpose — it sits mid-sentence between separators. [max:0]",
+      "message": "entrelinha"
+   },
+   "fntRowFamily": {
+      "description": "Expanded font detail row label. Sits in a label column that widens to fit, value on the right. [max:0]",
+      "message": "Família"
+   },
+   "fntRowLetterSpacing": {
+      "description": "Expanded font detail row label: tracking. German 'Laufweite' is preferred over the much longer 'Buchstabenabstand'. [max:0]",
+      "message": "Espaçamento"
+   },
+   "fntRowTextColor": {
+      "description": "Expanded font detail row label, with a colour swatch and hex value beside it. [max:0]",
+      "message": "Cor do texto"
+   },
+   "fntRowWeight": {
+      "description": "Expanded font detail row label. The VALUE beside it (Regular, Semi Bold, Black) is deliberately left in English as a typographic term, so this label sits next to an English word. [max:0]",
+      "message": "Peso"
+   },
+   "fntShowDetails": {
+      "description": "Expands a font row to reveal line-height, letter-spacing, weight and colour. [max:150px] [font:11/500]",
+      "message": "Ver detalhes"
+   },
+   "fntSpecimen": {
+      "description": "The demo word in the Fonts hint animation, shown large while a cursor sweeps across it. Pick a SHORT word meaning a page heading — German 'Überschrift' is too wide, use 'Titel'. Fixed 120px stage with overflow hidden. [max:108px] [font:21/700]",
+      "message": "Título"
+   },
+   "fntSystem": {
+      "description": "Badge marking a font that comes from the operating system. Very tight pill. [max:70px] [font:10/600]",
+      "message": "Sistema"
+   },
+   "fntTextStyles_many": {
+      "description": "Distinct text styles using a family, PLURAL. {n}=88 [max:0]",
+      "message": "{n} estilos de texto"
+   },
+   "fntTextStyles_one": {
+      "description": "Distinct text styles using a family, SINGULAR. Follows fntWeights after a comma. {n}=1 [max:0]",
+      "message": "{n} estilo de texto"
+   },
+   "fntTextStyles_other": {
+      "description": "Distinct text styles using a family, PLURAL. {n}=88 [max:0]",
+      "message": "{n} estilos de texto"
+   },
+   "fntTitle": {
+      "description": "Header of the Fonts panel. Same word as the icon tooltip inspFonts but a separate key: this one is a panel title and may need different capitalisation in some languages. [max:200px] [font:12/600]",
+      "message": "Fontes"
+   },
+   "fntUses_many": {
+      "description": "How many elements use one text style, PLURAL. {n}=88 [max:0]",
+      "message": "{n} usos"
+   },
+   "fntUses_one": {
+      "description": "How many elements use one text style, SINGULAR. Appended after ' · '. {n}=1 [max:0]",
+      "message": "{n} uso"
+   },
+   "fntUses_other": {
+      "description": "How many elements use one text style, PLURAL. {n}=88 [max:0]",
+      "message": "{n} usos"
+   },
+   "fntWeb": {
+      "description": "Badge marking a downloadable web font (as opposed to one already installed). Very tight pill. [max:70px] [font:10/600]",
+      "message": "Web"
+   },
+   "fntWeights_many": {
+      "description": "Weights in one family, PLURAL. Joined to a sibling fragment in code. {n}=88 [max:0]",
+      "message": "{n} pesos"
+   },
+   "fntWeights_one": {
+      "description": "Weights in one family (Regular, Bold…), SINGULAR. Joined to fntTextStyles by ', ' and to ovwStyles by ' · ' in code — so keep it to a fragment, not a sentence. {n}=1 [max:0]",
+      "message": "{n} peso"
+   },
+   "fntWeights_other": {
+      "description": "Weights in one family, PLURAL. Joined to a sibling fragment in code. {n}=88 [max:0]",
+      "message": "{n} pesos"
+   },
+   "imgCopyImage": {
+      "description": "Native browser tooltip: copy the image itself to the clipboard. [max:0]",
+      "message": "Copiar imagem"
+   },
+   "imgCopySvg": {
+      "description": "Hover tooltip on an SVG thumbnail: copy its markup. 'SVG' is a file format — keep it. Sibling of imgCopyUrl and imgCopyImage. [max:0]",
+      "message": "Copiar SVG"
+   },
+   "imgCopyUrl": {
+      "description": "Native browser tooltip: copy the asset's address. 'URL' is a technical term. [max:0]",
+      "message": "Copiar URL"
+   },
+   "imgDownload": {
+      "description": "Hover tooltip on an asset thumbnail: save this one file. Native browser tooltip plus aria-label. [max:0]",
+      "message": "Baixar"
+   },
+   "imgEmptyAll": {
+      "description": "Images panel empty state, ALL tab. Four separate keys for the same grammatical reason as imgZipTip*. [max:0]",
+      "message": "Nenhum recurso encontrado."
+   },
+   "imgEmptyImages": {
+      "description": "Images panel empty state, Images tab. [max:0]",
+      "message": "Nenhuma imagem encontrada."
+   },
+   "imgEmptySvgs": {
+      "description": "Images panel empty state, SVGs tab. [max:0]",
+      "message": "Nenhum SVG encontrado."
+   },
+   "imgEmptyVideos": {
+      "description": "Images panel empty state, Videos tab. [max:0]",
+      "message": "Nenhum vídeo encontrado."
+   },
+   "imgOpenInNewTab": {
+      "description": "Hover tooltip on an asset thumbnail: open the file in a new browser tab. [max:0]",
+      "message": "Abrir em nova aba"
+   },
+   "imgTabAll": {
+      "description": "Images panel tab showing every asset. Four tabs share one row and do not shrink — keep every tab word SHORT. [max:90px] [font:11/500]",
+      "message": "Tudo"
+   },
+   "imgTabSvgs": {
+      "description": "Images panel tab for vector assets. 'SVG' is a file format — keep it, pluralise as your language would. [max:90px] [font:11/500]",
+      "message": "SVGs"
+   },
+   "imgTabVideos": {
+      "description": "Images panel tab for video assets. [max:90px] [font:11/500]",
+      "message": "Vídeos"
+   },
+   "imgZipTipAll": {
+      "description": "Tooltip on the Images download button, ALL tab. Four separate keys rather than one with a substituted noun, because de/it/nl need case and gender agreement a placeholder cannot carry. A count in parentheses is appended in code. [max:0]",
+      "message": "Baixar todos os recursos em ZIP"
+   },
+   "imgZipTipImages": {
+      "description": "Same button, Images tab. [max:0]",
+      "message": "Baixar todas as imagens em ZIP"
+   },
+   "imgZipTipSvgs": {
+      "description": "Same button, SVGs tab. [max:0]",
+      "message": "Baixar todos os SVGs em ZIP"
+   },
+   "imgZipTipVideos": {
+      "description": "Same button, Videos tab. [max:0]",
+      "message": "Baixar todos os vídeos em ZIP"
+   },
+   "inspColor": {
+      "description": "Hover-tooltip row label; value is a colour swatch plus its hex code. [max:92px] [font:11/400]",
+      "message": "Cor"
+   },
+   "inspColors": {
+      "description": "Tooltip on the palette icon: every colour and gradient found on the page. [max:200px] [font:11/500]",
+      "message": "Cores"
+   },
+   "inspDesignMd": {
+      "description": "Tooltip on the sparkles icon. A FILENAME (the generated design spec for AI coding agents) — never translate it. [max:200px] [font:11/500]",
+      "message": "design.md"
+   },
+   "inspElement": {
+      "description": "Tooltip on the cursor icon: hover and click any element to see its CSS. [max:200px] [font:11/500]",
+      "message": "Inspecionar elemento"
+   },
+   "inspFontSize": {
+      "description": "Row label in the hover tooltip that follows the cursor while inspecting. Value is a px number. Fixed label column in a compact floating tooltip. [max:92px] [font:11/400]",
+      "message": "Tamanho"
+   },
+   "inspFontWeight": {
+      "description": "Hover-tooltip row label; value is a numeric weight, optionally plus a style like 'italic'. [max:92px] [font:11/400]",
+      "message": "Peso"
+   },
+   "inspFonts": {
+      "description": "Tooltip on the T icon: every text style found on the page. Also the panel heading. [max:200px] [font:11/500]",
+      "message": "Fontes"
+   },
+   "inspImages": {
+      "description": "Tooltip on the picture icon: every image, SVG and video on the page. Also the 'Images' tab label in that panel. [max:200px] [font:11/500]",
+      "message": "Imagens"
+   },
+   "inspLineHeight": {
+      "description": "Hover-tooltip row label; value is a px number. German 'Zeilenhöhe' fits; avoid the longer 'Zeilenabstand' if it overflows. [max:92px] [font:11/400]",
+      "message": "Entrelinha"
+   },
+   "inspOverview": {
+      "description": "Tooltip on the (i) icon: a summary of the page's fonts, colours, contrast and weight. Also the panel's own heading. Tooltip is nowrap with an ellipsis fallback. [max:200px] [font:11/500]",
+      "message": "Visão geral"
+   },
+   "inspPickColor": {
+      "description": "Tooltip on the pipette icon: opens the browser's native colour picker (eyedropper). [max:200px] [font:11/500]",
+      "message": "Conta-gotas"
+   },
+   "ovwAssetCounts": {
+      "description": "Overview footer summarising page assets. Keep the ' · ' separators. 'SVGs' is a file format. {img}=12 {svg}=3 {vid}=2 [max:0]",
+      "message": "{img} imagens · {svg} SVGs · {vid} vídeos"
+   },
+   "ovwBaseCoverage": {
+      "description": "Note explaining how well the detected base unit explains the page’s spacing. {pct}=92 {unit}=4.8 [max:0]",
+      "message": "{pct}% dos valores de espaçamento são múltiplos de {unit}px"
+   },
+   "ovwBaseSuffix": {
+      "description": "Suffix after the base spacing unit, e.g. \"4.8px base\". Keep \"px\" as-is. [max:120px] [font:11/500]",
+      "message": "px base"
+   },
+   "ovwBodySystem": {
+      "description": "Label above the body-text typeface spec (family, size, weight, line-height). [max:150px] [font:11/600]",
+      "message": "Sistema de texto"
+   },
+   "ovwCardPadding": {
+      "description": "Label above the row of padding values measured on card-like containers. [max:130px] [font:9/700]",
+      "message": "Preenchimento do card"
+   },
+   "ovwColSuffix": {
+      "description": "Abbreviation for \"column\", appended to a number, e.g. \"Strong - 12col\". Keep it very short. [max:26px] [font:13/600]",
+      "message": "col"
+   },
+   "ovwContentWidth": {
+      "description": "Stat label: the measure the page constrains content to, or Full bleed. [max:96px] [font:9/700]",
+      "message": "Largura do conteúdo"
+   },
+   "ovwContrastBlurb": {
+      "description": "Promo line on the Overview card that opens the Contrast Scanner. 'WCAG 2.0' is a standard's name. Wraps over several lines. [max:0]",
+      "message": "Encontre possíveis problemas de acessibilidade na hora com a análise de contraste WCAG 2.0."
+   },
+   "ovwCrossOriginHidden_many": {
+      "description": "Page Weight footnote, PLURAL. {n}=88 [max:0]",
+      "message": "{n} recursos cross-origin ocultos"
+   },
+   "ovwCrossOriginHidden_one": {
+      "description": "Page Weight footnote, SINGULAR: resources the browser will not reveal the size of. {n}=1 [max:0]",
+      "message": "{n} recurso cross-origin oculto"
+   },
+   "ovwCrossOriginHidden_other": {
+      "description": "Page Weight footnote, PLURAL. {n}=88 [max:0]",
+      "message": "{n} recursos cross-origin ocultos"
+   },
+   "ovwCssFile": {
+      "description": "Overview stat label: the combined size of the page's CSS. Singular by design (it is a total, not a count of files). [max:0]",
+      "message": "Arquivo CSS"
+   },
+   "ovwCssInformation": {
+      "description": "Overview card heading for the page's stylesheet stats. Rendered UPPERCASE — avoid German ss (Chrome uppercases it to SS). [max:330px] [font:10/600]",
+      "message": "Informações de CSS"
+   },
+   "ovwDurations": {
+      "description": "Stat label: the typical transition/animation duration. [max:96px] [font:9/700]",
+      "message": "Durações"
+   },
+   "ovwEasingCustom": {
+      "description": "Label on an easing curve tile when the curve has no common name — the plotted shape conveys it, and the full cubic-bezier(...) value is in the tooltip. [max:130px] [font:10/600]",
+      "message": "Personalizada"
+   },
+   "ovwEasings": {
+      "description": "Label above the row of easing curves the page animates with. [max:130px] [font:9/700]",
+      "message": "Easings"
+   },
+   "ovwFraming": {
+      "description": "Stat label: whether page sections are framed as cards or bleed to the edge. [max:96px] [font:9/700]",
+      "message": "Enquadramento"
+   },
+   "ovwFullBleed": {
+      "description": "Stat value: sections span the whole viewport with no maximum width. [max:120px] [font:13/600]",
+      "message": "Sangria total"
+   },
+   "ovwGaps": {
+      "description": "Label above the row of flex/grid gap values. [max:130px] [font:9/700]",
+      "message": "Espaços"
+   },
+   "ovwGrid": {
+      "description": "Stat label: how strongly page content aligns to a column grid. [max:96px] [font:9/700]",
+      "message": "Grade"
+   },
+   "ovwGridNone": {
+      "description": "Stat value: no column-grid alignment detected. [max:120px] [font:13/600]",
+      "message": "Nenhuma"
+   },
+   "ovwHeadingSystem": {
+      "description": "Label above the heading typeface spec (family, size, weight, line-height). [max:150px] [font:11/600]",
+      "message": "Sistema de títulos"
+   },
+   "ovwHoverPatterns": {
+      "description": "Label above the row of visual channels that change on hover (Color, Background, Transform...). [max:130px] [font:9/700]",
+      "message": "Padrões de hover"
+   },
+   "ovwIconCustom": {
+      "description": "Stat value: icons are bespoke, not from a recognised library. [max:120px] [font:13/600]",
+      "message": "Personalizados"
+   },
+   "ovwIconDuotone": {
+      "description": "Icon drawing style: two-tone icons (two fill opacities). Stat value in the Icons card. [max:120px] [font:13/600]",
+      "message": "Duotom"
+   },
+   "ovwIconFilled": {
+      "description": "Icon drawing style: solid/filled icons. Stat value in the Icons card. [max:120px] [font:13/600]",
+      "message": "Preenchido"
+   },
+   "ovwIconLibrary": {
+      "description": "Stat label: which icon library/set the page uses (Lucide, Solar, Font Awesome...). [max:96px] [font:9/700]",
+      "message": "Set"
+   },
+   "ovwIconLinear": {
+      "description": "Icon drawing style: outline/stroked icons. Stat value in the Icons card. [max:120px] [font:13/600]",
+      "message": "Linear"
+   },
+   "ovwIconNoPreview": {
+      "description": "Shown when the page has no inline SVG icons we can display — e.g. it uses an icon FONT, or its icons live only inside cross-origin iframes. [max:230px] [font:10/400]",
+      "message": "Nenhum ícone inline para pré-visualizar"
+   },
+   "ovwIconSampleNote": {
+      "description": "Note under the Icons card stating how many icons were inspected. {n}=38 [max:0]",
+      "message": "Amostra: {n}"
+   },
+   "ovwIconShown": {
+      "description": "Note under the Icons card previews. {n}=6 {total}=38. No px budget: the gate would measure the literal \"{n}\"/\"{total}\" placeholders instead of the digits that render. [max:0]",
+      "message": "{n} de {total} ícones encontrados"
+   },
+   "ovwIconSize": {
+      "description": "Stat label: the icons’ typical rendered box size in px. [max:96px] [font:9/700]",
+      "message": "Tamanho"
+   },
+   "ovwIconSprite": {
+      "description": "Shown when the page draws icons from an SVG sprite sheet via \u003Cuse href=\"#id\">, which cannot be rendered outside its own document. [max:230px] [font:10/400]",
+      "message": "Baseado em sprite — sem pré-visualização"
+   },
+   "ovwIconStroke": {
+      "description": "Stat label: the stroke width of outline icons, in px. [max:96px] [font:9/700]",
+      "message": "Traço"
+   },
+   "ovwIconStyle": {
+      "description": "Stat label: how icons are drawn (Linear / Filled / Duotone). [max:96px] [font:9/700]",
+      "message": "Estilo"
+   },
+   "ovwIcons": {
+      "description": "Card title for the detected icon set, drawing style and size. [max:0]",
+      "message": "Ícones"
+   },
+   "ovwLayout": {
+      "description": "Card title in the Overview panel for the page-level layout summary (layout mode, content width, framing, grid). [max:0]",
+      "message": "Visão geral"
+   },
+   "ovwLayoutMode": {
+      "description": "Stat label: how the page arranges its sections (Grid / Columns / Stack). [max:96px] [font:9/700]",
+      "message": "Layout"
+   },
+   "ovwLoadTime": {
+      "description": "Overview stat label: how long the page took to load. [max:0]",
+      "message": "Tempo de carregamento"
+   },
+   "ovwMoEasingSentence": {
+      "description": "Motion summary sentence: the dominant easing curve. {name} is a CSS easing name or cubic-bezier(...) — never translate it. {name}=standard [max:0]",
+      "message": "A curva predominante é {name}."
+   },
+   "ovwMoHoverSentence": {
+      "description": "Motion summary sentence: which visual properties change on hover. {channels} is a comma-separated already-translated list. {channels}=color, background [max:0]",
+      "message": "O comportamento de hover atua em {channels}."
+   },
+   "ovwMoLevelSentence": {
+      "description": "First sentence of the Motion card summary. {level} is an already-translated level word (none/subtle/moderate/expressive), lowercased. {level}=moderate [max:0]",
+      "message": "O movimento desta página parece {level}."
+   },
+   "ovwMoScrollSentence": {
+      "description": "Motion summary sentence: detected scroll-animation libraries. {libs} are product names, never translated. {libs}=GSAP + ScrollTrigger [max:0]",
+      "message": "A coreografia de rolagem usa {libs}."
+   },
+   "ovwMoTimingSentence": {
+      "description": "Motion summary sentence: the typical animation duration. Keep \"ms\" as-is (milliseconds). {ms}=200 [max:0]",
+      "message": "As durações se concentram em torno de {ms} ms."
+   },
+   "ovwMockBody": {
+      "description": "Placeholder body text in the Spacing card’s miniature mock. Keep it to one short sentence — it must fit a ~300px preview. [max:0]",
+      "message": "O texto descritivo reflete o ritmo medido."
+   },
+   "ovwMockEyebrow": {
+      "description": "Placeholder text in the Spacing card’s miniature mock, standing in for a small label above a heading. Uppercase in English; use whatever reads naturally. [max:0]",
+      "message": "CHAPÉU"
+   },
+   "ovwMockTitle": {
+      "description": "Placeholder heading in the Spacing card’s miniature mock. [max:0]",
+      "message": "Bloco de título"
+   },
+   "ovwMonochrome": {
+      "description": "Note under the Palette card when the page uses only greys. [max:0]",
+      "message": "Paleta monocromática — nenhuma cor de marca cromática detectada."
+   },
+   "ovwMotion": {
+      "description": "Card title for the page’s animation character. [max:0]",
+      "message": "Movimento"
+   },
+   "ovwMotionLevel": {
+      "description": "Stat label: how much animation the page uses (None/Subtle/Moderate/Expressive). [max:96px] [font:9/700]",
+      "message": "Nível de movimento"
+   },
+   "ovwNoColors": {
+      "description": "Overview panel empty state for the colours section. Shorter than colEmpty — a compact summary card, not the full panel. [max:0]",
+      "message": "Nenhuma cor detectada."
+   },
+   "ovwNoTextStyles": {
+      "description": "Overview panel empty state for the typography section. [max:0]",
+      "message": "Nenhum estilo de texto detectado."
+   },
+   "ovwPageWeight": {
+      "description": "Overview card heading: total bytes the page downloads, broken down by resource type. [max:0]",
+      "message": "Peso da página"
+   },
+   "ovwPalette": {
+      "description": "Card title for the role-based colour palette (Primary/Secondary/Tertiary/Neutral with generated tint and shade ramps). [max:0]",
+      "message": "Paleta"
+   },
+   "ovwReducedMotion": {
+      "description": "Confirmation that the page honours the OS reduce-motion setting. \"prefers-reduced-motion\" is a CSS media feature — keep it VERBATIM. [max:0]",
+      "message": "prefers-reduced-motion é respeitado."
+   },
+   "ovwRoleNeutral": {
+      "description": "Colour role: the dominant grey/neutral. [max:150px] [font:11/600]",
+      "message": "Neutra"
+   },
+   "ovwRolePrimary": {
+      "description": "Colour role: the dominant brand colour. [max:150px] [font:11/600]",
+      "message": "Primária"
+   },
+   "ovwRoleSecondary": {
+      "description": "Colour role: the second brand colour, a different hue from Primary. [max:150px] [font:11/600]",
+      "message": "Secundária"
+   },
+   "ovwRoleTertiary": {
+      "description": "Colour role: the third brand colour. [max:150px] [font:11/600]",
+      "message": "Terciária"
+   },
+   "ovwScale": {
+      "description": "Label above the row of spacing values used across the page. [max:130px] [font:9/700]",
+      "message": "Escala"
+   },
+   "ovwScrollPatterns": {
+      "description": "Label above the row of detected scroll-animation libraries. [max:130px] [font:9/700]",
+      "message": "Padrões de rolagem"
+   },
+   "ovwSpacing": {
+      "description": "Card title for the spacing scale, gaps and card padding. [max:0]",
+      "message": "Espaçamento"
+   },
+   "ovwStyleRules": {
+      "description": "Overview stat: how many CSS rules the page defines. [max:0]",
+      "message": "Regras de estilo"
+   },
+   "ovwStyles_many": {
+      "description": "Overview typography summary, PLURAL. {n}=88 [max:0]",
+      "message": "{n} estilos"
+   },
+   "ovwStyles_one": {
+      "description": "Overview typography summary, SINGULAR. Shorter than fntTextStyles — a compact card. {n}=1 [max:0]",
+      "message": "{n} estilo"
+   },
+   "ovwStyles_other": {
+      "description": "Overview typography summary, PLURAL. {n}=88 [max:0]",
+      "message": "{n} estilos"
+   },
+   "ovwStylesheets": {
+      "description": "Overview stat label: how many stylesheets the page loads. [max:0]",
+      "message": "Folhas de estilo"
+   },
+   "ovwTotal": {
+      "description": "Third stat pill in the Overview contrast summary, beside Pass and Fail: how many text elements were measured. [max:90px] [font:11/600]",
+      "message": "Total"
+   },
+   "ovwUnknown": {
+      "description": "Stat value shown when a page property could not be determined. [max:120px] [font:13/600]",
+      "message": "Desconhecido"
+   },
+   "ovwViewAll": {
+      "description": "Link on an Overview summary card that opens the full panel. [max:110px] [font:11/500]",
+      "message": "Ver tudo"
+   },
+   "ovwWeightDocument": {
+      "description": "Page-weight category: the HTML document itself. [max:0]",
+      "message": "Documento"
+   },
+   "ovwWeightFetch": {
+      "description": "Page-weight category: background data requests. 'Fetch/XHR' is DevTools' own wording — mirror whatever Chrome DevTools shows in your language, or keep it as-is. [max:0]",
+      "message": "Fetch/XHR"
+   },
+   "ovwWeightImages": {
+      "description": "Page-weight category: images. [max:0]",
+      "message": "Imagens"
+   },
+   "ovwWeightOther": {
+      "description": "Page-weight category: everything else (fonts, media, etc.). [max:0]",
+      "message": "Outros"
+   },
+   "ovwWeightScripts": {
+      "description": "Page-weight category: JavaScript files. [max:0]",
+      "message": "Scripts"
+   },
+   "ovwWeightStylesheets": {
+      "description": "Page-weight category: CSS files. [max:0]",
+      "message": "Folhas de estilo"
+   },
+   "preCancel": {
+      "description": "Button in the pre-capture overlay that aborts before anything is sent to Figma. Sits beside the progress label, so a long word steals room from it. [max:80px] [font:12/500]",
+      "message": "Cancelar"
+   },
+   "preCancelling": {
+      "description": "Replaces the progress label after Cancel is pressed, while the abort finishes. Note the single-character ellipsis (…), not three dots. [max:216px] [font:12/500]",
+      "message": "Cancelando…"
+   },
+   "preProgress": {
+      "description": "Pre-capture overlay label while the page is scrolled and settled. {p} is the percentage. Keep the trailing % adjacent to the number as your language writes it (fr uses a narrow no-break space before %). Truncates with an ellipsis past the budget. {p}=88 [max:216px] [font:12/500]",
+      "message": "Preparando… {p}%"
+   },
+   "preStarting": {
+      "description": "Pre-capture overlay label once scrolling is done and the capture engine takes over. Same slot as preProgress. [max:216px] [font:12/500]",
+      "message": "Iniciando a captura…"
+   },
+   "roleBody": {
+      "description": "Element role for generic \u003Cspan>/\u003Cdiv> text — ordinary body copy. [max:0]",
+      "message": "Texto do corpo"
+   },
+   "roleButton": {
+      "description": "Element role for \u003Cbutton>. [max:0]",
+      "message": "Botão"
+   },
+   "roleCaption": {
+      "description": "Element role for \u003Cfigcaption>/\u003Ccaption> — text describing a figure or table. [max:0]",
+      "message": "Legenda"
+   },
+   "roleCode": {
+      "description": "Element role for \u003Ccode>/\u003Cpre>/\u003Ckbd>. Meaning source code, not a passcode. [max:0]",
+      "message": "Código"
+   },
+   "roleEmphasis": {
+      "description": "Element role for \u003Cem>/\u003Ci> — italic, emphasised text. [max:0]",
+      "message": "Itálico"
+   },
+   "roleHeading": {
+      "description": "Element role for h1–h6. {level} is the digit 1-6 and is appended in code. {level}=2 [max:0]",
+      "message": "Título {level}"
+   },
+   "roleInput": {
+      "description": "Element role for \u003Cinput>/\u003Ctextarea> — a form field. [max:0]",
+      "message": "Campo"
+   },
+   "roleLabel": {
+      "description": "Element role for \u003Clabel> — a form field's caption. [max:0]",
+      "message": "Rótulo"
+   },
+   "roleLink": {
+      "description": "Element role for \u003Ca>. [max:0]",
+      "message": "Link"
+   },
+   "roleListItem": {
+      "description": "Element role for \u003Cli>. [max:0]",
+      "message": "Item de lista"
+   },
+   "roleParagraph": {
+      "description": "Element role for \u003Cp>. [max:0]",
+      "message": "Parágrafo"
+   },
+   "roleQuote": {
+      "description": "Element role for \u003Cblockquote>. [max:0]",
+      "message": "Citação"
+   },
+   "roleSmallText": {
+      "description": "Element role for \u003Csmall> — fine print. [max:0]",
+      "message": "Texto pequeno"
+   },
+   "roleStrong": {
+      "description": "Element role for \u003Cstrong>/\u003Cb> — bold, strongly emphasised text. [max:0]",
+      "message": "Negrito"
+   },
+   "roleText": {
+      "description": "Element role shown beside a text style: generic text with no more specific role. Role names label what an element IS on the page. [max:0]",
+      "message": "Texto"
+   },
+   "selCaptured": {
+      "description": "Bottom-centre pill shown after picking an element inside a cross-origin iframe, where the clipboard write needs one more click. [max:200px] [font:14/400]",
+      "message": "Elemento capturado"
+   },
+   "selCopied": {
+      "description": "Replaces the pill text on success. The em dash joins two clauses — use whatever your language would (ja/zh: 。, de: comma). [max:340px] [font:14/400]",
+      "message": "Copiado — cole no Figma"
+   },
+   "selCopyFailed": {
+      "description": "Replaces the pill text when the clipboard write is rejected. [max:340px] [font:14/400]",
+      "message": "Falha ao copiar — tente de novo"
+   },
+   "selCopyToFigma": {
+      "description": "Button in that pill; clicking it performs the clipboard write. 'Figma' is a product name. [max:170px] [font:13/600]",
+      "message": "Copiar para o Figma"
+   },
+   "selPickCancel": {
+      "description": "Button beside selPickPrompt that leaves element-pick mode without capturing. Seeded from the capture engine's own catalog (key cancel). Distinct from preCancel, which aborts a capture already in progress — both are frozen English, keep them as separate keys. [max:120px] [font:12/500]",
+      "message": "Cancelar"
+   },
+   "selPickPrompt": {
+      "description": "Prompt in the dark bar during element-pick mode, while the user hovers to choose what to export. Rendered by an E2F override inside capture.js but SET from background.js's reskinSelectPrompt(). Seeded from the capture engine's own catalog (key selectElementToCapture) so both surfaces match. Bar is content-sized and grows. [max:0]",
+      "message": "Selecione um elemento para capturar"
+   },
+   "setFaq": {
+      "description": "Label of one of three side-by-side buttons in the Settings panel's Help & support strip. Each is a third of ~336px, leaving 92px of room, and the text does NOT wrap — keep it to one or two short words. Deliberately terse; the hover tooltip repeats it. [max:92px] [font:11/500]",
+      "message": "FAQ"
+   },
+   "setHelpSection": {
+      "description": "Section heading inside the Settings panel. Rendered UPPERCASE with letter-spacing by makeSection — do not add capitals yourself, and avoid German ß here (Chrome uppercases it to SS). [max:330px] [font:10/600]",
+      "message": "Ajuda e suporte"
+   },
+   "setLangAuto": {
+      "description": "First option in the language dropdown: follow the browser's language. {name} is the endonym of whatever the browser currently resolves to and is NEVER translated. Keep the · separator. Rendered inside a full-width control that ellipsizes; the budget is the real available width. {name}=Português (Brasil); [max:250px] [font:12/500]",
+      "message": "Automático · {name}"
+   },
+   "setLanguageSection": {
+      "description": "Section heading inside the Settings panel, above the language picker. Rendered UPPERCASE with letter-spacing by makeSection — do not add capitals yourself, and avoid German ß here (Chrome uppercases it to SS). [max:330px] [font:10/600]",
+      "message": "Idioma"
+   },
+   "setLifetime": {
+      "description": "Validity value for a Pro account with no expiry date — the lifetime/promo plan. Shown in the settings profile card where a dated plan shows setRenewsOn instead. The landing site uses the same single word. [max:170px] [font:11/400]",
+      "message": "Vitalício"
+   },
+   "setManageSub": {
+      "description": "Full-width primary action in the profile card for Pro accounts; opens the billing portal. Ellipsizes rather than wraps. [max:280px] [font:12/600]",
+      "message": "Gerenciar conta"
+   },
+   "setNotSignedIn": {
+      "description": "Single centred line in the Settings profile card when nobody is signed in, directly above the Sign In button. An INVITATION, not a warning — signing in is what makes exporting possible at all, so lead with the action. Fits on one line in every locale (widest is ~229px against 310px of room); keep it to one short sentence and do not add the export quota, which the toolbar already states. [max:300px] [font:11/400]",
+      "message": "Entre para começar a exportar"
+   },
+   "setPlanFree": {
+      "description": "Value of the Plan row for a free account. The paid counterpart is authPro, which renders as a green pill instead. A plan tier name — keep it short. [max:104px] [font:11/600]",
+      "message": "Grátis"
+   },
+   "setPrivacy": {
+      "description": "Label of one of three side-by-side buttons in the Settings panel's Help & support strip. Each is a third of ~336px, leaving 92px of room, and the text does NOT wrap — keep it to one or two short words. Deliberately terse; the hover tooltip repeats it. [max:92px] [font:11/500]",
+      "message": "Privacidade"
+   },
+   "setRateExtension": {
+      "description": "Full-width secondary button below the brand marquee, near the panel footer; opens the Chrome Web Store listing. It is no longer squeezed beside another button, so a fuller two-word form is fine here. Ellipsizes rather than wraps. [max:280px] [font:12/600]",
+      "message": "Avaliar"
+   },
+   "setRenewsOn": {
+      "description": "Sub-line under the export counter for PRO accounts: when the subscription renews. {date} arrives already formatted by Intl in the user's language — do not reword or reformat it. Rendered in a nowrap card-footer cell beside authUnlimitedExports; the two must fit together. {date}=24. März 2026; [max:170px] [font:11/400]",
+      "message": "Renova {date}"
+   },
+   "setReportBug": {
+      "description": "Label of one of three side-by-side buttons in the Settings panel's Help & support strip. Each is a third of ~336px, leaving 92px of room, and the text does NOT wrap — keep it to one or two short words. Deliberately terse; the hover tooltip repeats it. [max:92px] [font:11/500]",
+      "message": "Relatar erro"
+   },
+   "setResetsOn": {
+      "description": "Sub-line under the export counter for FREE accounts: when the monthly quota rolls over. {date} arrives already formatted by Intl in the user's language — do not reword or reformat it. Rendered in a nowrap card-footer cell beside the export count; the two must fit together. {date}=1. Sept.; [max:170px] [font:11/400]",
+      "message": "Reinicia em {date}"
+   },
+   "setTitle": {
+      "description": "Two places: the gear icon's hover tooltip in the inspect icon row, and the Settings panel's own header. The tooltip is nowrap with an ellipsis fallback. [max:200px] [font:11/500]",
+      "message": "Configurações"
+   },
+   "setUpgradeBtn": {
+      "description": "Upsell button on the Settings profile card — mkBigBtn('gold'), full width, with a separate ✦ glyph the code adds (do NOT put it in this string). Roomier than the toolbar, so this one names the plan explicitly where the toolbar's tbUpgradeBtn stays short. Does not wrap. [max:260px] [font:12/600]",
+      "message": "Assinar o Pro"
+   },
+   "setVersionLabel": {
+      "description": "Shown in the Settings panel header, right-aligned next to the close button and concatenated with the version number (\"Version 1.2.0\"). Shares the header row with the panel title and the close button, so it must stay short. Does not wrap. [max:150px] [font:11/500]",
+      "message": "Versão"
+   },
+   "tbCopied": {
+      "description": "Brief confirmation that flashes in place of a copy button after the clipboard write succeeds. Keep it short — it replaces an icon-sized label. [max:110px] [font:11/500]",
+      "message": "Copiado"
+   },
+   "tbCopy": {
+      "description": "Generic copy-to-clipboard button label, reused across the inspect panels. [max:110px] [font:12/500]",
+      "message": "Copiar"
+   },
+   "tbExportBtn": {
+      "description": "Primary toolbar button: capture the whole page. Also restored here after a failed export attempt. [max:140px] [font:12/600]",
+      "message": "Exportar"
+   },
+   "tbFreeLimitReached": {
+      "description": "Bottom-row headline when a free user is out of exports. Deliberately separate from authLimitReached ('Monthly limit reached'), which the service worker sets — both wordings are frozen English. [max:200px] [font:12/600]",
+      "message": "Limite atingido"
+   },
+   "tbFreeMonthlyExports": {
+      "description": "Bottom-row sub-line for signed-out users, stating what the free tier gives. The number 10 is the real quota — keep it. Truncates past the budget. [max:260px] [font:12/400]",
+      "message": "10 exportações grátis por mês"
+   },
+   "tbNudgeReviewBtn": {
+      "description": "Gold button of the review nudge; opens the Chrome Web Store listing. Meaning: 'write a review', not 'review this document'. [max:140px] [font:12/500]",
+      "message": "Avaliar"
+   },
+   "tbNudgeReviewHelps": {
+      "description": "Sub-line of the review nudge, meaning a Web Store review supports the product. [max:260px] [font:12/400]",
+      "message": "Uma avaliação rápida ajuda"
+   },
+   "tbNudgeSavedTime": {
+      "description": "Review nudge, shown after several successful exports beside a gold ★. A friendly rhetorical question — keep it warm and short, not corporate. A non-breaking space is added before this text in code, so do not add leading whitespace. [max:150px] [font:12/600]",
+      "message": "Economizou tempo?"
+   },
+   "tbSelectElementBtn": {
+      "description": "Toolbar button that starts hover-and-click element picking. Sits beside tbExportBtn; the toolbar WIDENS to fit rather than wrapping. [max:200px] [font:12/500]",
+      "message": "Selecionar"
+   },
+   "tbSignInBtn": {
+      "description": "Primary toolbar button shown when nobody is signed in; also replaces the Export button when a session expires. The longest button in the toolbar, and the toolbar WIDENS to fit rather than wrapping. [max:220px] [font:12/600]",
+      "message": "Entrar para exportar"
+   },
+   "tbSignInToSync": {
+      "description": "Bottom-row headline for signed-out users, meaning their export count syncs across devices once they sign in. [max:170px] [font:12/600]",
+      "message": "Entre para sincronizar"
+   },
+   "tbUpgradeBtn": {
+      "description": "Upsell button. TWO surfaces, BOTH on the toolbar: the Export button once a free user is out of exports, and the bottom-row link. Keep it SHORT — it is the same word the bottom-row link morphs to in authUpgradeArrow on a 403, and the two must agree. The Settings card uses setUpgradeBtn instead, which can be longer. Does not wrap. [max:160px] [font:12/600]",
+      "message": "Upgrade"
+   },
+   "tbUpgradeForUnlimited": {
+      "description": "Bottom-row sub-line when the free limit is reached. Keep the trailing period if your language uses one. [max:260px] [font:12/400]",
+      "message": "Faça upgrade para exportar sem limite."
+   },
+   "tbVpCustom": {
+      "description": "Viewport preset where the user types their own pixel width. This one IS ordinary prose — translate it. Shown in the toolbar trigger where space is tightest. [max:110px] [font:12/500]",
+      "message": "Personalizado"
+   },
+   "tbVpDesktop": {
+      "description": "Viewport preset in the toolbar dropdown (~1440px wide capture). Device-class names like these are commonly left in English in design tools — translate only if your language genuinely does. [max:150px] [font:12/500]",
+      "message": "Desktop"
+   },
+   "tbVpMobile": {
+      "description": "Viewport preset (~390px wide capture). Same guidance as tbVpDesktop. [max:150px] [font:12/500]",
+      "message": "Celular"
+   },
+   "tbVpTablet": {
+      "description": "Viewport preset (~834px wide capture). Same guidance as tbVpDesktop. [max:150px] [font:12/500]",
+      "message": "Tablet"
+   },
+   "uiClose": {
+      "description": "Tooltip / aria-label on the ✕ icon button that closes an inspect panel. Icon-only button, so this text is never rendered inline. Shared by every panel. [max:0]",
+      "message": "Fechar"
+   },
+   "unsupFileBtn": {
+      "description": "Button that opens this extension's own chrome://extensions details page, where the toggle lives. [max:0]",
+      "message": "Abrir configurações"
+   },
+   "unsupFileNote": {
+      "description": "Reassuring footnote on the file:// popup. Keep the friendly, non-alarming tone; this is a limitation, not an error. [max:0]",
+      "message": "Vale saber: imagens salvas no seu computador não são capturadas — é uma limitação do Chrome. O resto funciona normalmente."
+   },
+   "unsupFileSettingName": {
+      "description": "The exact name of the Chrome setting the user must toggle. Open chrome://extensions IN THIS LANGUAGE and copy Chrome's own wording verbatim — this must match what the user actually sees, so do not invent a translation. [max:0]",
+      "message": "Permitir acesso a URLs de arquivo"
+   },
+   "unsupFileStep1": {
+      "description": "First instruction line on the file:// popup, introducing the button below it. [max:0]",
+      "message": "Para arquivos locais, o Chrome precisa de uma permissão:"
+   },
+   "unsupFileStep2": {
+      "description": "Second instruction. {setting} is rendered BOLD and is unsupFileSettingName — keep the placeholder, and place it where your language needs it. {setting}=Allow access to file URLs [max:0]",
+      "message": "Lá, ative {setting}, recarregue esta página e clique no ícone de novo."
+   },
+   "unsupFileTitle": {
+      "description": "Popup headline on a local file:// page, where Chrome requires an explicit permission. [max:0]",
+      "message": "Ative o acesso a arquivos"
+   },
+   "unsupSub": {
+      "description": "Popup sub-line telling the user what to do instead. Wraps freely in a 400px popup. [max:0]",
+      "message": "Abra qualquer página da web e clique na extensão de novo"
+   },
+   "unsupTitle": {
+      "description": "Popup headline when the extension is clicked on a page it cannot capture (chrome://, the Web Store, etc.). [max:0]",
+      "message": "Página não compatível"
+   },
+   "wcagFairAALarge": {
+      "description": "Contrast rating badge: passes only for LARGE text under WCAG AA. Keep 'AA' — it is the standard's level name. [max:130px] [font:11/600]",
+      "message": "Razoável (AA grande)"
+   },
+   "wcagGood": {
+      "description": "Contrast rating badge: meets WCAG AA. [max:90px] [font:11/600]",
+      "message": "Bom"
+   },
+   "wcagGreat": {
+      "description": "Contrast rating badge: meets WCAG AAA. One short word — sits in a tight coloured pill. [max:90px] [font:11/600]",
+      "message": "Excelente"
+   },
+   "wcagPoor": {
+      "description": "Contrast rating badge: fails WCAG minimums. [max:90px] [font:11/600]",
+      "message": "Ruim"
+   },
+   "zipBundling": {
+      "description": "Progress text while assets are gathered, before compression starts. [max:0]",
+      "message": "Agrupando…"
+   },
+   "zipDownload": {
+      "description": "Button that saves the prepared archive. 'ZIP' is a file format — keep it. [max:180px] [font:12/600]",
+      "message": "Baixar ZIP"
+   },
+   "zipDownloadAgain": {
+      "description": "Offers a repeat download of the same archive. [max:200px] [font:12/500]",
+      "message": "Baixar ZIP de novo"
+   },
+   "zipDownloaded": {
+      "description": "Confirmation replacing the download button once the file is saved. [max:180px] [font:12/600]",
+      "message": "Baixado"
+   },
+   "zipErrCouldNotBuild": {
+      "description": "Shown when assembling the ZIP throws. [max:0]",
+      "message": "Não foi possível criar o ZIP."
+   },
+   "zipErrCouldNotStart": {
+      "description": "Shown when the ZIP job cannot be started at all. [max:0]",
+      "message": "Não foi possível iniciar o ZIP."
+   },
+   "zipErrFailed": {
+      "description": "Shown in the assets panel when the ZIP build reports a failure. [max:0]",
+      "message": "Falha no ZIP."
+   },
+   "zipErrNoImages": {
+      "description": "Shown when every asset in the ZIP request failed to download (usually cross-origin blocks). Produced in the SERVICE WORKER and sent to the panel, so it is looked up there, not at the producer. [max:0]",
+      "message": "Não foi possível baixar nenhuma imagem."
+   },
+   "zipErrTimedOut": {
+      "description": "Shown when the ZIP build exceeds its time limit. [max:0]",
+      "message": "Tempo esgotado — tente de novo."
+   },
+   "zipPreparingAssets_many": {
+      "description": "ZIP export progress, PLURAL. {n}=88 [max:0]",
+      "message": "Preparando {n} recursos…"
+   },
+   "zipPreparingAssets_one": {
+      "description": "ZIP export progress, SINGULAR. {n}=1 [max:0]",
+      "message": "Preparando {n} recurso…"
+   },
+   "zipPreparingAssets_other": {
+      "description": "ZIP export progress, PLURAL. {n}=88 [max:0]",
+      "message": "Preparando {n} recursos…"
+   },
+   "zipReadyFiles_many": {
+      "description": "ZIP export complete, PLURAL. Keep the ✓ and em dash. {n}=88 [max:0]",
+      "message": "✓ Pronto — {n} arquivos"
+   },
+   "zipReadyFiles_one": {
+      "description": "ZIP export complete, SINGULAR. KEEP the leading ✓ and the em dash. A size and an optional skipped-count are appended in code. {n}=1 [max:0]",
+      "message": "✓ Pronto — {n} arquivo"
+   },
+   "zipReadyFiles_other": {
+      "description": "ZIP export complete, PLURAL. Keep the ✓ and em dash. {n}=88 [max:0]",
+      "message": "✓ Pronto — {n} arquivos"
+   },
+   "zipSkipped": {
+      "description": "Appended after zipReadyFiles when some assets could not be fetched (cross-origin, 404). {n}=88 [max:0]",
+      "message": "{n} ignorados"
+   },
+   "zipZipping": {
+      "description": "Progress text while the downloaded assets are compressed. [max:0]",
+      "message": "Compactando…"
+   }
+}
