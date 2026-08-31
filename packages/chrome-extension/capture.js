@@ -1,7 +1,7 @@
 /*
  * HTML 2 Fig — High-Fidelity Capture Engine
- * Automatically pre-scrolls the page to trigger lazy-loaded sections & images,
- * then serializes exact document layout geometry and computed typography.
+ * Captures document.body directly (preventing duplicated HEAD/HTML rendering),
+ * pre-scrolls to activate lazy sections, and serializes clean DOM trees.
  */
 ;(async function html2FigCapture() {
   'use strict';
@@ -92,16 +92,16 @@
     const origX = window.scrollX;
     const origY = window.scrollY;
     const scrollHeight = document.documentElement.scrollHeight;
-    const step = window.innerHeight * 0.75;
+    const step = window.innerHeight * 0.8;
 
     for (let y = 0; y < scrollHeight; y += step) {
       window.scrollTo(0, y);
-      await new Promise(r => setTimeout(r, 60));
+      await new Promise(r => setTimeout(r, 50));
     }
     window.scrollTo(0, scrollHeight);
-    await new Promise(r => setTimeout(r, 80));
+    await new Promise(r => setTimeout(r, 60));
     window.scrollTo(origX, origY);
-    await new Promise(r => setTimeout(r, 80));
+    await new Promise(r => setTimeout(r, 60));
   }
 
   /* ======================================================================
@@ -276,7 +276,7 @@
   }
 
   /* ======================================================================
-   *  6.  DOM TRAVERSAL WITH INHERITED STYLES & ABSOLUTE POSITIONING
+   *  6.  DOM TRAVERSAL (Clean Element-by-Element)
    * ====================================================================== */
   let nodeCounter = 0;
   function getNodeId(prefix = 'h2f') { return `${prefix}-node-${++nodeCounter}`; }
@@ -512,7 +512,9 @@
     const assets = new AssetCollector();
     const fonts = new FontCollector();
 
-    const root = serializeNode(document.documentElement, assets, fonts, null);
+    // Target document.body directly to avoid double nesting HTML + BODY frames
+    const targetElement = document.body || document.documentElement;
+    const root = serializeNode(targetElement, assets, fonts, null);
     const assetMap = await assets.getBlobMap();
 
     const fullDocWidth = Math.max(
