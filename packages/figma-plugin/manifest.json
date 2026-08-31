@@ -1,0 +1,17 @@
+{
+  "name": "HTML 2 Fig",
+  "id": "html-2-fig",
+  "api": "1.0.0",
+  "main": "src/code.js",
+  "ui": "src/ui.html",
+  "editorType": [
+    "figma"
+  ],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ],
+    "reasoning": "All assets, SVGs, and base64 bitmaps are pre-encoded in the capture payload."
+  }
+}

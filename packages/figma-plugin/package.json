@@ -1,0 +1,9 @@
+{
+  "name": "@html-2-fig/figma-plugin",
+  "version": "1.0.0",
+  "description": "Figma Plugin for reconstructing live HTML pages into native Figma components",
+  "private": true,
+  "scripts": {
+    "lint": "eslint src"
+  }
+}

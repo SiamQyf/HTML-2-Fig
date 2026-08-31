@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HTML 2 Fig</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #1e1e1e;
+    --bg2: #2b2b2b;
+    --bg3: #383838;
+    --fg: #ffffff;
+    --fg2: #a0a0a0;
+    --fg3: #6e6e6e;
+    --accent: #0d99ff;
+    --accent-hover: #38aeff;
+    --accent-gradient: linear-gradient(135deg, #0d99ff 0%, #7b61ff 100%);
+    --success: #10b981;
+    --error: #ef4444;
+    --radius: 8px;
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg); color: var(--fg);
+    font-family: var(--font); font-size: 12px;
+    overflow: hidden; user-select: none;
+  }
+  .container {
+    display: flex; flex-direction: column; height: 100%;
+    padding: 16px; gap: 14px;
+  }
+  .header {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: var(--accent-gradient);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px; color: #fff;
+    box-shadow: 0 4px 12px rgba(13, 153, 255, 0.3);
+  }
+  .title-wrap h1 { font-size: 14px; font-weight: 600; color: #fff; }
+  .title-wrap p { font-size: 11px; color: var(--fg2); }
+
+  .card {
+    background: var(--bg2); border-radius: var(--radius);
+    padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .steps {
+    display: flex; flex-direction: column; gap: 6px;
+    list-style: none; counter-reset: step;
+  }
+  .step-item {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--fg2); font-size: 11.5px;
+  }
+  .step-badge {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--bg3); color: var(--fg);
+    font-size: 10px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .btn-primary {
+    width: 100%; padding: 11px 16px;
+    background: var(--accent-gradient);
+    border: none; border-radius: var(--radius);
+    color: #fff; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.15s, transform 0.1s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 4px 16px rgba(13, 153, 255, 0.25);
+  }
+  .btn-primary:hover { opacity: 0.92; }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-primary:disabled {
+    background: var(--bg3); cursor: not-allowed;
+    color: var(--fg3); box-shadow: none;
+  }
+
+  .paste-box-wrap {
+    display: none; flex-direction: column; gap: 6px;
+  }
+  .paste-box-wrap.active { display: flex; }
+  .paste-box {
+    width: 100%; height: 60px; padding: 8px 10px;
+    background: var(--bg2); border: 1.5px dashed var(--bg3);
+    border-radius: var(--radius); color: var(--fg);
+    font-family: 'SF Mono', Consolas, monospace; font-size: 11px;
+    resize: none; outline: none; transition: border-color 0.15s;
+  }
+  .paste-box:focus { border-color: var(--accent); }
+  .paste-box::placeholder { color: var(--fg3); }
+
+  .progress-wrap {
+    display: none; flex-direction: column; gap: 6px;
+  }
+  .progress-wrap.active { display: flex; }
+  .progress-bar-bg {
+    width: 100%; height: 5px; background: var(--bg3);
+    border-radius: 3px; overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%; width: 0%; background: var(--accent-gradient);
+    border-radius: 3px; transition: width 0.15s ease;
+  }
+  .progress-info {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--fg2);
+  }
+
+  .status-badge {
+    min-height: 20px; font-size: 11.5px;
+    display: flex; align-items: center; gap: 6px;
+    color: var(--fg2);
+  }
+  .status-badge.success { color: var(--success); }
+  .status-badge.error { color: var(--error); }
+
+  .log-panel {
+    margin-top: auto; border-top: 1px solid var(--bg3);
+    padding-top: 8px; font-size: 10.5px;
+    font-family: 'SF Mono', Consolas, monospace; color: var(--fg3);
+    max-height: 80px; overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="logo">H2F</div>
+    <div class="title-wrap">
+      <h1>HTML 2 Fig</h1>
+      <p>Convert webpages into native Figma layers</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <ul class="steps">
+      <li class="step-item">
+        <span class="step-badge">1</span>
+        <span>Click extension icon on any page</span>
+      </li>
+      <li class="step-item">
+        <span class="step-badge">2</span>
+        <span>Click <strong>Import from Clipboard</strong> below</span>
+      </li>
+    </ul>
+  </div>
+
+  <button class="btn-primary" id="btnImport">
+    <span>Import from Clipboard</span>
+  </button>
+
+  <div class="paste-box-wrap" id="pasteBoxWrap">
+    <textarea class="paste-box" id="pasteBox" placeholder="Figma clipboard restricted. Click here and press Ctrl+V / Cmd+V..."></textarea>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar-bg">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="progress-info">
+      <span id="progressLabel">Rendering...</span>
+      <span id="progressPercent">0%</span>
+    </div>
+  </div>
+
+  <div class="status-badge" id="statusBadge">Ready to import</div>
+  <div class="log-panel" id="logPanel"></div>
+</div>
+
+<script>
+  const btnImport = document.getElementById('btnImport');
+  const pasteBoxWrap = document.getElementById('pasteBoxWrap');
+  const pasteBox = document.getElementById('pasteBox');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressBar = document.getElementById('progressBar');
+  const progressLabel = document.getElementById('progressLabel');
+  const progressPercent = document.getElementById('progressPercent');
+  const statusBadge = document.getElementById('statusBadge');
+  const logPanel = document.getElementById('logPanel');
+
+  function log(msg) {
+    const line = document.createElement('div');
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logPanel.appendChild(line);
+    logPanel.scrollTop = logPanel.scrollHeight;
+  }
+
+  function setStatus(text, type = '') {
+    statusBadge.textContent = text;
+    statusBadge.className = 'status-badge ' + type;
+  }
+
+  function updateProgress(pct, msg) {
+    progressWrap.classList.add('active');
+    progressBar.style.width = pct + '%';
+    progressPercent.textContent = pct + '%';
+    if (msg) progressLabel.textContent = msg;
+  }
+
+  function processPayload(text) {
+    try {
+      const data = JSON.parse(text);
+      if (!data.root || !data.version) {
+        setStatus('Invalid capture payload structure', 'error');
+        return;
+      }
+      log(`Payload loaded: ${(text.length / 1024).toFixed(1)} KB`);
+      btnImport.disabled = true;
+      setStatus('Rendering to canvas...', 'info');
+      updateProgress(0, 'Initializing layer graph...');
+      parent.postMessage({ pluginMessage: { type: 'import', data } }, '*');
+    } catch (e) {
+      setStatus('JSON Parse Error: ' + e.message, 'error');
+      log('Parse error: ' + e.message);
+    }
+  }
+
+  btnImport.addEventListener('click', async () => {
+    setStatus('Reading clipboard...', 'info');
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.length > 20) {
+        processPayload(text);
+        return;
+      }
+    } catch (err) {
+      log('Clipboard API blocked by iframe permissions.');
+    }
+
+    // Fallback: show manual paste box
+    pasteBoxWrap.classList.add('active');
+    pasteBox.value = '';
+    pasteBox.focus();
+    setStatus('Please press Ctrl+V / Cmd+V inside the box', 'info');
+  });
+
+  pasteBox.addEventListener('paste', () => {
+    setTimeout(() => {
+      if (pasteBox.value && pasteBox.value.length > 20) {
+        processPayload(pasteBox.value);
+      }
+    }, 50);
+  });
+
+  window.onmessage = (event) => {
+    const msg = event.data?.pluginMessage;
+    if (!msg) return;
+    if (msg.type === 'progress') {
+      updateProgress(msg.percent, msg.label);
+    } else if (msg.type === 'complete') {
+      updateProgress(100, 'Import completed!');
+      setStatus('✅ Imported successfully!', 'success');
+      btnImport.disabled = false;
+      log(`Render completed in ${msg.duration || 0}ms`);
+    } else if (msg.type === 'error') {
+      setStatus('❌ Render failed: ' + msg.message, 'error');
+      btnImport.disabled = false;
+      log('Error: ' + msg.message);
+    } else if (msg.type === 'log') {
+      log(msg.message);
+    }
+  };
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "@html-2-fig/shared",
+  "version": "1.0.0",
+  "description": "Shared protocols, payload schemas and types for HTML 2 Fig",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "private": true
+}
