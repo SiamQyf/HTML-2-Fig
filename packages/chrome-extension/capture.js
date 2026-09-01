@@ -329,6 +329,25 @@
         clone.setAttribute('width', String(Math.round(w)));
         clone.setAttribute('height', String(Math.round(h)));
       }
+
+      // Inline computed color / fill so currentColor SVGs (like checkmarks) match text color on dark cards
+      const computedColor = cs.color;
+      if (computedColor) {
+        clone.style.color = computedColor;
+        const allPaths = clone.querySelectorAll('*');
+        allPaths.forEach(p => {
+          const fill = p.getAttribute('fill');
+          const stroke = p.getAttribute('stroke');
+          if (fill === 'currentColor') p.setAttribute('fill', computedColor);
+          if (stroke === 'currentColor') p.setAttribute('stroke', computedColor);
+          if (!fill && !stroke && p.tagName !== 'g' && p.tagName !== 'svg') {
+            const pCs = window.getComputedStyle(p);
+            if (pCs.fill && pCs.fill !== 'none') p.setAttribute('fill', pCs.fill);
+            if (pCs.stroke && pCs.stroke !== 'none') p.setAttribute('stroke', pCs.stroke);
+          }
+        });
+      }
+
       return clone.outerHTML;
     } catch {
       return null;
