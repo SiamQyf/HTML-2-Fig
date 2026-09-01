@@ -255,7 +255,7 @@ function applyFills(node, styles, assets) {
   }
 
   if (fills.length > 0) node.fills = fills;
-  else if (node.type === 'FRAME' && !styles.backgroundColor) node.fills = [];
+  else if (node.type === 'FRAME') node.fills = [];
 }
 
 function applyStrokes(node, styles) {
@@ -281,8 +281,21 @@ function applyEffects(node, styles) {
 }
 
 function applyCornerRadius(node, styles) {
-  const r = parseFloat(styles.borderRadius || styles.borderTopLeftRadius) || 0;
-  if (r > 0) node.cornerRadius = r;
+  const tl = parseFloat(styles.borderTopLeftRadius || styles.borderRadius) || 0;
+  const tr = parseFloat(styles.borderTopRightRadius || styles.borderRadius) || 0;
+  const br = parseFloat(styles.borderBottomRightRadius || styles.borderRadius) || 0;
+  const bl = parseFloat(styles.borderBottomLeftRadius || styles.borderRadius) || 0;
+
+  if (tl > 0 || tr > 0 || br > 0 || bl > 0) {
+    if (tl === tr && tr === br && br === bl) {
+      node.cornerRadius = tl;
+    } else {
+      node.topLeftRadius = tl;
+      node.topRightRadius = tr;
+      node.bottomRightRadius = br;
+      node.bottomLeftRadius = bl;
+    }
+  }
 }
 
 function applyOpacity(node, styles) {

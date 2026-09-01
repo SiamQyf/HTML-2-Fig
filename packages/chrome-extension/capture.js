@@ -294,10 +294,18 @@
     styles.fontWeight = cs.fontWeight;
     styles.fontStyle = cs.fontStyle;
     styles.color = cs.color;
+    styles.webkitTextFillColor = cs.webkitTextFillColor || cs.color;
     styles.lineHeight = cs.lineHeight;
     styles.letterSpacing = cs.letterSpacing;
     styles.textAlign = cs.textAlign;
     styles.textTransform = cs.textTransform;
+    // Always capture background and border radius for frame fills
+    styles.backgroundColor = cs.backgroundColor;
+    styles.borderRadius = cs.borderRadius;
+    styles.borderTopLeftRadius = cs.borderTopLeftRadius;
+    styles.borderTopRightRadius = cs.borderTopRightRadius;
+    styles.borderBottomRightRadius = cs.borderBottomRightRadius;
+    styles.borderBottomLeftRadius = cs.borderBottomLeftRadius;
 
     return styles;
   }
