@@ -338,22 +338,40 @@
         clone.setAttribute('height', String(Math.round(h)));
       }
 
-      // Inline computed color / fill so currentColor SVGs (like checkmarks) match text color on dark cards
+      // Read computed fill/stroke from ORIGINAL in-DOM elements, write onto clone
       const computedColor = cs.color;
-      if (computedColor) {
-        clone.style.color = computedColor;
-        const allPaths = clone.querySelectorAll('*');
-        allPaths.forEach(p => {
-          const fill = p.getAttribute('fill');
-          const stroke = p.getAttribute('stroke');
-          if (fill === 'currentColor') p.setAttribute('fill', computedColor);
-          if (stroke === 'currentColor') p.setAttribute('stroke', computedColor);
-          if (!fill && !stroke && p.tagName !== 'g' && p.tagName !== 'svg') {
-            const pCs = window.getComputedStyle(p);
-            if (pCs.fill && pCs.fill !== 'none') p.setAttribute('fill', pCs.fill);
-            if (pCs.stroke && pCs.stroke !== 'none') p.setAttribute('stroke', pCs.stroke);
+      const origChildren = el.querySelectorAll('*');
+      const cloneChildren = clone.querySelectorAll('*');
+      for (let i = 0; i < origChildren.length && i < cloneChildren.length; i++) {
+        const orig = origChildren[i];
+        const cloned = cloneChildren[i];
+        try {
+          const origCs = window.getComputedStyle(orig);
+          const computedFill = origCs.fill;
+          const computedStroke = origCs.stroke;
+
+          // Resolve currentColor and inline the actual rendered color
+          const attrFill = cloned.getAttribute('fill');
+          const attrStroke = cloned.getAttribute('stroke');
+
+          if (attrFill === 'currentColor') {
+            cloned.setAttribute('fill', computedColor);
+          } else if (computedFill && computedFill !== 'none') {
+            cloned.setAttribute('fill', computedFill);
           }
-        });
+
+          if (attrStroke === 'currentColor') {
+            cloned.setAttribute('stroke', computedColor);
+          } else if (computedStroke && computedStroke !== 'none' && computedStroke !== 'rgba(0, 0, 0, 0)') {
+            cloned.setAttribute('stroke', computedStroke);
+          }
+        } catch {}
+      }
+
+      // Set color on the SVG root too for any remaining currentColor references
+      if (computedColor) {
+        clone.setAttribute('color', computedColor);
+        clone.style.color = computedColor;
       }
 
       return clone.outerHTML;
