@@ -439,27 +439,86 @@
         };
       }
 
-      // If multiple rendered lines in a paragraph, create line segments
+      // For multiline inline text with spans/links, slice text per line by character rects
       const segments = [];
-      for (let i = 0; i < clientRects.length; i++) {
-        const cr = clientRects[i];
-        if (cr.width === 0 && cr.height === 0) continue;
+      const len = node.length;
+      let lineStart = 0;
+      let lastTop = null;
+
+      for (let i = 0; i < len; i++) {
+        r.setStart(node, i);
+        r.setEnd(node, i + 1);
+        const charRect = r.getBoundingClientRect();
+        if (charRect.width === 0 && charRect.height === 0) continue;
+
+        if (lastTop === null) {
+          lastTop = charRect.top;
+        } else if (Math.abs(charRect.top - lastTop) > 3) {
+          // Line break detected
+          r.setStart(node, lineStart);
+          r.setEnd(node, i);
+          const lineBox = r.getBoundingClientRect();
+          const lineText = text.slice(lineStart, i);
+          if (lineText.trim()) {
+            segments.push({
+              nodeType: TEXT_NODE,
+              id: getNodeId('text-line'),
+              text: lineText,
+              rect: {
+                x: lineBox.x + (isFixed ? 0 : window.scrollX),
+                y: lineBox.y + (isFixed ? 0 : window.scrollY),
+                width: Math.ceil(lineBox.width),
+                height: Math.ceil(lineBox.height)
+              },
+              styles: parentStyles || {},
+              lineCount: 1
+            });
+          }
+          lineStart = i;
+          lastTop = charRect.top;
+        }
+      }
+
+      // Add final line segment
+      r.setStart(node, lineStart);
+      r.setEnd(node, len);
+      const finalBox = r.getBoundingClientRect();
+      const finalLineText = text.slice(lineStart);
+      if (finalLineText.trim()) {
         segments.push({
           nodeType: TEXT_NODE,
           id: getNodeId('text-line'),
-          text,
+          text: finalLineText,
           rect: {
-            x: cr.x + (isFixed ? 0 : window.scrollX),
-            y: cr.y + (isFixed ? 0 : window.scrollY),
-            width: Math.ceil(cr.width),
-            height: Math.ceil(cr.height)
+            x: finalBox.x + (isFixed ? 0 : window.scrollX),
+            y: finalBox.y + (isFixed ? 0 : window.scrollY),
+            width: Math.ceil(finalBox.width),
+            height: Math.ceil(finalBox.height)
           },
           styles: parentStyles || {},
           lineCount: 1
         });
       }
 
-      // Return text node with exact bounding rect from browser — no re-wrapping
+      if (segments.length === 1) return segments[0];
+      if (segments.length > 1) {
+        // Return a group array as pseudo element or return segments
+        // We can return a flat virtual group node or element node
+        return {
+          nodeType: ELEMENT_NODE,
+          id: getNodeId('text-wrap'),
+          tag: 'SPAN',
+          styles: { ...parentStyles, backgroundColor: 'rgba(0, 0, 0, 0)' },
+          rect: {
+            x: rect.x + (isFixed ? 0 : window.scrollX),
+            y: rect.y + (isFixed ? 0 : window.scrollY),
+            width: Math.ceil(rect.width),
+            height: Math.ceil(rect.height)
+          },
+          childNodes: segments
+        };
+      }
+
       return {
         nodeType: TEXT_NODE,
         id: getNodeId('text'),
@@ -471,7 +530,7 @@
           height: Math.ceil(rect.height)
         },
         styles: parentStyles || {},
-        lineCount: clientRects.length || 1
+        lineCount: 1
       };
     }
 
