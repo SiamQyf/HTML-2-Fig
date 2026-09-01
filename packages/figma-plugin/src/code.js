@@ -479,18 +479,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
 
   parentFrame.appendChild(textNode);
   const posX = (sNode.rect?.x || 0) - parentX;
-  let posY = (sNode.rect?.y || 0) - parentY;
-
-  // In CSS, line-height distributes extra half-leading above and below glyphs,
-  // whereas Figma text boxes start directly at the text bounding box top.
-  // We align text vertically by checking if computed lineHeight exceeds fontSize.
-  if (s.lineHeight && s.lineHeight !== 'normal') {
-    const lh = parseFloat(s.lineHeight);
-    if (!isNaN(lh) && lh > fontSize) {
-      const halfLeading = (lh - fontSize) / 2;
-      posY = Math.max(0, posY - halfLeading * 0.4);
-    }
-  }
+  const posY = (sNode.rect?.y || 0) - parentY;
 
   textNode.x = posX;
   textNode.y = posY;
