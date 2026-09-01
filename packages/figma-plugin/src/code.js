@@ -354,8 +354,27 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   // IMG element
   if (sNode.tag === 'IMG') {
     const attrs = sNode.attributes || {};
-    const imgUrl = attrs.currentSrc || attrs.src || attrs['data-src'];
-    const assetData = imgUrl ? (assets?.[imgUrl] || assets?.[attrs.src]) : null;
+    const imgUrl = attrs.currentSrc || attrs.src || attrs['data-src'] || attrs['data-lazy-src'] || attrs['data-original'];
+    let assetData = null;
+    if (assets) {
+      assetData = (imgUrl && assets[imgUrl]) ||
+                  (attrs.currentSrc && assets[attrs.currentSrc]) ||
+                  (attrs.src && assets[attrs.src]) ||
+                  (attrs['data-src'] && assets[attrs['data-src']]) ||
+                  (attrs['data-lazy-src'] && assets[attrs['data-lazy-src']]);
+      if (!assetData && imgUrl) {
+        // Fallback: match by filename or partial URL
+        const filename = imgUrl.split('/').pop()?.split('?')[0];
+        if (filename) {
+          for (const key of Object.keys(assets)) {
+            if (key.includes(filename)) {
+              assetData = assets[key];
+              break;
+            }
+          }
+        }
+      }
+    }
     const blobObj = assetData?.blob || assetData?.base64Blob || assetData;
     if (blobObj) {
       const bytes = decodeBase64Image(blobObj);
