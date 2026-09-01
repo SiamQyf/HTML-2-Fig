@@ -332,11 +332,6 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   const w = Math.max(1, Math.round(sNode.rect?.width || 0));
   const h = Math.max(1, Math.round(sNode.rect?.height || 0));
 
-  // Pseudo-element ::before
-  if (sNode.pseudoElementNodes?.before) {
-    await renderNode(sNode.pseudoElementNodes.before, parentFrame, parentX, parentY, assets, s);
-  }
-
   // SVG Vector element
   if (sNode.content && (sNode.tag === 'SVG' || sNode.content.includes('<svg'))) {
     try {
@@ -425,6 +420,16 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   applyCornerRadius(frame, s);
   applyOpacity(frame, s);
 
+  // If node itself has direct text (like pseudo elements with content: "Logo #3")
+  if (sNode.text && sNode.text.trim()) {
+    await renderTextNode(sNode, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, s);
+  }
+
+  // Pseudo-element ::before (rendered inside this frame)
+  if (sNode.pseudoElementNodes?.before) {
+    await renderNode(sNode.pseudoElementNodes.before, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
+  }
+
   if (sNode.childNodes) {
     for (const child of sNode.childNodes) {
       // Child coordinate offset is relative to this frame
@@ -432,7 +437,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     }
   }
 
-  // Pseudo-element ::after
+  // Pseudo-element ::after (rendered inside this frame)
   if (sNode.pseudoElementNodes?.after) {
     await renderNode(sNode.pseudoElementNodes.after, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
   }
