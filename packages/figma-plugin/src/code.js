@@ -458,7 +458,11 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const fontSize = parseFloat(s.fontSize) || 16;
   textNode.fontSize = fontSize;
 
-  if (s.lineHeight && s.lineHeight !== 'normal') {
+  // Only apply lineHeight for multi-line text. For single-line text, the browser's
+  // Range.getBoundingClientRect() gives tight glyph coordinates; adding lineHeight
+  // in Figma would push glyphs down via half-leading, misaligning with adjacent icons.
+  const isMultiLine = sNode.lineCount && sNode.lineCount > 1;
+  if (isMultiLine && s.lineHeight && s.lineHeight !== 'normal') {
     const lh = parseFloat(s.lineHeight);
     if (!isNaN(lh)) textNode.lineHeight = { value: lh, unit: 'PIXELS' };
   }
