@@ -259,6 +259,19 @@ function applyFills(node, styles, assets) {
 }
 
 function applyStrokes(node, styles) {
+  const borderTopStyle = styles.borderTopStyle;
+  const borderStyle = styles.borderStyle;
+  const borderLeftStyle = styles.borderLeftStyle;
+  const borderRightStyle = styles.borderRightStyle;
+  const borderBottomStyle = styles.borderBottomStyle;
+
+  // Don't apply stroke if border style is none
+  const hasStyle = (borderTopStyle && borderTopStyle !== 'none' && borderTopStyle !== 'hidden') ||
+                   (borderStyle && borderStyle !== 'none' && borderStyle !== 'hidden') ||
+                   (borderBottomStyle && borderBottomStyle !== 'none' && borderBottomStyle !== 'hidden') ||
+                   (borderLeftStyle && borderLeftStyle !== 'none' && borderLeftStyle !== 'hidden');
+  if (!hasStyle) return;
+
   const borderWidth = parseFloat(styles.borderTopWidth || styles.borderWidth || styles.borderLeftWidth) || 0;
   if (borderWidth <= 0) return;
   const borderColor = parseColor(styles.borderTopColor || styles.borderColor || styles.borderLeftColor);

@@ -306,6 +306,18 @@
     styles.borderTopRightRadius = cs.borderTopRightRadius;
     styles.borderBottomRightRadius = cs.borderBottomRightRadius;
     styles.borderBottomLeftRadius = cs.borderBottomLeftRadius;
+    styles.borderTopStyle = cs.borderTopStyle;
+    styles.borderBottomStyle = cs.borderBottomStyle;
+    styles.borderLeftStyle = cs.borderLeftStyle;
+    styles.borderRightStyle = cs.borderRightStyle;
+    styles.borderTopWidth = cs.borderTopWidth;
+    styles.borderBottomWidth = cs.borderBottomWidth;
+    styles.borderLeftWidth = cs.borderLeftWidth;
+    styles.borderRightWidth = cs.borderRightWidth;
+    styles.borderTopColor = cs.borderTopColor;
+    styles.borderBottomColor = cs.borderBottomColor;
+    styles.borderLeftColor = cs.borderLeftColor;
+    styles.borderRightColor = cs.borderRightColor;
 
     return styles;
   }
