@@ -472,9 +472,14 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
 
   const w = sNode.rect?.width || 0;
   const h = sNode.rect?.height || 0;
-  if (sNode.lineCount && sNode.lineCount > 1 && w > 0 && h > 0) {
+  const textStr = finalText.trim();
+
+  // If short token/number/single line, let Figma compute exact natural bounds
+  if ((!sNode.lineCount || sNode.lineCount <= 1) && (!textStr.includes('\n') || textStr.length < 40)) {
+    textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
+  } else if (w > 0 && h > 0) {
     textNode.textAutoResize = 'NONE';
-    textNode.resize(Math.ceil(w) + 2, Math.ceil(h));
+    textNode.resize(Math.ceil(w) + 4, Math.ceil(h));
     textNode.textAutoResize = 'HEIGHT';
   } else {
     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';

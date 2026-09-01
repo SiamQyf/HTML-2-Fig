@@ -371,14 +371,14 @@
       if (!text.trim()) return null;
       const r = document.createRange();
       r.selectNodeContents(node);
+      const rect = r.getBoundingClientRect();
       const clientRects = r.getClientRects();
+      r.detach();
+      if (rect.width === 0 && rect.height === 0) return null;
       const isFixed = parentStyles?.position === 'fixed';
-      
-      // If single line or no detailed rects, return standard node
+
+      // If single line or small inline token (like '$', '13', 'Popular Package'), preserve exact position
       if (clientRects.length <= 1) {
-        const rect = r.getBoundingClientRect();
-        r.detach();
-        if (rect.width === 0 && rect.height === 0) return null;
         return {
           nodeType: TEXT_NODE,
           id: getNodeId('text'),
@@ -394,81 +394,40 @@
         };
       }
 
-      // For multiline inline text with spans/links, serialize each line segment accurately
+      // If multiple rendered lines in a paragraph, create line segments
       const segments = [];
-      const len = node.length;
-      let lineStart = 0;
-      let lastTop = null;
-
-      for (let i = 0; i < len; i++) {
-        r.setStart(node, i);
-        r.setEnd(node, i + 1);
-        const charRect = r.getBoundingClientRect();
-        if (charRect.width === 0 && charRect.height === 0) continue;
-
-        if (lastTop === null) {
-          lastTop = charRect.top;
-        } else if (Math.abs(charRect.top - lastTop) > 3) {
-          // Line break detected
-          r.setStart(node, lineStart);
-          r.setEnd(node, i);
-          const lineBox = r.getBoundingClientRect();
-          const lineText = text.slice(lineStart, i);
-          if (lineText.trim()) {
-            segments.push({
-              nodeType: TEXT_NODE,
-              id: getNodeId('text-line'),
-              text: lineText,
-              rect: {
-                x: lineBox.x + (isFixed ? 0 : window.scrollX),
-                y: lineBox.y + (isFixed ? 0 : window.scrollY),
-                width: Math.ceil(lineBox.width),
-                height: Math.ceil(lineBox.height)
-              },
-              styles: parentStyles || {},
-              lineCount: 1
-            });
-          }
-          lineStart = i;
-          lastTop = charRect.top;
-        }
-      }
-
-      // Add final line segment
-      r.setStart(node, lineStart);
-      r.setEnd(node, len);
-      const finalBox = r.getBoundingClientRect();
-      const finalLineText = text.slice(lineStart);
-      if (finalLineText.trim()) {
+      for (let i = 0; i < clientRects.length; i++) {
+        const cr = clientRects[i];
+        if (cr.width === 0 && cr.height === 0) continue;
         segments.push({
           nodeType: TEXT_NODE,
           id: getNodeId('text-line'),
-          text: finalLineText,
+          text,
           rect: {
-            x: finalBox.x + (isFixed ? 0 : window.scrollX),
-            y: finalBox.y + (isFixed ? 0 : window.scrollY),
-            width: Math.ceil(finalBox.width),
-            height: Math.ceil(finalBox.height)
+            x: cr.x + (isFixed ? 0 : window.scrollX),
+            y: cr.y + (isFixed ? 0 : window.scrollY),
+            width: Math.ceil(cr.width),
+            height: Math.ceil(cr.height)
           },
           styles: parentStyles || {},
           lineCount: 1
         });
       }
-      r.detach();
 
-      return segments.length === 1 ? segments[0] : (segments.length > 1 ? {
-        nodeType: ELEMENT_NODE,
-        id: getNodeId('text-wrap'),
-        tag: 'SPAN',
-        styles: parentStyles || {},
+      // Return standard text node with multi-line count for auto-wrapping
+      return {
+        nodeType: TEXT_NODE,
+        id: getNodeId('text'),
+        text,
         rect: {
-          x: clientRects[0].x + (isFixed ? 0 : window.scrollX),
-          y: clientRects[0].y + (isFixed ? 0 : window.scrollY),
-          width: Math.ceil(r.getBoundingClientRect ? r.getBoundingClientRect().width : clientRects[0].width),
-          height: Math.ceil(clientRects[0].height)
+          x: rect.x + (isFixed ? 0 : window.scrollX),
+          y: rect.y + (isFixed ? 0 : window.scrollY),
+          width: Math.ceil(rect.width),
+          height: Math.ceil(rect.height)
         },
-        childNodes: segments
-      } : null);
+        styles: parentStyles || {},
+        lineCount: clientRects.length || 1
+      };
     }
 
     if (node.nodeType !== ELEMENT_NODE) return null;
