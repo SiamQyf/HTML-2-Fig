@@ -459,7 +459,10 @@
         });
       }
 
-      // Return standard text node with multi-line count for auto-wrapping
+      // For multi-line text, use the parent element's width so Figma wraps at the same point
+      const parentEl = node.parentElement;
+      const parentWidth = parentEl ? parentEl.getBoundingClientRect().width : rect.width;
+
       return {
         nodeType: TEXT_NODE,
         id: getNodeId('text'),
@@ -467,7 +470,7 @@
         rect: {
           x: rect.x + (isFixed ? 0 : window.scrollX),
           y: rect.y + (isFixed ? 0 : window.scrollY),
-          width: Math.ceil(rect.width),
+          width: Math.ceil(parentWidth),
           height: Math.ceil(rect.height)
         },
         styles: parentStyles || {},
