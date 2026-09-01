@@ -544,8 +544,14 @@
     if (styles.fontFamily) fonts.addFont(styles.fontFamily);
 
     if (el instanceof HTMLImageElement) {
-      const url = el.currentSrc || el.src || el.getAttribute('data-src');
+      const url = el.currentSrc || el.src || el.getAttribute('data-src') || el.getAttribute('data-lazy-src') || el.getAttribute('data-original') || el.srcset?.split(',')[0]?.trim()?.split(' ')[0];
       if (url) assets.addImage(url);
+    } else if (el instanceof HTMLPictureElement) {
+      const imgChild = el.querySelector('img');
+      if (imgChild) {
+        const url = imgChild.currentSrc || imgChild.src || imgChild.getAttribute('data-src');
+        if (url) assets.addImage(url);
+      }
     }
     if (styles.backgroundImage && styles.backgroundImage !== 'none') {
       const matches = styles.backgroundImage.matchAll(/url\(["']?(.*?)["']?\)/g);
