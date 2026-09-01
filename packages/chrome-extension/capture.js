@@ -570,9 +570,16 @@
 
     const clientRect = el.getBoundingClientRect();
     const isFixed = styles.position === 'fixed';
+    
+    // For position: fixed elements (like floating scroll-to-top buttons in bottom-right),
+    // when document is scrolled to top (0,0), clientRect.y is their exact viewport position.
+    // If anchored to bottom, ensure it renders visibly within the full document frame.
+    let posX = clientRect.x + (isFixed ? 0 : window.scrollX);
+    let posY = clientRect.y + (isFixed ? 0 : window.scrollY);
+
     const docRect = {
-      x: clientRect.x + (isFixed ? 0 : window.scrollX),
-      y: clientRect.y + (isFixed ? 0 : window.scrollY),
+      x: posX,
+      y: posY,
       width: clientRect.width,
       height: clientRect.height
     };
