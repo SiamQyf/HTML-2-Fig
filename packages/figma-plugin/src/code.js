@@ -496,9 +496,9 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   if ((!sNode.lineCount || sNode.lineCount <= 1) && (!textStr.includes('\n') || textStr.length < 40)) {
     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
   } else if (w > 0 && h > 0) {
+    // Fixed dimensions from browser — no re-wrapping to avoid overlap with inline elements
     textNode.textAutoResize = 'NONE';
-    textNode.resize(Math.ceil(w) + 4, Math.ceil(h));
-    textNode.textAutoResize = 'HEIGHT';
+    textNode.resize(Math.ceil(w), Math.ceil(h));
   } else {
     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
   }

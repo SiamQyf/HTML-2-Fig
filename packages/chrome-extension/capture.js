@@ -459,10 +459,7 @@
         });
       }
 
-      // For multi-line text, use the parent element's width so Figma wraps at the same point
-      const parentEl = node.parentElement;
-      const parentWidth = parentEl ? parentEl.getBoundingClientRect().width : rect.width;
-
+      // Return text node with exact bounding rect from browser — no re-wrapping
       return {
         nodeType: TEXT_NODE,
         id: getNodeId('text'),
@@ -470,7 +467,7 @@
         rect: {
           x: rect.x + (isFixed ? 0 : window.scrollX),
           y: rect.y + (isFixed ? 0 : window.scrollY),
-          width: Math.ceil(parentWidth),
+          width: Math.ceil(rect.width),
           height: Math.ceil(rect.height)
         },
         styles: parentStyles || {},
