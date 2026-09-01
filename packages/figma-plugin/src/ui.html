@@ -182,7 +182,10 @@
     if (msg) progressLabel.textContent = msg;
   }
 
+  let isImporting = false;
+
   function processPayload(text) {
+    if (isImporting) return;
     if (!text || text.trim().length < 15) {
       setStatus('Please paste the capture JSON data first.', 'error');
       return;
@@ -193,6 +196,7 @@
         setStatus('Invalid capture payload structure', 'error');
         return;
       }
+      isImporting = true;
       log(`Payload loaded: ${(text.length / 1024).toFixed(1)} KB (${data.documentTitle || 'Untitled'})`);
       btnImport.disabled = true;
       pasteInput.disabled = true;
@@ -200,6 +204,7 @@
       updateProgress(0, 'Initializing layer graph...');
       parent.postMessage({ pluginMessage: { type: 'import', data } }, '*');
     } catch (e) {
+      isImporting = false;
       setStatus('JSON Parse Error: ' + e.message, 'error');
       log('Parse error: ' + e.message);
     }
@@ -207,7 +212,7 @@
 
   // Auto-process as soon as the user pastes into the textarea
   pasteInput.addEventListener('paste', (e) => {
-    // Read clipboardData directly from event
+    if (isImporting) return;
     const text = (e.clipboardData || window.clipboardData)?.getData('text');
     if (text && text.length > 20) {
       e.preventDefault();
@@ -216,21 +221,14 @@
     }
   });
 
-  // Also handle input / text changes
-  pasteInput.addEventListener('input', () => {
-    const val = pasteInput.value;
-    if (val && val.length > 50 && val.includes('"version"')) {
-      processPayload(val);
-    }
-  });
-
   // Import button triggers processing whatever is in the box
   btnImport.addEventListener('click', () => {
-    processPayload(pasteInput.value);
+    if (!isImporting) processPayload(pasteInput.value);
   });
 
   // Global window paste fallback
   window.addEventListener('paste', (e) => {
+    if (isImporting) return;
     if (document.activeElement !== pasteInput) {
       const text = (e.clipboardData || window.clipboardData)?.getData('text');
       if (text && text.length > 20) {
@@ -247,12 +245,14 @@
     if (msg.type === 'progress') {
       updateProgress(msg.percent, msg.label);
     } else if (msg.type === 'complete') {
+      isImporting = false;
       updateProgress(100, 'Import completed!');
       setStatus('✅ Imported successfully!', 'success');
       btnImport.disabled = false;
       pasteInput.disabled = false;
       log(`Render completed in ${msg.duration || 0}ms`);
     } else if (msg.type === 'error') {
+      isImporting = false;
       setStatus('❌ Render failed: ' + msg.message, 'error');
       btnImport.disabled = false;
       pasteInput.disabled = false;

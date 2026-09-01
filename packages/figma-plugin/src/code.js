@@ -19,7 +19,7 @@ const NAMED_COLORS = {
 };
 
 function parseColor(css) {
-  if (!css || css === 'none' || css === 'initial' || css === 'inherit') return null;
+  if (!css || css === 'none' || css === 'initial' || css === 'inherit' || css === 'transparent') return null;
   css = css.trim().toLowerCase();
   if (NAMED_COLORS[css]) return { ...NAMED_COLORS[css] };
 
@@ -27,12 +27,39 @@ function parseColor(css) {
   let m = css.match(/^rgba?\(\s*([\d.]+)[,%\s]+([\d.]+)[,%\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/);
   if (m) return { r: +m[1] / 255, g: +m[2] / 255, b: +m[3] / 255, a: m[4] !== undefined ? +m[4] : 1 };
 
-  // hex
+  // hsl/hsla
+  m = css.match(/^hsla?\(\s*([\d.]+)(?:deg)?[,%\s]+([\d.]+)%[,%\s]+([\d.]+)%(?:[,/\s]+([\d.]+))?\s*\)$/);
+  if (m) {
+    const h = +m[1] / 360, s = +m[2] / 100, l = +m[3] / 100;
+    const a = m[4] !== undefined ? +m[4] : 1;
+    let r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }
+    return { r, g, b, a };
+  }
+
+  // hex (#fff, #ffffff, #ffffff80)
   m = css.match(/^#([0-9a-f]{3,8})$/);
   if (m) {
     const h = m[1];
     if (h.length === 3) return { r: parseInt(h[0] + h[0], 16) / 255, g: parseInt(h[1] + h[1], 16) / 255, b: parseInt(h[2] + h[2], 16) / 255, a: 1 };
     if (h.length === 6) return { r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: 1 };
+    if (h.length === 8) return { r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: parseInt(h.slice(6, 8), 16) / 255 };
   }
   return null;
 }
@@ -85,6 +112,112 @@ async function loadFont(family, weight, italic) {
   return { family: 'Inter', style: 'Regular' };
 }
 
+function parseLinearGradient(css) {
+  if (!css || !css.includes('linear-gradient')) return null;
+  try {
+    const contentMatch = css.match(/linear-gradient\((.*)\)$/s);
+    if (!contentMatch) return null;
+    const inner = contentMatch[1].trim();
+
+    // Determine angle
+    let angleDeg = 180;
+    let stopsStr = inner;
+
+    const angleMatch = inner.match(/^((?:to\s+(?:top|bottom|left|right)(?:\s+(?:top|bottom|left|right))?)|(?:-?[\d.]+(?:deg|rad|turn)))\s*,\s*(.*)$/is);
+    if (angleMatch) {
+      const angleExpr = angleMatch[1].toLowerCase().trim();
+      stopsStr = angleMatch[2];
+
+      if (angleExpr.includes('deg')) {
+        angleDeg = parseFloat(angleExpr);
+      } else if (angleExpr.includes('rad')) {
+        angleDeg = (parseFloat(angleExpr) * 180) / Math.PI;
+      } else if (angleExpr.includes('turn')) {
+        angleDeg = parseFloat(angleExpr) * 360;
+      } else if (angleExpr === 'to top') angleDeg = 0;
+      else if (angleExpr === 'to right') angleDeg = 90;
+      else if (angleExpr === 'to bottom') angleDeg = 180;
+      else if (angleExpr === 'to left') angleDeg = 270;
+      else if (angleExpr === 'to top right' || angleExpr === 'to right top') angleDeg = 45;
+      else if (angleExpr === 'to bottom right' || angleExpr === 'to right bottom') angleDeg = 135;
+      else if (angleExpr === 'to bottom left' || angleExpr === 'to left bottom') angleDeg = 225;
+      else if (angleExpr === 'to top left' || angleExpr === 'to left top') angleDeg = 315;
+    }
+
+    // Split stops safely
+    const rawStops = stopsStr.split(/,(?![^(]*\))/);
+    if (!rawStops || rawStops.length < 2) return null;
+
+    const stops = [];
+    const n = rawStops.length;
+    rawStops.forEach((raw, i) => {
+      const trimmed = raw.trim();
+      const posMatch = trimmed.match(/(.*?)\s+([\d.]+)%$/);
+      let colStr = trimmed;
+      let pos = i / (n - 1);
+      if (posMatch) {
+        colStr = posMatch[1].trim();
+        pos = parseFloat(posMatch[2]) / 100;
+      }
+      const col = parseColor(colStr);
+      if (col) {
+        stops.push({
+          position: clamp01(pos),
+          color: { r: col.r, g: col.g, b: col.b, a: clamp01(col.a) }
+        });
+      }
+    });
+
+    if (stops.length < 2) return null;
+
+    const rad = ((angleDeg - 90) * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    return {
+      type: 'GRADIENT_LINEAR',
+      gradientTransform: [
+        [cos, sin, 0.5 - 0.5 * (cos + sin)],
+        [-sin, cos, 0.5 - 0.5 * (-sin + cos)]
+      ],
+      gradientStops: stops
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseBoxShadows(css) {
+  if (!css || css === 'none' || css === 'initial' || css === 'inherit') return [];
+  const effects = [];
+  try {
+    // Match each individual shadow
+    const shadows = css.split(/,(?![^(]*\))/);
+    for (const s of shadows) {
+      const isInset = s.includes('inset');
+      const clean = s.replace('inset', '').trim();
+      const m = clean.match(/(.*?)\s*(-?[\d.]+px)\s+(-?[\d.]+px)(?:\s+([\d.]+px))?(?:\s+([\d.]+px))?/);
+      if (m) {
+        const col = parseColor(m[1]) || parseColor(clean.slice(clean.lastIndexOf(' ')).trim()) || { r: 0, g: 0, b: 0, a: 0.25 };
+        const x = parseFloat(m[2]) || 0;
+        const y = parseFloat(m[3]) || 0;
+        const radius = parseFloat(m[4]) || 0;
+        const spread = parseFloat(m[5]) || 0;
+        effects.push({
+          type: isInset ? 'INNER_SHADOW' : 'DROP_SHADOW',
+          color: { r: col.r, g: col.g, b: col.b, a: clamp01(col.a) },
+          offset: { x, y },
+          radius,
+          spread,
+          visible: true,
+          blendMode: 'NORMAL'
+        });
+      }
+    }
+  } catch {}
+  return effects;
+}
+
 /* ======================================================================
  *  4.  STYLE APPLIERS
  * ====================================================================== */
@@ -97,8 +230,14 @@ function applyFills(node, styles, assets) {
     fills.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: clamp01(bg.a) });
   }
 
+  // CSS Gradients
+  if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
+    const grad = parseLinearGradient(styles.backgroundImage);
+    if (grad) fills.push(grad);
+  }
+
   // Background image fill
-  if (styles.backgroundImage && styles.backgroundImage !== 'none') {
+  if (styles.backgroundImage && styles.backgroundImage.includes('url(')) {
     const m = styles.backgroundImage.match(/url\(["']?(.*?)["']?\)/);
     if (m && m[1]) {
       const asset = assets?.[m[1]];
@@ -117,6 +256,28 @@ function applyFills(node, styles, assets) {
 
   if (fills.length > 0) node.fills = fills;
   else if (node.type === 'FRAME' && !styles.backgroundColor) node.fills = [];
+}
+
+function applyStrokes(node, styles) {
+  const borderWidth = parseFloat(styles.borderTopWidth || styles.borderWidth || styles.borderLeftWidth) || 0;
+  if (borderWidth <= 0) return;
+  const borderColor = parseColor(styles.borderTopColor || styles.borderColor || styles.borderLeftColor);
+  if (!borderColor || borderColor.a <= 0.005) return;
+
+  node.strokes = [{
+    type: 'SOLID',
+    color: { r: borderColor.r, g: borderColor.g, b: borderColor.b },
+    opacity: clamp01(borderColor.a)
+  }];
+  node.strokeWeight = borderWidth;
+  node.strokeAlign = 'INSIDE';
+}
+
+function applyEffects(node, styles) {
+  if (styles.boxShadow && styles.boxShadow !== 'none') {
+    const effects = parseBoxShadows(styles.boxShadow);
+    if (effects.length > 0) node.effects = effects;
+  }
 }
 
 function applyCornerRadius(node, styles) {
@@ -166,7 +327,10 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   // SVG Vector element
   if (sNode.content && (sNode.tag === 'SVG' || sNode.content.includes('<svg'))) {
     try {
-      const svgNode = figma.createNodeFromSvg(sNode.content);
+      let cleanSvg = sNode.content;
+      // Strip potentially problematic script tags or broken entities inside SVG
+      cleanSvg = cleanSvg.replace(/<script[\s\S]*?<\/script>/gi, '');
+      const svgNode = figma.createNodeFromSvg(cleanSvg);
       svgNode.name = sNode.tag.toLowerCase();
       parentFrame.appendChild(svgNode);
       svgNode.x = x; svgNode.y = y;
@@ -174,7 +338,9 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       applyOpacity(svgNode, s);
       reportProgress();
       return;
-    } catch {}
+    } catch {
+      // If strict vector parsing fails, fall through so it still creates a positioned frame container
+    }
   }
 
   // IMG element
@@ -194,6 +360,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           rect.resize(w, h);
           const img = figma.createImage(bytes);
           rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+          applyStrokes(rect, s);
+          applyEffects(rect, s);
           applyCornerRadius(rect, s);
           applyOpacity(rect, s);
           reportProgress();
@@ -218,6 +386,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           rect.resize(w, h);
           const img = figma.createImage(bytes);
           rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+          applyStrokes(rect, s);
+          applyEffects(rect, s);
           applyCornerRadius(rect, s);
           applyOpacity(rect, s);
           reportProgress();
@@ -237,6 +407,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden');
 
   applyFills(frame, s, assets);
+  applyStrokes(frame, s);
+  applyEffects(frame, s);
   applyCornerRadius(frame, s);
   applyOpacity(frame, s);
 
@@ -290,16 +462,22 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   if (color) {
     textNode.fills = [{ type: 'SOLID', color: { r: color.r, g: color.g, b: color.b }, opacity: clamp01(color.a) }];
   }
+  applyOpacity(textNode, s);
 
   parentFrame.appendChild(textNode);
-  textNode.x = Math.round((sNode.rect?.x || 0) - parentX);
-  textNode.y = Math.round((sNode.rect?.y || 0) - parentY);
+  const posX = (sNode.rect?.x || 0) - parentX;
+  const posY = (sNode.rect?.y || 0) - parentY;
+  textNode.x = posX;
+  textNode.y = posY;
 
   const w = sNode.rect?.width || 0;
-  if (w > 0) {
+  const h = sNode.rect?.height || 0;
+  if (sNode.lineCount && sNode.lineCount > 1 && w > 0 && h > 0) {
     textNode.textAutoResize = 'NONE';
-    textNode.resize(Math.ceil(w) + 6, Math.max(1, textNode.height));
+    textNode.resize(Math.ceil(w) + 2, Math.ceil(h));
     textNode.textAutoResize = 'HEIGHT';
+  } else {
+    textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
   }
 }
 
@@ -323,7 +501,15 @@ async function renderTree(data) {
   rootFrame.resize(dw, dh);
   rootFrame.x = figma.viewport.center.x - dw / 2;
   rootFrame.y = figma.viewport.center.y - dh / 2;
-  rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  
+  if (data.root?.styles) {
+    applyFills(rootFrame, data.root.styles, data.assets);
+    if (!rootFrame.fills || !rootFrame.fills.length) {
+      rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+    }
+  } else {
+    rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  }
   rootFrame.clipsContent = false;
 
   figma.currentPage.appendChild(rootFrame);

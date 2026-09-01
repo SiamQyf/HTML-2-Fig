@@ -9,7 +9,7 @@
   if (window.__html2FigRunning) return;
   window.__html2FigRunning = true;
 
-  const FETCH_TIMEOUT = 12000;
+  const FETCH_TIMEOUT = 3500;
   const ELEMENT_NODE = 1;
   const TEXT_NODE = 3;
 
@@ -89,19 +89,18 @@
    *  3.  PAGE PRE-SCROLLER (Triggers lazy-loaded images & animations)
    * ====================================================================== */
   async function prepareAndScrollPage() {
-    const origX = window.scrollX;
-    const origY = window.scrollY;
-    const scrollHeight = document.documentElement.scrollHeight;
-    const step = window.innerHeight * 0.8;
+    const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+    const step = Math.max(window.innerHeight * 2, 1200);
 
     for (let y = 0; y < scrollHeight; y += step) {
       window.scrollTo(0, y);
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, 16));
     }
     window.scrollTo(0, scrollHeight);
-    await new Promise(r => setTimeout(r, 60));
-    window.scrollTo(origX, origY);
-    await new Promise(r => setTimeout(r, 60));
+    await new Promise(r => setTimeout(r, 20));
+    // Always restore to top (0, 0) for DOM serialization
+    window.scrollTo(0, 0);
+    await new Promise(r => setTimeout(r, 40));
   }
 
   /* ======================================================================
@@ -368,32 +367,114 @@
 
   function serializeNode(node, assets, fonts, parentStyles) {
     if (node.nodeType === TEXT_NODE) {
-      const text = (node.textContent || '').trim();
-      if (!text) return null;
+      const text = node.textContent || '';
+      if (!text.trim()) return null;
       const r = document.createRange();
       r.selectNodeContents(node);
-      const rect = r.getBoundingClientRect();
+      const clientRects = r.getClientRects();
+      const isFixed = parentStyles?.position === 'fixed';
+      
+      // If single line or no detailed rects, return standard node
+      if (clientRects.length <= 1) {
+        const rect = r.getBoundingClientRect();
+        r.detach();
+        if (rect.width === 0 && rect.height === 0) return null;
+        return {
+          nodeType: TEXT_NODE,
+          id: getNodeId('text'),
+          text,
+          rect: {
+            x: rect.x + (isFixed ? 0 : window.scrollX),
+            y: rect.y + (isFixed ? 0 : window.scrollY),
+            width: Math.ceil(rect.width),
+            height: Math.ceil(rect.height)
+          },
+          styles: parentStyles || {},
+          lineCount: 1
+        };
+      }
+
+      // For multiline inline text with spans/links, serialize each line segment accurately
+      const segments = [];
+      const len = node.length;
+      let lineStart = 0;
+      let lastTop = null;
+
+      for (let i = 0; i < len; i++) {
+        r.setStart(node, i);
+        r.setEnd(node, i + 1);
+        const charRect = r.getBoundingClientRect();
+        if (charRect.width === 0 && charRect.height === 0) continue;
+
+        if (lastTop === null) {
+          lastTop = charRect.top;
+        } else if (Math.abs(charRect.top - lastTop) > 3) {
+          // Line break detected
+          r.setStart(node, lineStart);
+          r.setEnd(node, i);
+          const lineBox = r.getBoundingClientRect();
+          const lineText = text.slice(lineStart, i);
+          if (lineText.trim()) {
+            segments.push({
+              nodeType: TEXT_NODE,
+              id: getNodeId('text-line'),
+              text: lineText,
+              rect: {
+                x: lineBox.x + (isFixed ? 0 : window.scrollX),
+                y: lineBox.y + (isFixed ? 0 : window.scrollY),
+                width: Math.ceil(lineBox.width),
+                height: Math.ceil(lineBox.height)
+              },
+              styles: parentStyles || {},
+              lineCount: 1
+            });
+          }
+          lineStart = i;
+          lastTop = charRect.top;
+        }
+      }
+
+      // Add final line segment
+      r.setStart(node, lineStart);
+      r.setEnd(node, len);
+      const finalBox = r.getBoundingClientRect();
+      const finalLineText = text.slice(lineStart);
+      if (finalLineText.trim()) {
+        segments.push({
+          nodeType: TEXT_NODE,
+          id: getNodeId('text-line'),
+          text: finalLineText,
+          rect: {
+            x: finalBox.x + (isFixed ? 0 : window.scrollX),
+            y: finalBox.y + (isFixed ? 0 : window.scrollY),
+            width: Math.ceil(finalBox.width),
+            height: Math.ceil(finalBox.height)
+          },
+          styles: parentStyles || {},
+          lineCount: 1
+        });
+      }
       r.detach();
-      if (rect.width === 0 && rect.height === 0) return null;
-      return {
-        nodeType: TEXT_NODE,
-        id: getNodeId('text'),
-        text: node.textContent || '',
-        rect: {
-          x: rect.x + window.scrollX,
-          y: rect.y + window.scrollY,
-          width: Math.ceil(rect.width),
-          height: Math.ceil(rect.height)
-        },
+
+      return segments.length === 1 ? segments[0] : (segments.length > 1 ? {
+        nodeType: ELEMENT_NODE,
+        id: getNodeId('text-wrap'),
+        tag: 'SPAN',
         styles: parentStyles || {},
-        lineCount: 1
-      };
+        rect: {
+          x: clientRects[0].x + (isFixed ? 0 : window.scrollX),
+          y: clientRects[0].y + (isFixed ? 0 : window.scrollY),
+          width: Math.ceil(r.getBoundingClientRect ? r.getBoundingClientRect().width : clientRects[0].width),
+          height: Math.ceil(clientRects[0].height)
+        },
+        childNodes: segments
+      } : null);
     }
 
     if (node.nodeType !== ELEMENT_NODE) return null;
     const el = node;
     const tag = el.tagName.toUpperCase();
-    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'IFRAME', 'LINK', 'TEMPLATE'].includes(tag)) return null;
+    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE'].includes(tag)) return null;
 
     const styles = getElementStyles(el);
     if (styles.display === 'none' || styles.visibility === 'hidden') return null;
@@ -419,9 +500,10 @@
     }
 
     const clientRect = el.getBoundingClientRect();
+    const isFixed = styles.position === 'fixed';
     const docRect = {
-      x: clientRect.x + window.scrollX,
-      y: clientRect.y + window.scrollY,
+      x: clientRect.x + (isFixed ? 0 : window.scrollX),
+      y: clientRect.y + (isFixed ? 0 : window.scrollY),
       width: clientRect.width,
       height: clientRect.height
     };
@@ -442,16 +524,42 @@
         const sChild = serializeNode(child, assets, fonts, styles);
         if (sChild) childNodes.push(sChild);
       }
+
+      // Sort child nodes according to CSS stacking context (z-index)
+      if (childNodes.length > 1) {
+        childNodes.sort((a, b) => {
+          const zA = a.styles?.zIndex && a.styles.zIndex !== 'auto' ? parseInt(a.styles.zIndex, 10) || 0 : 0;
+          const zB = b.styles?.zIndex && b.styles.zIndex !== 'auto' ? parseInt(b.styles.zIndex, 10) || 0 : 0;
+          return zA - zB;
+        });
+      }
     }
 
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-      if (el.value && !childNodes.length) {
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || tag === 'INPUT' || tag === 'TEXTAREA') {
+      const val = el.value || el.placeholder || el.getAttribute('placeholder') || '';
+      if (val && !childNodes.length) {
+        const isPlaceholder = !el.value && (el.placeholder || el.getAttribute('placeholder'));
+        const padLeft = parseFloat(styles.paddingLeft) || 12;
+        const padTop = parseFloat(styles.paddingTop) || 8;
+        
+        // Placeholder text style (slightly lighter if it's placeholder)
+        const textStyles = { ...styles };
+        if (isPlaceholder) {
+          textStyles.color = textStyles.color ? textStyles.color : 'rgba(0, 0, 0, 0.4)';
+          textStyles.opacity = '0.55';
+        }
+
         childNodes.push({
           nodeType: TEXT_NODE,
-          id: getNodeId('val'),
-          text: el.value,
-          rect: docRect,
-          styles,
+          id: getNodeId('input-text'),
+          text: val,
+          rect: {
+            x: docRect.x + padLeft,
+            y: docRect.y + padTop,
+            width: Math.max(1, docRect.width - padLeft - (parseFloat(styles.paddingRight) || 12)),
+            height: Math.max(1, docRect.height - padTop - (parseFloat(styles.paddingBottom) || 8))
+          },
+          styles: textStyles,
           lineCount: 1
         });
       }
