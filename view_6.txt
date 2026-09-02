@@ -1,0 +1,808 @@
+Created At: 2026-09-02T11:54:46+06:00
+Completed At: 2026-09-02T11:54:46+06:00
+File Path: `file:///c:/h2F/packages/chrome-extension/capture.js`
+Total Lines: 930
+Total Bytes: 35823
+Showing lines 1 to 800
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: /*
+2:  * HTML 2 Fig — High-Fidelity Capture Engine
+3:  * Captures document.body directly (preventing duplicated HEAD/HTML rendering),
+4:  * pre-scrolls to activate lazy sections, and serializes clean DOM trees.
+5:  */
+6: ;(async function html2FigCapture() {
+7:   'use strict';
+8: 
+9:   if (window.__html2FigRunning) return;
+10:   window.__html2FigRunning = true;
+11: 
+12:   const FETCH_TIMEOUT = 3500;
+13:   const ELEMENT_NODE = 1;
+14:   const TEXT_NODE = 3;
+15: 
+16:   /* ======================================================================
+17:    *  1.  CSS DEFAULTS MAP
+18:    * ====================================================================== */
+19:   const CSS_DEFAULTS = {
+20:     alignContent: 'normal', alignItems: 'normal', alignSelf: 'auto',
+21:     aspectRatio: 'auto', backdropFilter: 'none', backgroundAttachment: 'scroll',
+22:     backgroundBlendMode: 'normal', backgroundClip: 'border-box',
+23:     backgroundColor: 'rgba(0, 0, 0, 0)', backgroundImage: 'none',
+24:     backgroundOrigin: 'padding-box', backgroundPositionX: '0%', backgroundPositionY: '0%',
+25:     backgroundRepeat: 'repeat', backgroundSize: 'auto', borderBottomColor: 'rgb(0, 0, 0)',
+26:     borderBottomLeftRadius: '0px', borderBottomRightRadius: '0px', borderBottomStyle: 'none',
+27:     borderBottomWidth: '0px', borderCollapse: 'separate', borderImageOutset: '0',
+28:     borderImageRepeat: 'stretch', borderImageSlice: '100%', borderImageSource: 'none',
+29:     borderImageWidth: '1', borderLeftColor: 'rgb(0, 0, 0)', borderLeftStyle: 'none',
+30:     borderLeftWidth: '0px', borderRightColor: 'rgb(0, 0, 0)', borderRightStyle: 'none',
+31:     borderRightWidth: '0px', borderSpacing: '0px', borderTopColor: 'rgb(0, 0, 0)',
+32:     borderTopLeftRadius: '0px', borderTopRightRadius: '0px', borderTopStyle: 'none',
+33:     borderTopWidth: '0px', bottom: 'auto', boxShadow: 'none', boxSizing: 'content-box',
+34:     clear: 'none', clip: 'auto', clipPath: 'none', clipRule: 'nonzero',
+35:     color: 'rgb(0, 0, 0)', colorScheme: 'normal', columnGap: 'normal',
+36:     display: '', filter: 'none', flexBasis: 'auto', flexDirection: 'row',
+37:     flexGrow: '0', flexShrink: '1', flexWrap: 'nowrap', float: 'none',
+38:     fontFamily: 'Times', fontSize: '16px', fontStretch: '100%',
+39:     fontStyle: 'normal', fontWeight: '400', gridAutoColumns: 'auto',
+40:     gridAutoFlow: 'row', gridAutoRows: 'auto', height: 'auto',
+41:     isolation: 'auto', justifyContent: 'normal', justifyItems: 'normal',
+42:     left: 'auto', letterSpacing: 'normal', lineHeight: 'normal',
+43:     marginBottom: '0px', marginLeft: '0px', marginRight: '0px', marginTop: '0px',
+44:     maxHeight: 'none', maxWidth: 'none', minHeight: 'auto', minWidth: 'auto',
+45:     mixBlendMode: 'normal', objectFit: 'fill', opacity: '1', order: '0',
+46:     outlineColor: 'rgb(0, 0, 0)', outlineOffset: '0px', outlineStyle: 'none',
+47:     outlineWidth: '0px', overflow: 'visible', overflowX: 'visible', overflowY: 'visible',
+48:     position: 'static', paddingBottom: '0px', paddingLeft: '0px',
+49:     paddingRight: '0px', paddingTop: '0px', quotes: 'auto', right: 'auto',
+50:     rowGap: 'normal', textAlign: 'start', textDecorationColor: 'rgb(0, 0, 0)',
+51:     textDecorationLine: 'none', textDecorationStyle: 'solid', textIndent: '0px',
+52:     textShadow: 'none', textTransform: 'none', top: 'auto',
+53:     transform: 'none', transformOrigin: 'auto', translate: 'none',
+54:     rotate: 'none', scale: 'none', verticalAlign: 'baseline',
+55:     visibility: 'visible', webkitTextFillColor: '', whiteSpace: 'normal',
+56:     width: 'auto', writingMode: 'horizontal-tb', zIndex: 'auto'
+57:   };
+58: 
+59:   /* ======================================================================
+60:    *  2.  IN-PAGE TOAST NOTIFICATION
+61:    * ====================================================================== */
+62:   function showToast(message, duration) {
+63:     const host = document.createElement('div');
+64:     host.style.cssText = 'all:initial; position:fixed; z-index:2147483647;';
+65:     const root = host.attachShadow({ mode: 'closed' });
+66:     root.innerHTML = `
+67:       <style>
+68:         .toast {
+69:           position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+70:           background: #1e1e1e; color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+71:           font-size: 13px; font-weight: 500; padding: 12px 22px; border-radius: 10px;
+72:           box-shadow: 0 8px 30px rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.12);
+73:           display: flex; align-items: center; gap: 8px; z-index: 2147483647; pointer-events: auto;
+74:           animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+75:         }
+76:         @keyframes slideUp {
+77:           from { opacity: 0; transform: translate(-50%, 12px); }
+78:           to { opacity: 1; transform: translate(-50%, 0); }
+79:         }
+80:       </style>
+81:       <div class="toast">${message}</div>
+82:     `;
+83:     document.documentElement.appendChild(host);
+84:     if (duration) setTimeout(() => { try { host.remove(); } catch {} }, duration);
+85:     return host;
+86:   }
+87: 
+88:   /* ======================================================================
+89:    *  3.  PAGE PRE-SCROLLER (Triggers lazy-loaded images & animations)
+90:    * ====================================================================== */
+91:   async function prepareAndScrollPage() {
+92:     const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+93:     const step = Math.max(window.innerHeight * 2, 1200);
+94: 
+95:     for (let y = 0; y < scrollHeight; y += step) {
+96:       window.scrollTo(0, y);
+97:       await new Promise(r => setTimeout(r, 16));
+98:     }
+99:     window.scrollTo(0, scrollHeight);
+100:     await new Promise(r => setTimeout(r, 20));
+101:     // Always restore to top (0, 0) for DOM serialization
+102:     window.scrollTo(0, 0);
+103:     await new Promise(r => setTimeout(r, 40));
+104:   }
+105: 
+106:   /* ======================================================================
+107:    *  4.  UNIVERSAL ASSET & IMAGE CONVERTER
+108:    * ====================================================================== */
+109:   async function convertToPngBlob(blob) {
+110:     if (!blob) return null;
+111:     if (blob.type === 'image/png' || blob.type === 'image/jpeg') return blob;
+112: 
+113:     try {
+114:       if (typeof createImageBitmap === 'function') {
+115:         const bmp = await createImageBitmap(blob);
+116:         const c = document.createElement('canvas');
+117:         c.width = bmp.width || 1;
+118:         c.height = bmp.height || 1;
+119:         const ctx = c.getContext('2d');
+120:         if (ctx) {
+121:           ctx.drawImage(bmp, 0, 0);
+122:           return new Promise(resolve => c.toBlob(resolve, 'image/png'));
+123:         }
+124:       }
+125:     } catch {}
+126: 
+127:     return new Promise(resolve => {
+128:       const url = URL.createObjectURL(blob);
+129:       const img = new Image();
+130:       img.crossOrigin = 'anonymous';
+131:       img.onload = () => {
+132:         try {
+133:           const c = document.createElement('canvas');
+134:           c.width = img.naturalWidth || 1;
+135:           c.height = img.naturalHeight || 1;
+136:           const ctx = c.getContext('2d');
+137:           if (ctx) ctx.drawImage(img, 0, 0);
+138:           c.toBlob(b => {
+139:             URL.revokeObjectURL(url);
+140:             resolve(b || blob);
+141:           }, 'image/png');
+142:         } catch {
+143:           URL.revokeObjectURL(url);
+144:           resolve(blob);
+145:         }
+146:       };
+147:       img.onerror = () => {
+148:         URL.revokeObjectURL(url);
+149:         resolve(blob);
+150:       };
+151:       img.src = url;
+152:     });
+153:   }
+154: 
+155:   function blobToBase64(blob) {
+156:     if (!blob) return Promise.resolve(null);
+157:     return new Promise((resolve, reject) => {
+158:       const reader = new FileReader();
+159:       reader.onload = () => resolve({ type: blob.type, data: reader.result });
+160:       reader.onerror = () => reject(reader.error);
+161:       reader.readAsDataURL(blob);
+162:     });
+163:   }
+164: 
+165:   async function rasterizeCanvas(cv) {
+166:     try {
+167:       const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+168:       if (blob) return blobToBase64(blob);
+169:     } catch {}
+170:     try {
+171:       const dataUrl = cv.toDataURL('image/png');
+172:       return { type: 'image/png', data: dataUrl };
+173:     } catch {
+174:       return null;
+175:     }
+176:   }
+177: 
+178:   async function rasterizeVideo(video) {
+179:     try {
+180:       if (video.videoWidth === 0 || video.videoHeight === 0) return null;
+181:       const c = document.createElement('canvas');
+182:       c.width = video.videoWidth;
+183:       c.height = video.videoHeight;
+184:       const ctx = c.getContext('2d');
+185:       if (!ctx) return null;
+186:       ctx.drawImage(video, 0, 0);
+187:       const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+188:       return blob ? blobToBase64(blob) : null;
+189:     } catch {
+190:       return null;
+191:     }
+192:   }
+193: 
+194:   async function fetchImage(url) {
+195:     if (!url) return null;
+196:     try {
+197:       const ctrl = new AbortController();
+198:       const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
+199:       const res = await fetch(url, { signal: ctrl.signal });
+200:       clearTimeout(timer);
+201:       if (!res.ok) throw new Error('HTTP ' + res.status);
+202:       let blob = await res.blob();
+203:       blob = await convertToPngBlob(blob);
+204:       return { url, blob: await blobToBase64(blob) };
+205:     } catch {
+206:       return new Promise(resolve => {
+207:         const img = new Image();
+208:         img.crossOrigin = 'anonymous';
+209:         img.onload = () => {
+210:           try {
+211:             const c = document.createElement('canvas');
+212:             c.width = img.naturalWidth || 1;
+213:             c.height = img.naturalHeight || 1;
+214:             const ctx = c.getContext('2d');
+215:             if (ctx) ctx.drawImage(img, 0, 0);
+216:             c.toBlob(b => {
+217:               blobToBase64(b).then(b64 => resolve({ url, blob: b64 })).catch(() => resolve({ url, blob: null }));
+218:             }, 'image/png');
+219:           } catch {
+220:             resolve({ url, blob: null });
+221:           }
+222:         };
+223:         img.onerror = () => resolve({ url, blob: null });
+224:         img.src = url;
+225:       });
+226:     }
+227:   }
+228: 
+229:   class AssetCollector {
+230:     constructor() {
+231:       this.promises = new Map();
+232:       this.rasterizedId = 0;
+233:     }
+234:     addImage(url) {
+235:       if (!url || this.promises.has(url)) return;
+236:       this.promises.set(url, fetchImage(url));
+237:     }
+238:     addCanvas(canvas) {
+239:       const id = `rasterized:canvas:${++this.rasterizedId}`;
+240:       this.promises.set(id, rasterizeCanvas(canvas).then(blob => ({ url: id, blob })));
+241:       return id;
+242:     }
+243:     addVideo(video) {
+244:       const id = `rasterized:video:${++this.rasterizedId}`;
+245:       this.promises.set(id, rasterizeVideo(video).then(blob => ({ url: id, blob })));
+246:       return id;
+247:     }
+248:     async getBlobMap() {
+249:       const map = {};
+250:       for (const [url, p] of this.promises.entries()) {
+251:         try {
+252:           const res = await p;
+253:           if (res && res.blob) map[url] = res;
+254:         } catch {}
+255:       }
+256:       return map;
+257:     }
+258:   }
+259: 
+260:   /* ======================================================================
+261:    *  5.  FONT COLLECTOR
+262:    * ====================================================================== */
+263:   class FontCollector {
+264:     constructor() {
+265:       this.families = new Set();
+266:     }
+267:     addFont(family) {
+268:       if (!family) return;
+269:       const clean = family.replace(/['"]/g, '').split(',')[0].trim();
+270:       if (clean) this.families.add(clean);
+271:     }
+272:     getFonts() {
+273:       return Array.from(this.families);
+274:     }
+275:   }
+276: 
+277:   /* ======================================================================
+278:    *  6.  DOM TRAVERSAL (Clean Element-by-Element)
+279:    * ====================================================================== */
+280:   let nodeCounter = 0;
+281:   function getNodeId(prefix = 'h2f') { return `${prefix}-node-${++nodeCounter}`; }
+282: 
+283:   function getElementStyles(el) {
+284:     const cs = window.getComputedStyle(el);
+285:     const styles = {};
+286:     for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
+287:       const val = cs[prop];
+288:       if (val !== undefined && val !== defVal && val !== '') {
+289:         styles[prop] = val;
+290:       }
+291:     }
+292:     styles.fontFamily = cs.fontFamily;
+293:     styles.fontSize = cs.fontSize;
+294:     styles.fontWeight = cs.fontWeight;
+295:     styles.fontStyle = cs.fontStyle;
+296:     styles.color = cs.color;
+297:     styles.webkitTextFillColor = cs.webkitTextFillColor || cs.color;
+298:     styles.lineHeight = cs.lineHeight;
+299:     styles.letterSpacing = cs.letterSpacing;
+300:     styles.textAlign = cs.textAlign;
+301:     styles.textTransform = cs.textTransform;
+302:     // Always capture background and border radius for frame fills
+303:     styles.backgroundColor = cs.backgroundColor;
+304:     styles.borderRadius = cs.borderRadius;
+305:     styles.borderTopLeftRadius = cs.borderTopLeftRadius;
+306:     styles.borderTopRightRadius = cs.borderTopRightRadius;
+307:     styles.borderBottomRightRadius = cs.borderBottomRightRadius;
+308:     styles.borderBottomLeftRadius = cs.borderBottomLeftRadius;
+309:     styles.borderTopStyle = cs.borderTopStyle;
+310:     styles.borderBottomStyle = cs.borderBottomStyle;
+311:     styles.borderLeftStyle = cs.borderLeftStyle;
+312:     styles.borderRightStyle = cs.borderRightStyle;
+313:     styles.borderTopWidth = cs.borderTopWidth;
+314:     styles.borderBottomWidth = cs.borderBottomWidth;
+315:     styles.borderLeftWidth = cs.borderLeftWidth;
+316:     styles.borderRightWidth = cs.borderRightWidth;
+317:     styles.borderTopColor = cs.borderTopColor;
+318:     styles.borderBottomColor = cs.borderBottomColor;
+319:     styles.borderLeftColor = cs.borderLeftColor;
+320:     styles.borderRightColor = cs.borderRightColor;
+321: 
+322:     return styles;
+323:   }
+324: 
+325:   function getAttributes(el) {
+326:     const attrs = {};
+327:     if (!el.attributes) return attrs;
+328:     const allowed = ['id', 'class', 'src', 'currentSrc', 'srcset', 'data-src', 'alt', 'href', 'type', 'placeholder', 'value', 'aria-label'];
+329:     for (const attr of el.attributes) {
+330:       const name = attr.name.toLowerCase();
+331:       if (allowed.includes(name) || name.startsWith('aria-') || name.startsWith('data-')) {
+332:         attrs[attr.name] = attr.value;
+333:       }
+334:     }
+335:     if (el instanceof HTMLImageElement) {
+336:       if (el.currentSrc) attrs.currentSrc = el.currentSrc;
+337:       if (el.src) attrs.src = el.src;
+338:     }
+339:     return attrs;
+340:   }
+341: 
+342:   
+343:   /* ======================================================================
+344:    *  5.5  OPENTYPE FONT SVG EXTRACTION
+345:    * ====================================================================== */
+346:   const fontUrlMap = new Map();
+347:   const fontParseCache = new Map();
+348: 
+349:   function initFontMap() {
+350:     try {
+351:       for (const sheet of Array.from(document.styleSheets)) {
+352:         try {
+353:           for (const rule of Array.from(sheet.cssRules)) {
+354:             if (rule.type === CSSRule.FONT_FACE_RULE) {
+355:               const family = rule.style.fontFamily?.replace(/['"]/g, '');
+356:               const src = rule.style.src;
+357:               if (family && src) {
+358:                 let fontUrl = null;
+359:                 const ttfMatch = src.match(/url\(["']?(.*?\.ttf(\?.*?)?)["']?\)/i);
+360:                 const woffMatch = src.match(/url\(["']?(.*?\.woff(\?.*?)?)["']?\)/i);
+361:                 const fallbackMatch = src.match(/url\(["']?(.*?)["']?\)/);
+362:                 
+363:                 if (ttfMatch) fontUrl = ttfMatch[1];
+364:                 else if (woffMatch && !woffMatch[1].endsWith('.woff2')) fontUrl = woffMatch[1];
+365:                 else if (fallbackMatch && !fallbackMatch[1].includes('.woff2')) fontUrl = fallbackMatch[1];
+366:                 
+367:                 if (fontUrl && !fontUrl.startsWith('data:')) {
+368:                   try { fontUrl = new URL(fontUrl, sheet.href || window.location.href).href; } catch {}
+369:                   fontUrlMap.set(family, fontUrl);
+370:                 }
+371:               }
+372:             }
+373:           }
+374:         } catch (e) {}
+375:       }
+376:     } catch(e) {}
+377:   }
+378: 
+379:   async function getFontSvgPath(family, char, fontSize) {
+380:     if (!family || !char || typeof opentype === 'undefined') return null;
+381:     const cleanFamily = family.replace(/['"]/g, '').split(',')[0].trim();
+382:     const url = fontUrlMap.get(cleanFamily);
+383:     if (!url) return null;
+384: 
+385:     if (!fontParseCache.has(url)) {
+386:       fontParseCache.set(url, new Promise(async (resolve) => {
+387:         try {
+388:           if (typeof chrome !== 'undefined' && chrome.runtime) {
+389:             const bgRes = await new Promise((res) => {
+390:               chrome.runtime.sendMessage({ type: 'FETCH_FONT', url }, (resp) => {
+391:                 if (chrome.runtime.lastError) res({ error: chrome.runtime.lastError.message });
+392:                 else res(resp || { error: 'No response' });
+393:               });
+394:             });
+395:             if (bgRes && bgRes.data) {
+396:               const binaryString = atob(bgRes.data);
+397:               const bytes = new Uint8Array(binaryString.length);
+398:               for (let i = 0; i < binaryString.length; i++) {
+399:                 bytes[i] = binaryString.charCodeAt(i);
+400:               }
+401:               const font = opentype.parse(bytes.buffer);
+402:               resolve(font);
+403:               return;
+404:             }
+405:           }
+406:           resolve(null);
+407:         } catch (e) {
+408:           resolve(null);
+409:         }
+410:       }));
+411:     }
+412: 
+413:     const font = await fontParseCache.get(url);
+414:     if (!font) return null;
+415: 
+416:     try {
+417:       const size = parseFloat(fontSize) || 16;
+418:       const baselineY = (font.ascender / font.unitsPerEm) * size;
+419:       const path = font.getPath(char, 0, baselineY, size);
+420:       const bbox = path.getBoundingBox();
+421:       
+422:       return { svgPath: path.toSVG(), bbox };
+423:     } catch {
+424:       return null;
+425:     }
+426:   }
+427: 
+428:   function serializeSVG(el) {
+429:     try {
+430:       const clone = el.cloneNode(true);
+431:       const cs = window.getComputedStyle(el);
+432:       const w = parseFloat(cs.width) || el.clientWidth || el.getBoundingClientRect().width;
+433:       const h = parseFloat(cs.height) || el.clientHeight || el.getBoundingClientRect().height;
+434:       if (w > 0 && h > 0) {
+435:         clone.setAttribute('width', String(Math.round(w)));
+436:         clone.setAttribute('height', String(Math.round(h)));
+437:       }
+438: 
+439:       // Read computed fill/stroke from ORIGINAL in-DOM elements, write onto clone
+440:       const computedColor = cs.color;
+441:       const origChildren = el.querySelectorAll('*');
+442:       const cloneChildren = clone.querySelectorAll('*');
+443:       for (let i = 0; i < origChildren.length && i < cloneChildren.length; i++) {
+444:         const orig = origChildren[i];
+445:         const cloned = cloneChildren[i];
+446:         try {
+447:           const origCs = window.getComputedStyle(orig);
+448:           const computedFill = origCs.fill;
+449:           const computedStroke = origCs.stroke;
+450: 
+451:           // Resolve currentColor and inline the actual rendered color
+452:           const attrFill = cloned.getAttribute('fill');
+453:           const attrStroke = cloned.getAttribute('stroke');
+454: 
+455:           if (attrFill === 'currentColor') {
+456:             cloned.setAttribute('fill', computedColor);
+457:           } else if (computedFill && computedFill !== 'none') {
+458:             cloned.setAttribute('fill', computedFill);
+459:           }
+460: 
+461:           if (attrStroke === 'currentColor') {
+462:             cloned.setAttribute('stroke', computedColor);
+463:           } else if (computedStroke && computedStroke !== 'none' && computedStroke !== 'rgba(0, 0, 0, 0)') {
+464:             cloned.setAttribute('stroke', computedStroke);
+465:           }
+466:         } catch {}
+467:       }
+468: 
+469:       // Set color on the SVG root too for any remaining currentColor references
+470:       if (computedColor) {
+471:         clone.setAttribute('color', computedColor);
+472:         clone.style.color = computedColor;
+473:       }
+474: 
+475:       return clone.outerHTML;
+476:     } catch {
+477:       return null;
+478:     }
+479:   }
+480: 
+481:   async function serializePseudo(el, pseudo, fonts, parentRect) {
+482:     try {
+483:       const cs = window.getComputedStyle(el, pseudo);
+484:       const content = cs.content;
+485:       const display = cs.display;
+486:       if (display === 'none' || cs.opacity === '0') return null;
+487: 
+488:       // Skip elements hidden via scale(0) transform (common for hover underlines)
+489:       if (cs.transform && cs.transform.startsWith('matrix')) {
+490:         const parts = cs.transform.match(/matrix\(([^)]+)\)/);
+491:         if (parts) {
+492:           const [a, b, c, d] = parts[1].split(',').map(s => parseFloat(s.trim()));
+493:           if ((Math.abs(a) < 0.001 && Math.abs(b) < 0.001) || (Math.abs(c) < 0.001 && Math.abs(d) < 0.001)) {
+494:             return null;
+495:           }
+496:         }
+497:       }
+498:       
+499:       const hasContent = content && content !== 'none' && content !== 'normal' && content !== '""';
+500:       const hasBgImage = cs.backgroundImage && cs.backgroundImage !== 'none';
+501:       const hasMaskImage = (cs.maskImage && cs.maskImage !== 'none') || (cs.webkitMaskImage && cs.webkitMaskImage !== 'none');
+502:       const hasBgColor = cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
+503:       const hasBorder = cs.borderWidth && parseFloat(cs.borderWidth) > 0 && cs.borderStyle !== 'none';
+504:       const hasShadow = cs.boxShadow && cs.boxShadow !== 'none';
+505:       
+506:       if (!hasContent && !hasBgImage && !hasMaskImage && !hasBgColor && !hasBorder && !hasShadow) {
+507:         return null;
+508:       }
+509: 
+510:       const text = hasContent ? content.replace(/^[\"']|[\"']$/g, '').trim() : '';
+511:       
+512:       const styles = {};
+513:       for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
+514:         const val = cs[prop];
+515:         if (val !== undefined && val !== defVal && val !== '') {
+516:           styles[prop] = val;
+517:         }
+518:       }
+519:       if (styles.fontFamily) fonts.addFont(styles.fontFamily);
+520:       
+521:       if (Array.from(text).length === 1) {
+522:         const fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize);
+523:         if (fontData && fontData.svgPath) {
+524:            const { svgPath, bbox } = fontData;
+525:            const pathW = bbox.x2 - bbox.x1;
+526:            const pathH = bbox.y2 - bbox.y1;
+527:            const parentW = Math.ceil(parentRect.width);
+528:            const parentH = Math.ceil(parentRect.height);
+529:            const tx = (parentW - pathW) / 2 - bbox.x1;
+530:            const ty = (parentH - pathH) / 2 - bbox.y1;
+531: 
+532:            return {
+533:             nodeType: ELEMENT_NODE,
+534:             id: getNodeId('svg-icon-pseudo'),
+535:             tag: 'SVG',
+536:             content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+537:             styles: styles,
+538:             rect: parentRect
+539:           };
+540:         }
+541:       }
+542: 
+543:       return {
+544:         nodeType: ELEMENT_NODE,
+545:         id: getNodeId('pseudo'),
+546:         tag: 'SPAN',
+547:         attributes: { class: pseudo.replace('::', '__') },
+548:         styles,
+549:         rect: parentRect,
+550:         text
+551:       };
+552:     } catch {
+553:       return null;
+554:     }
+555:   }
+556: 
+557:   async function serializeNode(node, assets, fonts, parentStyles) {
+558:     if (node.nodeType === TEXT_NODE) {
+559:       const text = node.textContent || '';
+560:       if (!text.trim()) return null;
+561:       const r = document.createRange();
+562:       r.selectNodeContents(node);
+563:       const rect = r.getBoundingClientRect();
+564:       const clientRects = r.getClientRects();
+565:       r.detach();
+566:       if (rect.width === 0 && rect.height === 0) return null;
+567:       const isFixed = parentStyles?.position === 'fixed';
+568: 
+569:       // If single line or small inline token (like '$', '13', 'Popular Package'), preserve exact position
+570:       
+571:       // Check if it's an icon font character
+572:       const charStr = text.trim() || text;
+573:       if (Array.from(charStr).length === 1) {
+574:         const fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize);
+575:         if (fontData && fontData.svgPath) {
+576:           const { svgPath, bbox } = fontData;
+577:           const pathW = bbox.x2 - bbox.x1;
+578:           const pathH = bbox.y2 - bbox.y1;
+579:           const parentW = Math.ceil(rect.width);
+580:           const parentH = Math.ceil(rect.height);
+581:           const tx = (parentW - pathW) / 2 - bbox.x1;
+582:           const ty = (parentH - pathH) / 2 - bbox.y1;
+583: 
+584:           return {
+585:             nodeType: ELEMENT_NODE,
+586:             id: getNodeId('svg-icon'),
+587:             tag: 'SVG',
+588:             content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+589:             styles: parentStyles || {},
+590:             rect: {
+591:               x: rect.x + (isFixed ? 0 : window.scrollX),
+592:               y: rect.y + (isFixed ? 0 : window.scrollY),
+593:               width: parentW,
+594:               height: parentH
+595:             }
+596:           };
+597:         }
+598:       }
+599: 
+600:       if (clientRects.length <= 1) {
+601: 
+602:         return {
+603:           nodeType: TEXT_NODE,
+604:           id: getNodeId('text'),
+605:           text,
+606:           rect: {
+607:             x: rect.x + (isFixed ? 0 : window.scrollX),
+608:             y: rect.y + (isFixed ? 0 : window.scrollY),
+609:             width: Math.ceil(rect.width),
+610:             height: Math.ceil(rect.height)
+611:           },
+612:           styles: parentStyles || {},
+613:           lineCount: 1
+614:         };
+615:       }
+616: 
+617:       // For multiline inline text with spans/links, slice text per line by character rects
+618:       const segments = [];
+619:       const len = node.length;
+620:       let lineStart = 0;
+621:       let lastTop = null;
+622: 
+623:       for (let i = 0; i < len; i++) {
+624:         r.setStart(node, i);
+625:         r.setEnd(node, i + 1);
+626:         const charRect = r.getBoundingClientRect();
+627:         if (charRect.width === 0 && charRect.height === 0) continue;
+628: 
+629:         if (lastTop === null) {
+630:           lastTop = charRect.top;
+631:         } else if (Math.abs(charRect.top - lastTop) > 3) {
+632:           // Line break detected
+633:           r.setStart(node, lineStart);
+634:           r.setEnd(node, i);
+635:           const lineBox = r.getBoundingClientRect();
+636:           const lineText = text.slice(lineStart, i);
+637:           if (lineText.trim()) {
+638:             segments.push({
+639:               nodeType: TEXT_NODE,
+640:               id: getNodeId('text-line'),
+641:               text: lineText,
+642:               rect: {
+643:                 x: lineBox.x + (isFixed ? 0 : window.scrollX),
+644:                 y: lineBox.y + (isFixed ? 0 : window.scrollY),
+645:                 width: Math.ceil(lineBox.width),
+646:                 height: Math.ceil(lineBox.height)
+647:               },
+648:               styles: parentStyles || {},
+649:               lineCount: 1
+650:             });
+651:           }
+652:           lineStart = i;
+653:           lastTop = charRect.top;
+654:         }
+655:       }
+656: 
+657:       // Add final line segment
+658:       r.setStart(node, lineStart);
+659:       r.setEnd(node, len);
+660:       const finalBox = r.getBoundingClientRect();
+661:       const finalLineText = text.slice(lineStart);
+662:       if (finalLineText.trim()) {
+663:         segments.push({
+664:           nodeType: TEXT_NODE,
+665:           id: getNodeId('text-line'),
+666:           text: finalLineText,
+667:           rect: {
+668:             x: finalBox.x + (isFixed ? 0 : window.scrollX),
+669:             y: finalBox.y + (isFixed ? 0 : window.scrollY),
+670:             width: Math.ceil(finalBox.width),
+671:             height: Math.ceil(finalBox.height)
+672:           },
+673:           styles: parentStyles || {},
+674:           lineCount: 1
+675:         });
+676:       }
+677: 
+678:       if (segments.length === 1) return segments[0];
+679:       if (segments.length > 1) {
+680:         // Return a group array as pseudo element or return segments
+681:         // We can return a flat virtual group node or element node
+682:         return {
+683:           nodeType: ELEMENT_NODE,
+684:           id: getNodeId('text-wrap'),
+685:           tag: 'SPAN',
+686:           styles: { ...parentStyles, backgroundColor: 'rgba(0, 0, 0, 0)' },
+687:           rect: {
+688:             x: rect.x + (isFixed ? 0 : window.scrollX),
+689:             y: rect.y + (isFixed ? 0 : window.scrollY),
+690:             width: Math.ceil(rect.width),
+691:             height: Math.ceil(rect.height)
+692:           },
+693:           childNodes: segments
+694:         };
+695:       }
+696: 
+697:       return {
+698:         nodeType: TEXT_NODE,
+699:         id: getNodeId('text'),
+700:         text,
+701:         rect: {
+702:           x: rect.x + (isFixed ? 0 : window.scrollX),
+703:           y: rect.y + (isFixed ? 0 : window.scrollY),
+704:           width: Math.ceil(rect.width),
+705:           height: Math.ceil(rect.height)
+706:         },
+707:         styles: parentStyles || {},
+708:         lineCount: 1
+709:       };
+710:     }
+711: 
+712:     if (node.nodeType !== ELEMENT_NODE) return null;
+713:     const el = node;
+714:     const tag = el.tagName.toUpperCase();
+715:     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE'].includes(tag)) return null;
+716: 
+717:     const styles = getElementStyles(el);
+718:     if (styles.display === 'none' || styles.visibility === 'hidden') return null;
+719:     if (styles.fontFamily) fonts.addFont(styles.fontFamily);
+720: 
+721:     if (el instanceof HTMLImageElement) {
+722:       const url = el.currentSrc || el.src || el.getAttribute('data-src') || el.getAttribute('data-lazy-src') || el.getAttribute('data-original') || el.srcset?.split(',')[0]?.trim()?.split(' ')[0];
+723:       if (url) assets.addImage(url);
+724:     } else if (el instanceof HTMLPictureElement) {
+725:       const imgChild = el.querySelector('img');
+726:       if (imgChild) {
+727:         const url = imgChild.currentSrc || imgChild.src || imgChild.getAttribute('data-src');
+728:         if (url) assets.addImage(url);
+729:       }
+730:     }
+731:     if (styles.backgroundImage && styles.backgroundImage !== 'none') {
+732:       const matches = styles.backgroundImage.matchAll(/url\(["']?(.*?)["']?\)/g);
+733:       for (const m of matches) {
+734:         if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1]);
+735:       }
+736:     }
+737: 
+738:     let placeholderUrl = null;
+739:     if (el instanceof HTMLCanvasElement) {
+740:       placeholderUrl = assets.addCanvas(el);
+741:     } else if (el instanceof HTMLVideoElement) {
+742:       if (el.poster) assets.addImage(el.poster);
+743:       else placeholderUrl = assets.addVideo(el);
+744:     }
+745: 
+746:     const clientRect = el.getBoundingClientRect();
+747:     const isFixed = styles.position === 'fixed';
+748:     
+749:     // For position: fixed elements (like floating scroll-to-top buttons in bottom-right),
+750:     // when document is scrolled to top (0,0), clientRect.y is their exact viewport position.
+751:     // If anchored to bottom, ensure it renders visibly within the full document frame.
+752:     let posX = clientRect.x + (isFixed ? 0 : window.scrollX);
+753:     let posY = clientRect.y + (isFixed ? 0 : window.scrollY);
+754: 
+755:     const docRect = {
+756:       x: posX,
+757:       y: posY,
+758:       width: clientRect.width,
+759:       height: clientRect.height
+760:     };
+761: 
+762:     let svgContent = null;
+763:     if (tag === 'SVG' || el instanceof SVGElement) {
+764:       svgContent = serializeSVG(el);
+765:     }
+766: 
+767:     const before = await serializePseudo(el, '::before', fonts, docRect);
+768:     const after = await serializePseudo(el, '::after', fonts, docRect);
+769:     const pseudoElementNodes = (before || after) ? { before, after } : undefined;
+770: 
+771:     const childNodes = [];
+772:     if (!svgContent) {
+773:       const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
+774:       for (const child of sourceNodes) {
+775:         const sChild = await serializeNode(child, assets, fonts, styles);
+776:         if (sChild) childNodes.push(sChild);
+777:       }
+778: 
+779:       // Sort child nodes according to CSS stacking context (z-index)
+780:       if (childNodes.length > 1) {
+781:         childNodes.sort((a, b) => {
+782:           const zA = a.styles?.zIndex && a.styles.zIndex !== 'auto' ? parseInt(a.styles.zIndex, 10) || 0 : 0;
+783:           const zB = b.styles?.zIndex && b.styles.zIndex !== 'auto' ? parseInt(b.styles.zIndex, 10) || 0 : 0;
+784:           return zA - zB;
+785:         });
+786:       }
+787:     }
+788: 
+789:     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || tag === 'INPUT' || tag === 'TEXTAREA') {
+790:       const val = el.value || el.placeholder || el.getAttribute('placeholder') || '';
+791:       if (val && !childNodes.length) {
+792:         const isPlaceholder = !el.value && (el.placeholder || el.getAttribute('placeholder'));
+793:         const padLeft = parseFloat(styles.paddingLeft) || 12;
+794:         const padTop = parseFloat(styles.paddingTop) || 8;
+795:         
+796:         // Placeholder text style (slightly lighter if it's placeholder)
+797:         const textStyles = { ...styles };
+798:         if (isPlaceholder) {
+799:           textStyles.color = textStyles.color ? textStyles.color : 'rgba(0, 0, 0, 0.4)';
+800:           textStyles.opacity = '0.55';
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

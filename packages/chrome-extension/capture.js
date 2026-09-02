@@ -89,18 +89,23 @@
    *  3.  PAGE PRE-SCROLLER (Triggers lazy-loaded images & animations)
    * ====================================================================== */
   async function prepareAndScrollPage() {
+    const style = document.createElement('style');
+    style.id = 'h2f-scroll-fix';
+    style.innerHTML = 'html, body { scroll-behavior: auto !important; }';
+    document.head.appendChild(style);
+
     const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
     const step = Math.max(window.innerHeight * 2, 1200);
 
     for (let y = 0; y < scrollHeight; y += step) {
       window.scrollTo(0, y);
-      await new Promise(r => setTimeout(r, 16));
+      await new Promise(r => setTimeout(r, 40));
     }
     window.scrollTo(0, scrollHeight);
-    await new Promise(r => setTimeout(r, 20));
+    await new Promise(r => setTimeout(r, 100));
     // Always restore to top (0, 0) for DOM serialization
     window.scrollTo(0, 0);
-    await new Promise(r => setTimeout(r, 40));
+    await new Promise(r => setTimeout(r, 60));
   }
 
   /* ======================================================================
@@ -193,37 +198,61 @@
 
   async function fetchImage(url) {
     if (!url) return null;
+    let absoluteUrl = url;
+    try {
+      absoluteUrl = new URL(url, document.baseURI).href;
+    } catch {}
+
+    // Method 1: Direct fetch in page context
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
-      const res = await fetch(url, { signal: ctrl.signal });
+      const res = await fetch(absoluteUrl, { signal: ctrl.signal });
       clearTimeout(timer);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      let blob = await res.blob();
-      blob = await convertToPngBlob(blob);
-      return { url, blob: await blobToBase64(blob) };
-    } catch {
-      return new Promise(resolve => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          try {
-            const c = document.createElement('canvas');
-            c.width = img.naturalWidth || 1;
-            c.height = img.naturalHeight || 1;
-            const ctx = c.getContext('2d');
-            if (ctx) ctx.drawImage(img, 0, 0);
-            c.toBlob(b => {
-              blobToBase64(b).then(b64 => resolve({ url, blob: b64 })).catch(() => resolve({ url, blob: null }));
-            }, 'image/png');
-          } catch {
-            resolve({ url, blob: null });
-          }
-        };
-        img.onerror = () => resolve({ url, blob: null });
-        img.src = url;
-      });
-    }
+      if (res.ok) {
+        let blob = await res.blob();
+        blob = await convertToPngBlob(blob);
+        const b64 = await blobToBase64(blob);
+        if (b64 && b64.data) return { url: absoluteUrl, blob: b64 };
+      }
+    } catch {}
+
+    // Method 2: Extension background worker fetch (bypasses CORS restrictions)
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        const bgRes = await new Promise((res) => {
+          chrome.runtime.sendMessage({ type: 'FETCH_IMAGE', url: absoluteUrl }, (resp) => {
+            if (chrome.runtime.lastError) res(null);
+            else res(resp);
+          });
+        });
+        if (bgRes && bgRes.data) {
+          return { url: absoluteUrl, blob: { type: 'image/png', data: bgRes.data } };
+        }
+      }
+    } catch {}
+
+    // Method 3: HTMLImageElement + Canvas draw fallback
+    return new Promise(resolve => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = img.naturalWidth || 1;
+          c.height = img.naturalHeight || 1;
+          const ctx = c.getContext('2d');
+          if (ctx) ctx.drawImage(img, 0, 0);
+          c.toBlob(b => {
+            blobToBase64(b).then(b64 => resolve({ url: absoluteUrl, blob: b64 })).catch(() => resolve({ url: absoluteUrl, blob: null }));
+          }, 'image/png');
+        } catch {
+          resolve({ url: absoluteUrl, blob: null });
+        }
+      };
+      img.onerror = () => resolve({ url: absoluteUrl, blob: null });
+      img.src = absoluteUrl;
+    });
   }
 
   class AssetCollector {
@@ -232,8 +261,16 @@
       this.rasterizedId = 0;
     }
     addImage(url) {
-      if (!url || this.promises.has(url)) return;
-      this.promises.set(url, fetchImage(url));
+      if (!url) return;
+      let absoluteUrl = url;
+      try {
+        absoluteUrl = new URL(url, document.baseURI).href;
+      } catch {}
+      if (this.promises.has(absoluteUrl)) return;
+      this.promises.set(absoluteUrl, fetchImage(absoluteUrl));
+      if (url !== absoluteUrl) {
+        this.promises.set(url, this.promises.get(absoluteUrl));
+      }
     }
     addCanvas(canvas) {
       const id = `rasterized:canvas:${++this.rasterizedId}`;
@@ -339,6 +376,92 @@
     return attrs;
   }
 
+  
+  /* ======================================================================
+   *  5.5  OPENTYPE FONT SVG EXTRACTION
+   * ====================================================================== */
+  const fontUrlMap = new Map();
+  const fontParseCache = new Map();
+
+  function initFontMap() {
+    try {
+      for (const sheet of Array.from(document.styleSheets)) {
+        try {
+          for (const rule of Array.from(sheet.cssRules)) {
+            if (rule.type === CSSRule.FONT_FACE_RULE) {
+              const family = rule.style.fontFamily?.replace(/['"]/g, '');
+              const src = rule.style.src;
+              if (family && src) {
+                let fontUrl = null;
+                const ttfMatch = src.match(/url\(["']?(.*?\.ttf(\?.*?)?)["']?\)/i);
+                const woffMatch = src.match(/url\(["']?(.*?\.woff(\?.*?)?)["']?\)/i);
+                const fallbackMatch = src.match(/url\(["']?(.*?)["']?\)/);
+                
+                if (ttfMatch) fontUrl = ttfMatch[1];
+                else if (woffMatch && !woffMatch[1].endsWith('.woff2')) fontUrl = woffMatch[1];
+                else if (fallbackMatch && !fallbackMatch[1].includes('.woff2')) fontUrl = fallbackMatch[1];
+                
+                if (fontUrl && !fontUrl.startsWith('data:')) {
+                  try { fontUrl = new URL(fontUrl, sheet.href || window.location.href).href; } catch {}
+                  fontUrlMap.set(family, fontUrl);
+                }
+              }
+            }
+          }
+        } catch (e) {}
+      }
+    } catch(e) {}
+  }
+
+  async function getFontSvgPath(family, char, fontSize) {
+    if (!family || !char || typeof opentype === 'undefined') return null;
+    const cleanFamily = family.replace(/['"]/g, '').split(',')[0].trim();
+    const url = fontUrlMap.get(cleanFamily);
+    if (!url) return null;
+
+    if (!fontParseCache.has(url)) {
+      fontParseCache.set(url, new Promise(async (resolve) => {
+        try {
+          if (typeof chrome !== 'undefined' && chrome.runtime) {
+            const bgRes = await new Promise((res) => {
+              chrome.runtime.sendMessage({ type: 'FETCH_FONT', url }, (resp) => {
+                if (chrome.runtime.lastError) res({ error: chrome.runtime.lastError.message });
+                else res(resp || { error: 'No response' });
+              });
+            });
+            if (bgRes && bgRes.data) {
+              const binaryString = atob(bgRes.data);
+              const bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              const font = opentype.parse(bytes.buffer);
+              resolve(font);
+              return;
+            }
+          }
+          resolve(null);
+        } catch (e) {
+          resolve(null);
+        }
+      }));
+    }
+
+    const font = await fontParseCache.get(url);
+    if (!font) return null;
+
+    try {
+      const size = parseFloat(fontSize) || 16;
+      const baselineY = (font.ascender / font.unitsPerEm) * size;
+      const path = font.getPath(char, 0, baselineY, size);
+      const bbox = path.getBoundingBox();
+      
+      return { svgPath: path.toSVG(), bbox };
+    } catch {
+      return null;
+    }
+  }
+
   function serializeSVG(el) {
     try {
       const clone = el.cloneNode(true);
@@ -392,13 +515,37 @@
     }
   }
 
-  function serializePseudo(el, pseudo, fonts, parentRect) {
+  async function serializePseudo(el, pseudo, fonts, parentRect) {
     try {
       const cs = window.getComputedStyle(el, pseudo);
       const content = cs.content;
-      if (!content || content === 'none' || content === 'normal' || content === '""') return null;
+      const display = cs.display;
+      if (display === 'none' || cs.opacity === '0') return null;
 
-      const text = content.replace(/^["']|["']$/g, '');
+      // Skip elements hidden via scale(0) transform (common for hover underlines)
+      if (cs.transform && cs.transform.startsWith('matrix')) {
+        const parts = cs.transform.match(/matrix\(([^)]+)\)/);
+        if (parts) {
+          const [a, b, c, d] = parts[1].split(',').map(s => parseFloat(s.trim()));
+          if ((Math.abs(a) < 0.001 && Math.abs(b) < 0.001) || (Math.abs(c) < 0.001 && Math.abs(d) < 0.001)) {
+            return null;
+          }
+        }
+      }
+      
+      const hasContent = content && content !== 'none' && content !== 'normal' && content !== '""';
+      const hasBgImage = cs.backgroundImage && cs.backgroundImage !== 'none';
+      const hasMaskImage = (cs.maskImage && cs.maskImage !== 'none') || (cs.webkitMaskImage && cs.webkitMaskImage !== 'none');
+      const hasBgColor = cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
+      const hasBorder = cs.borderWidth && parseFloat(cs.borderWidth) > 0 && cs.borderStyle !== 'none';
+      const hasShadow = cs.boxShadow && cs.boxShadow !== 'none';
+      
+      if (!hasContent && !hasBgImage && !hasMaskImage && !hasBgColor && !hasBorder && !hasShadow) {
+        return null;
+      }
+
+      const text = hasContent ? content.replace(/^[\"']|[\"']$/g, '').trim() : '';
+      
       const styles = {};
       for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
         const val = cs[prop];
@@ -407,6 +554,28 @@
         }
       }
       if (styles.fontFamily) fonts.addFont(styles.fontFamily);
+      
+      if (Array.from(text).length === 1) {
+        const fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize);
+        if (fontData && fontData.svgPath) {
+           const { svgPath, bbox } = fontData;
+           const pathW = bbox.x2 - bbox.x1;
+           const pathH = bbox.y2 - bbox.y1;
+           const parentW = Math.ceil(parentRect.width);
+           const parentH = Math.ceil(parentRect.height);
+           const tx = (parentW - pathW) / 2 - bbox.x1;
+           const ty = (parentH - pathH) / 2 - bbox.y1;
+
+           return {
+            nodeType: ELEMENT_NODE,
+            id: getNodeId('svg-icon-pseudo'),
+            tag: 'SVG',
+            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+            styles: styles,
+            rect: parentRect
+          };
+        }
+      }
 
       return {
         nodeType: ELEMENT_NODE,
@@ -422,7 +591,7 @@
     }
   }
 
-  function serializeNode(node, assets, fonts, parentStyles) {
+  async function serializeNode(node, assets, fonts, parentStyles) {
     if (node.nodeType === TEXT_NODE) {
       const text = node.textContent || '';
       if (!text.trim()) return null;
@@ -435,7 +604,38 @@
       const isFixed = parentStyles?.position === 'fixed';
 
       // If single line or small inline token (like '$', '13', 'Popular Package'), preserve exact position
+      
+      // Check if it's an icon font character
+      const charStr = text.trim() || text;
+      if (Array.from(charStr).length === 1) {
+        const fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize);
+        if (fontData && fontData.svgPath) {
+          const { svgPath, bbox } = fontData;
+          const pathW = bbox.x2 - bbox.x1;
+          const pathH = bbox.y2 - bbox.y1;
+          const parentW = Math.ceil(rect.width);
+          const parentH = Math.ceil(rect.height);
+          const tx = (parentW - pathW) / 2 - bbox.x1;
+          const ty = (parentH - pathH) / 2 - bbox.y1;
+
+          return {
+            nodeType: ELEMENT_NODE,
+            id: getNodeId('svg-icon'),
+            tag: 'SVG',
+            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+            styles: parentStyles || {},
+            rect: {
+              x: rect.x + (isFixed ? 0 : window.scrollX),
+              y: rect.y + (isFixed ? 0 : window.scrollY),
+              width: parentW,
+              height: parentH
+            }
+          };
+        }
+      }
+
       if (clientRects.length <= 1) {
+
         return {
           nodeType: TEXT_NODE,
           id: getNodeId('text'),
@@ -601,15 +801,15 @@
       svgContent = serializeSVG(el);
     }
 
-    const before = serializePseudo(el, '::before', fonts, docRect);
-    const after = serializePseudo(el, '::after', fonts, docRect);
+    const before = await serializePseudo(el, '::before', fonts, docRect);
+    const after = await serializePseudo(el, '::after', fonts, docRect);
     const pseudoElementNodes = (before || after) ? { before, after } : undefined;
 
     const childNodes = [];
     if (!svgContent) {
       const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
       for (const child of sourceNodes) {
-        const sChild = serializeNode(child, assets, fonts, styles);
+        const sChild = await serializeNode(child, assets, fonts, styles);
         if (sChild) childNodes.push(sChild);
       }
 
@@ -692,6 +892,7 @@
   }
 
   try {
+    initFontMap();
     const toast = showToast('⏳ Pre-rendering full webpage…');
 
     // 1. Scroll through page to activate lazy-loaded elements & image sources
@@ -710,7 +911,7 @@
 
     // Target document.body directly to avoid double nesting HTML + BODY frames
     const targetElement = document.body || document.documentElement;
-    const root = serializeNode(targetElement, assets, fonts, null);
+    const root = await serializeNode(targetElement, assets, fonts, null);
     const assetMap = await assets.getBlobMap();
 
     const fullDocWidth = Math.max(
@@ -761,5 +962,7 @@
     showToast('❌ Capture failed: ' + (err.message || err), 8000);
   } finally {
     window.__html2FigRunning = false;
+    const scrollFix = document.getElementById('h2f-scroll-fix');
+    if (scrollFix) scrollFix.remove();
   }
 })();

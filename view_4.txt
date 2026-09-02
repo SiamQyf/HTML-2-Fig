@@ -1,0 +1,659 @@
+Created At: 2026-09-02T11:54:46+06:00
+Completed At: 2026-09-02T11:54:46+06:00
+File Path: `file:///c:/h2F/packages/figma-plugin/src/code.js`
+Total Lines: 651
+Total Bytes: 24139
+Showing lines 1 to 651
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: /*
+2:  * HTML 2 Fig — Plugin Canvas Renderer
+3:  * Translates serialized DOM payloads into editable native Figma layers,
+4:  * vector SVG nodes, high-fidelity typography, and image fills.
+5:  */
+6: 
+7: figma.showUI(__html__, { width: 360, height: 480, themeColors: true });
+8: 
+9: /* ======================================================================
+10:  *  1.  COLOR & GRADIENT PARSING
+11:  * ====================================================================== */
+12: const NAMED_COLORS = {
+13:   transparent: { r: 0, g: 0, b: 0, a: 0 },
+14:   black: { r: 0, g: 0, b: 0, a: 1 },
+15:   white: { r: 1, g: 1, b: 1, a: 1 },
+16:   red: { r: 1, g: 0, b: 0, a: 1 },
+17:   green: { r: 0, g: 0.502, b: 0, a: 1 },
+18:   blue: { r: 0, g: 0, b: 1, a: 1 }
+19: };
+20: 
+21: function parseColor(css) {
+22:   if (!css || css === 'none' || css === 'initial' || css === 'inherit' || css === 'transparent') return null;
+23:   css = css.trim().toLowerCase();
+24:   if (NAMED_COLORS[css]) return { ...NAMED_COLORS[css] };
+25: 
+26:   // rgb/rgba
+27:   let m = css.match(/^rgba?\(\s*([\d.]+)[,%\s]+([\d.]+)[,%\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/);
+28:   if (m) return { r: +m[1] / 255, g: +m[2] / 255, b: +m[3] / 255, a: m[4] !== undefined ? +m[4] : 1 };
+29: 
+30:   // hsl/hsla
+31:   m = css.match(/^hsla?\(\s*([\d.]+)(?:deg)?[,%\s]+([\d.]+)%[,%\s]+([\d.]+)%(?:[,/\s]+([\d.]+))?\s*\)$/);
+32:   if (m) {
+33:     const h = +m[1] / 360, s = +m[2] / 100, l = +m[3] / 100;
+34:     const a = m[4] !== undefined ? +m[4] : 1;
+35:     let r, g, b;
+36:     if (s === 0) {
+37:       r = g = b = l;
+38:     } else {
+39:       const hue2rgb = (p, q, t) => {
+40:         if (t < 0) t += 1;
+41:         if (t > 1) t -= 1;
+42:         if (t < 1/6) return p + (q - p) * 6 * t;
+43:         if (t < 1/2) return q;
+44:         if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+45:         return p;
+46:       };
+47:       const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+48:       const p = 2 * l - q;
+49:       r = hue2rgb(p, q, h + 1/3);
+50:       g = hue2rgb(p, q, h);
+51:       b = hue2rgb(p, q, h - 1/3);
+52:     }
+53:     return { r, g, b, a };
+54:   }
+55: 
+56:   // hex (#fff, #ffffff, #ffffff80)
+57:   m = css.match(/^#([0-9a-f]{3,8})$/);
+58:   if (m) {
+59:     const h = m[1];
+60:     if (h.length === 3) return { r: parseInt(h[0] + h[0], 16) / 255, g: parseInt(h[1] + h[1], 16) / 255, b: parseInt(h[2] + h[2], 16) / 255, a: 1 };
+61:     if (h.length === 6) return { r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: 1 };
+62:     if (h.length === 8) return { r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: parseInt(h.slice(6, 8), 16) / 255 };
+63:   }
+64:   return null;
+65: }
+66: 
+67: function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+68: 
+69: /* ======================================================================
+70:  *  2.  BASE64 IMAGE DECODING
+71:  * ====================================================================== */
+72: function decodeBase64Image(base64Obj) {
+73:   if (!base64Obj) return null;
+74:   try {
+75:     let dataStr = typeof base64Obj === 'string' ? base64Obj : (base64Obj.data || base64Obj.base64Blob || '');
+76:     if (!dataStr) return null;
+77:     const commaIdx = dataStr.indexOf(',');
+78:     const raw = commaIdx >= 0 ? dataStr.slice(commaIdx + 1) : dataStr;
+79:     return figma.base64Decode(raw.trim());
+80:   } catch (e) {
+81:     return null;
+82:   }
+83: }
+84: 
+85: /* ======================================================================
+86:  *  3.  FONT LOADER WITH FALLBACK
+87:  * ====================================================================== */
+88: const FONT_WEIGHT_MAP = {
+89:   '100': 'Thin', '200': 'ExtraLight', '300': 'Light',
+90:   '400': 'Regular', '500': 'Medium', '600': 'SemiBold',
+91:   '700': 'Bold', '800': 'ExtraBold', '900': 'Black'
+92: };
+93: 
+94: async function loadFont(family, weight, italic) {
+95:   const cleanFamily = (family || 'Inter').replace(/['"]/g, '').split(',')[0].trim();
+96:   const styleName = (FONT_WEIGHT_MAP[weight] || 'Regular') + (italic ? ' Italic' : '');
+97: 
+98:   const candidates = [
+99:     { family: cleanFamily, style: styleName },
+100:     { family: cleanFamily, style: italic ? 'Italic' : 'Regular' },
+101:     { family: 'Inter', style: styleName },
+102:     { family: 'Inter', style: 'Regular' },
+103:     { family: 'Roboto', style: 'Regular' }
+104:   ];
+105: 
+106:   for (const font of candidates) {
+107:     try {
+108:       await figma.loadFontAsync(font);
+109:       return font;
+110:     } catch {}
+111:   }
+112:   return { family: 'Inter', style: 'Regular' };
+113: }
+114: 
+115: function parseLinearGradient(css) {
+116:   if (!css || !css.includes('linear-gradient')) return null;
+117:   try {
+118:     const contentMatch = css.match(/linear-gradient\((.*)\)$/s);
+119:     if (!contentMatch) return null;
+120:     const inner = contentMatch[1].trim();
+121: 
+122:     // Determine angle
+123:     let angleDeg = 180;
+124:     let stopsStr = inner;
+125: 
+126:     const angleMatch = inner.match(/^((?:to\s+(?:top|bottom|left|right)(?:\s+(?:top|bottom|left|right))?)|(?:-?[\d.]+(?:deg|rad|turn)))\s*,\s*(.*)$/is);
+127:     if (angleMatch) {
+128:       const angleExpr = angleMatch[1].toLowerCase().trim();
+129:       stopsStr = angleMatch[2];
+130: 
+131:       if (angleExpr.includes('deg')) {
+132:         angleDeg = parseFloat(angleExpr);
+133:       } else if (angleExpr.includes('rad')) {
+134:         angleDeg = (parseFloat(angleExpr) * 180) / Math.PI;
+135:       } else if (angleExpr.includes('turn')) {
+136:         angleDeg = parseFloat(angleExpr) * 360;
+137:       } else if (angleExpr === 'to top') angleDeg = 0;
+138:       else if (angleExpr === 'to right') angleDeg = 90;
+139:       else if (angleExpr === 'to bottom') angleDeg = 180;
+140:       else if (angleExpr === 'to left') angleDeg = 270;
+141:       else if (angleExpr === 'to top right' || angleExpr === 'to right top') angleDeg = 45;
+142:       else if (angleExpr === 'to bottom right' || angleExpr === 'to right bottom') angleDeg = 135;
+143:       else if (angleExpr === 'to bottom left' || angleExpr === 'to left bottom') angleDeg = 225;
+144:       else if (angleExpr === 'to top left' || angleExpr === 'to left top') angleDeg = 315;
+145:     }
+146: 
+147:     // Split stops safely
+148:     const rawStops = stopsStr.split(/,(?![^(]*\))/);
+149:     if (!rawStops || rawStops.length < 2) return null;
+150: 
+151:     const stops = [];
+152:     const n = rawStops.length;
+153:     let maxPos = 0;
+154:     
+155:     rawStops.forEach((raw, i) => {
+156:       const trimmed = raw.trim();
+157:       const posMatch = trimmed.match(/(.*?)\s+([\d.]+)%$/);
+158:       let colStr = trimmed;
+159:       let pos = i / (n - 1);
+160:       
+161:       if (posMatch) {
+162:         colStr = posMatch[1].trim();
+163:         pos = parseFloat(posMatch[2]) / 100;
+164:       }
+165:       
+166:       // CSS Rule: If a color stop's position is less than the specified position 
+167:       // of any stop before it, set its position to the largest position before it.
+168:       pos = Math.max(pos, maxPos);
+169:       maxPos = pos;
+170:       
+171:       const col = parseColor(colStr);
+172:       if (col) {
+173:         stops.push({
+174:           position: clamp01(pos),
+175:           color: { r: col.r, g: col.g, b: col.b, a: clamp01(col.a) }
+176:         });
+177:       }
+178:     });
+179: 
+180:     if (stops.length < 2) return null;
+181: 
+182:     const rad = ((angleDeg - 90) * Math.PI) / 180;
+183:     const cos = Math.cos(rad);
+184:     const sin = Math.sin(rad);
+185: 
+186:     return {
+187:       type: 'GRADIENT_LINEAR',
+188:       gradientTransform: [
+189:         [cos, sin, 0.5 - 0.5 * (cos + sin)],
+190:         [-sin, cos, 0.5 - 0.5 * (-sin + cos)]
+191:       ],
+192:       gradientStops: stops
+193:     };
+194:   } catch {
+195:     return null;
+196:   }
+197: }
+198: 
+199: function parseBoxShadows(css) {
+200:   if (!css || css === 'none' || css === 'initial' || css === 'inherit') return [];
+201:   const effects = [];
+202:   try {
+203:     // Match each individual shadow
+204:     const shadows = css.split(/,(?![^(]*\))/);
+205:     for (const s of shadows) {
+206:       const isInset = s.includes('inset');
+207:       const clean = s.replace('inset', '').trim();
+208:       const m = clean.match(/(.*?)\s*(-?[\d.]+px)\s+(-?[\d.]+px)(?:\s+([\d.]+px))?(?:\s+([\d.]+px))?/);
+209:       if (m) {
+210:         const col = parseColor(m[1]) || parseColor(clean.slice(clean.lastIndexOf(' ')).trim()) || { r: 0, g: 0, b: 0, a: 0.25 };
+211:         const x = parseFloat(m[2]) || 0;
+212:         const y = parseFloat(m[3]) || 0;
+213:         const radius = parseFloat(m[4]) || 0;
+214:         const spread = parseFloat(m[5]) || 0;
+215:         effects.push({
+216:           type: isInset ? 'INNER_SHADOW' : 'DROP_SHADOW',
+217:           color: { r: col.r, g: col.g, b: col.b, a: clamp01(col.a) },
+218:           offset: { x, y },
+219:           radius,
+220:           spread,
+221:           visible: true,
+222:           blendMode: 'NORMAL'
+223:         });
+224:       }
+225:     }
+226:   } catch {}
+227:   return effects;
+228: }
+229: 
+230: /* ======================================================================
+231:  *  4.  STYLE APPLIERS
+232:  * ====================================================================== */
+233: function applyFills(node, styles, assets) {
+234:   const fills = [];
+235: 
+236:   // Background color
+237:   const bg = parseColor(styles.backgroundColor);
+238:   if (bg && bg.a > 0.005) {
+239:     fills.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: clamp01(bg.a) });
+240:   }
+241: 
+242:   // Check if background is intentionally hidden via size 0 (e.g., collapsed hover effects)
+243:   const bgSize = (styles.backgroundSize || '').trim();
+244:   let isZeroSize = false;
+245:   if (bgSize && bgSize !== 'auto' && bgSize !== 'cover' && bgSize !== 'contain') {
+246:     const parts = bgSize.split(/\s+/);
+247:     const w = parseFloat(parts[0]);
+248:     const h = parts.length > 1 ? parseFloat(parts[1]) : w; // if only 1 value, height is auto (but sometimes treated as same for 0)
+249:     if (w === 0 || h === 0) isZeroSize = true;
+250:   }
+251: 
+252:   if (!isZeroSize) {
+253:     // CSS Gradients
+254:     if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
+255:       const grad = parseLinearGradient(styles.backgroundImage);
+256:       if (grad) fills.push(grad);
+257:     }
+258:   }
+259: 
+260:   // Background and mask image fill
+261:   const combinedImages = [
+262:     (!isZeroSize ? styles.backgroundImage : ''),
+263:     styles.maskImage,
+264:     styles.webkitMaskImage
+265:   ].filter(Boolean).join(' ');
+266: 
+267:   if (combinedImages.includes('url(')) {
+268:     const m = combinedImages.match(/url\(["']?(.*?)["']?\)/);
+269:     if (m && m[1]) {
+270:       const asset = assets?.[m[1].trim()];
+271:       const blobObj = asset?.blob || asset?.base64Blob || asset;
+272:       if (blobObj) {
+273:         const bytes = decodeBase64Image(blobObj);
+274:         if (bytes) {
+275:           try {
+276:             const img = figma.createImage(bytes);
+277:             fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
+278:           } catch {}
+279:         }
+280:       }
+281:     }
+282:   }
+283: 
+284:   if (fills.length > 0) node.fills = fills;
+285:   else if (node.type === 'FRAME') node.fills = [];
+286: }
+287: 
+288: function applyStrokes(node, styles) {
+289:   const topW = (styles.borderTopStyle && styles.borderTopStyle !== 'none' && styles.borderTopStyle !== 'hidden') ? (parseFloat(styles.borderTopWidth) || 0) : 0;
+290:   const rightW = (styles.borderRightStyle && styles.borderRightStyle !== 'none' && styles.borderRightStyle !== 'hidden') ? (parseFloat(styles.borderRightWidth) || 0) : 0;
+291:   const bottomW = (styles.borderBottomStyle && styles.borderBottomStyle !== 'none' && styles.borderBottomStyle !== 'hidden') ? (parseFloat(styles.borderBottomWidth) || 0) : 0;
+292:   const leftW = (styles.borderLeftStyle && styles.borderLeftStyle !== 'none' && styles.borderLeftStyle !== 'hidden') ? (parseFloat(styles.borderLeftWidth) || 0) : 0;
+293: 
+294:   const totalBorder = topW + rightW + bottomW + leftW;
+295:   if (totalBorder <= 0) return;
+296: 
+297:   const borderColor = parseColor(
+298:     (topW > 0 && styles.borderTopColor) ||
+299:     (bottomW > 0 && styles.borderBottomColor) ||
+300:     (leftW > 0 && styles.borderLeftColor) ||
+301:     (rightW > 0 && styles.borderRightColor) ||
+302:     styles.borderColor
+303:   );
+304:   if (!borderColor || borderColor.a <= 0.005) return;
+305: 
+306:   const strokeColor = {
+307:     type: 'SOLID',
+308:     color: { r: borderColor.r, g: borderColor.g, b: borderColor.b },
+309:     opacity: clamp01(borderColor.a)
+310:   };
+311: 
+312:   node.strokes = [strokeColor];
+313:   node.strokeAlign = 'INSIDE';
+314: 
+315:   if (topW === rightW && rightW === bottomW && bottomW === leftW) {
+316:     node.strokeWeight = topW;
+317:   } else {
+318:     try {
+319:       node.strokeTopWeight = topW;
+320:       node.strokeRightWeight = rightW;
+321:       node.strokeBottomWeight = bottomW;
+322:       node.strokeLeftWeight = leftW;
+323:     } catch {
+324:       node.strokeWeight = Math.max(topW, rightW, bottomW, leftW);
+325:     }
+326:   }
+327: }
+328: 
+329: function applyEffects(node, styles) {
+330:   if (styles.boxShadow && styles.boxShadow !== 'none') {
+331:     const effects = parseBoxShadows(styles.boxShadow);
+332:     if (effects.length > 0) node.effects = effects;
+333:   }
+334: }
+335: 
+336: function applyCornerRadius(node, styles) {
+337:   const tl = parseFloat(styles.borderTopLeftRadius || styles.borderRadius) || 0;
+338:   const tr = parseFloat(styles.borderTopRightRadius || styles.borderRadius) || 0;
+339:   const br = parseFloat(styles.borderBottomRightRadius || styles.borderRadius) || 0;
+340:   const bl = parseFloat(styles.borderBottomLeftRadius || styles.borderRadius) || 0;
+341: 
+342:   if (tl > 0 || tr > 0 || br > 0 || bl > 0) {
+343:     if (tl === tr && tr === br && br === bl) {
+344:       node.cornerRadius = tl;
+345:     } else {
+346:       node.topLeftRadius = tl;
+347:       node.topRightRadius = tr;
+348:       node.bottomRightRadius = br;
+349:       node.bottomLeftRadius = bl;
+350:     }
+351:   }
+352: }
+353: 
+354: function applyOpacity(node, styles) {
+355:   const op = parseFloat(styles.opacity);
+356:   if (!isNaN(op) && op < 1) node.opacity = clamp01(op);
+357: }
+358: 
+359: /* ======================================================================
+360:  *  5.  NODE RENDERERS
+361:  * ====================================================================== */
+362: let totalNodes = 0;
+363: let renderedNodes = 0;
+364: 
+365: function reportProgress(label) {
+366:   renderedNodes++;
+367:   const pct = totalNodes > 0 ? Math.round((renderedNodes / totalNodes) * 100) : 0;
+368:   if (renderedNodes % 15 === 0 || renderedNodes === totalNodes) {
+369:     figma.ui.postMessage({ type: 'progress', percent: pct, label: label || `Rendering... ${renderedNodes}/${totalNodes}` });
+370:   }
+371: }
+372: 
+373: async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles) {
+374:   if (!sNode) return;
+375: 
+376:   if (sNode.nodeType === 3 /* TEXT */) {
+377:     await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles);
+378:     reportProgress();
+379:     return;
+380:   }
+381: 
+382:   const s = sNode.styles || inheritedStyles || {};
+383:   const x = Math.round((sNode.rect?.x || 0) - parentX);
+384:   const y = Math.round((sNode.rect?.y || 0) - parentY);
+385:   const w = Math.max(1, Math.round(sNode.rect?.width || 0));
+386:   const h = Math.max(1, Math.round(sNode.rect?.height || 0));
+387: 
+388:   // SVG Vector element
+389:   if (sNode.content && (sNode.tag === 'SVG' || sNode.content.includes('<svg'))) {
+390:     try {
+391:       let cleanSvg = sNode.content;
+392:       // Strip potentially problematic script tags or broken entities inside SVG
+393:       cleanSvg = cleanSvg.replace(/<script[\s\S]*?<\/script>/gi, '');
+394:       const svgNode = figma.createNodeFromSvg(cleanSvg);
+395:       svgNode.name = (sNode.tag || 'node').toLowerCase();
+396:       parentFrame.appendChild(svgNode);
+397:       svgNode.x = x; svgNode.y = y;
+398:       if (w > 0 && h > 0) svgNode.resize(w, h);
+399:       applyOpacity(svgNode, s);
+400:       reportProgress();
+401:       return;
+402:     } catch {
+403:       // If strict vector parsing fails, fall through so it still creates a positioned frame container
+404:     }
+405:   }
+406: 
+407:   // IMG element
+408:   if (sNode.tag === 'IMG') {
+409:     const attrs = sNode.attributes || {};
+410:     const imgUrl = attrs.currentSrc || attrs.src || attrs['data-src'] || attrs['data-lazy-src'] || attrs['data-original'];
+411:     let assetData = null;
+412:     if (assets) {
+413:       assetData = (imgUrl && assets[imgUrl]) ||
+414:                   (attrs.currentSrc && assets[attrs.currentSrc]) ||
+415:                   (attrs.src && assets[attrs.src]) ||
+416:                   (attrs['data-src'] && assets[attrs['data-src']]) ||
+417:                   (attrs['data-lazy-src'] && assets[attrs['data-lazy-src']]);
+418:       if (!assetData && imgUrl) {
+419:         // Fallback: match by filename or partial URL
+420:         const filename = imgUrl.split('/').pop()?.split('?')[0];
+421:         if (filename) {
+422:           for (const key of Object.keys(assets)) {
+423:             if (key.includes(filename)) {
+424:               assetData = assets[key];
+425:               break;
+426:             }
+427:           }
+428:         }
+429:       }
+430:     }
+431:     const blobObj = assetData?.blob || assetData?.base64Blob || assetData;
+432:     if (blobObj) {
+433:       const bytes = decodeBase64Image(blobObj);
+434:       if (bytes) {
+435:         try {
+436:           const rect = figma.createRectangle();
+437:           rect.name = 'img';
+438:           parentFrame.appendChild(rect);
+439:           rect.x = x; rect.y = y;
+440:           rect.resize(w, h);
+441:           const img = figma.createImage(bytes);
+442:           rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+443:           applyStrokes(rect, s);
+444:           applyEffects(rect, s);
+445:           applyCornerRadius(rect, s);
+446:           applyOpacity(rect, s);
+447:           reportProgress();
+448:           return;
+449:         } catch {}
+450:       }
+451:     }
+452:   }
+453: 
+454:   // Canvas / Video placeholder element
+455:   if (sNode.placeholderUrl) {
+456:     const assetData = assets?.[sNode.placeholderUrl];
+457:     const blobObj = assetData?.blob || assetData?.base64Blob || assetData;
+458:     if (blobObj) {
+459:       const bytes = decodeBase64Image(blobObj);
+460:       if (bytes) {
+461:         try {
+462:           const rect = figma.createRectangle();
+463:           rect.name = (sNode.tag || 'node').toLowerCase();
+464:           parentFrame.appendChild(rect);
+465:           rect.x = x; rect.y = y;
+466:           rect.resize(w, h);
+467:           const img = figma.createImage(bytes);
+468:           rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+469:           applyStrokes(rect, s);
+470:           applyEffects(rect, s);
+471:           applyCornerRadius(rect, s);
+472:           applyOpacity(rect, s);
+473:           reportProgress();
+474:           return;
+475:         } catch {}
+476:       }
+477:     }
+478:   }
+479: 
+480:   // Frame container
+481:   const frame = figma.createFrame();
+482:   frame.name = (sNode.tag || 'node').toLowerCase() + (sNode.attributes?.id ? `#${sNode.attributes.id}` : '');
+483:   parentFrame.appendChild(frame);
+484:   frame.x = x;
+485:   frame.y = y;
+486:   frame.resize(w, h);
+487:   frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden');
+488: 
+489:   applyFills(frame, s, assets);
+490:   applyStrokes(frame, s);
+491:   applyEffects(frame, s);
+492:   applyCornerRadius(frame, s);
+493:   applyOpacity(frame, s);
+494: 
+495:   // If node itself has direct text (like pseudo elements with content: "Logo #3")
+496:   if (sNode.text && sNode.text.trim()) {
+497:     await renderTextNode(sNode, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, s);
+498:   }
+499: 
+500:   // Pseudo-element ::before (rendered inside this frame)
+501:   if (sNode.pseudoElementNodes?.before) {
+502:     await renderNode(sNode.pseudoElementNodes.before, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
+503:   }
+504: 
+505:   if (sNode.childNodes) {
+506:     for (const child of sNode.childNodes) {
+507:       // Child coordinate offset is relative to this frame
+508:       await renderNode(child, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
+509:     }
+510:   }
+511: 
+512:   // Pseudo-element ::after (rendered inside this frame)
+513:   if (sNode.pseudoElementNodes?.after) {
+514:     await renderNode(sNode.pseudoElementNodes.after, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
+515:   }
+516: 
+517:   reportProgress();
+518: }
+519: 
+520: async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles) {
+521:   const text = (sNode.text || '').trim();
+522:   if (!text) return;
+523: 
+524:   const s = sNode.styles || inheritedStyles || parentFrame.styles || {};
+525:   const textNode = figma.createText();
+526: 
+527:   const fontName = await loadFont(s.fontFamily, s.fontWeight || '400', s.fontStyle === 'italic');
+528:   textNode.fontName = fontName;
+529: 
+530:   let finalText = text;
+531:   if (s.textTransform === 'uppercase') finalText = text.toUpperCase();
+532:   else if (s.textTransform === 'lowercase') finalText = text.toLowerCase();
+533:   textNode.characters = finalText;
+534: 
+535:   const fontSize = parseFloat(s.fontSize) || 16;
+536:   textNode.fontSize = fontSize;
+537: 
+538:   // Only apply lineHeight for multi-line text. For single-line text, the browser's
+539:   // Range.getBoundingClientRect() gives tight glyph coordinates; adding lineHeight
+540:   // in Figma would push glyphs down via half-leading, misaligning with adjacent icons.
+541:   const isMultiLine = sNode.lineCount && sNode.lineCount > 1;
+542:   if (isMultiLine && s.lineHeight && s.lineHeight !== 'normal') {
+543:     const lh = parseFloat(s.lineHeight);
+544:     if (!isNaN(lh)) textNode.lineHeight = { value: lh, unit: 'PIXELS' };
+545:   }
+546: 
+547:   if (s.letterSpacing && s.letterSpacing !== 'normal' && s.letterSpacing !== '0px') {
+548:     const ls = parseFloat(s.letterSpacing);
+549:     if (!isNaN(ls)) textNode.letterSpacing = { value: ls, unit: 'PIXELS' };
+550:   }
+551: 
+552:   const alignMap = { 'left': 'LEFT', 'start': 'LEFT', 'center': 'CENTER', 'right': 'RIGHT', 'end': 'RIGHT', 'justify': 'JUSTIFIED' };
+553:   textNode.textAlignHorizontal = alignMap[s.textAlign] || 'LEFT';
+554: 
+555:   const color = parseColor(s.webkitTextFillColor || s.color || '#000000');
+556:   if (color) {
+557:     textNode.fills = [{ type: 'SOLID', color: { r: color.r, g: color.g, b: color.b }, opacity: clamp01(color.a) }];
+558:   }
+559:   applyOpacity(textNode, s);
+560: 
+561:   parentFrame.appendChild(textNode);
+562:   const posX = (sNode.rect?.x || 0) - parentX;
+563:   const posY = (sNode.rect?.y || 0) - parentY;
+564: 
+565:   textNode.x = posX;
+566:   textNode.y = posY;
+567: 
+568:   const w = sNode.rect?.width || 0;
+569:   const h = sNode.rect?.height || 0;
+570:   const textStr = finalText.trim();
+571: 
+572:   // Use HEIGHT for multi-line to allow wrapping, and WIDTH_AND_HEIGHT for single-line
+573:   // to prevent unwanted word-wrapping when Figma's font metrics differ from the browser's.
+574:   if (isMultiLine && w > 0) {
+575:     textNode.textAutoResize = 'HEIGHT';
+576:     textNode.resize(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
+577:   } else {
+578:     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
+579:     // When using WIDTH_AND_HEIGHT, Figma sizes the node exactly to its own font rendering width.
+580:     // If this differs from the browser's bounding box `w`, center/right aligned text will be misaligned.
+581:     // We compensate by shifting `x` so the text remains correctly aligned within the browser's original `w`.
+582:     if (w > 0) {
+583:       if (s.textAlign === 'center') {
+584:         textNode.x = posX + (w - textNode.width) / 2;
+585:       } else if (s.textAlign === 'right' || s.textAlign === 'end') {
+586:         textNode.x = posX + (w - textNode.width);
+587:       }
+588:     }
+589:   }
+590: }
+591: 
+592: function countNodes(node) {
+593:   if (!node) return 0;
+594:   let c = 1;
+595:   if (node.childNodes) for (const ch of node.childNodes) c += countNodes(ch);
+596:   return c;
+597: }
+598: 
+599: async function renderTree(data) {
+600:   const startTime = Date.now();
+601:   totalNodes = countNodes(data.root);
+602:   renderedNodes = 0;
+603: 
+604:   const rootFrame = figma.createFrame();
+605:   rootFrame.name = data.documentTitle || 'HTML 2 Fig Import';
+606: 
+607:   const dw = Math.round(data.documentRect?.width || data.viewportRect?.width || 1440);
+608:   const dh = Math.round(data.documentRect?.height || data.viewportRect?.height || 900);
+609:   rootFrame.resize(dw, dh);
+610:   rootFrame.x = figma.viewport.center.x - dw / 2;
+611:   rootFrame.y = figma.viewport.center.y - dh / 2;
+612:   
+613:   if (data.root?.styles) {
+614:     applyFills(rootFrame, data.root.styles, data.assets);
+615:     if (!rootFrame.fills || !rootFrame.fills.length) {
+616:       rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+617:     }
+618:   } else {
+619:     rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+620:   }
+621:   rootFrame.clipsContent = true;
+622: 
+623:   figma.currentPage.appendChild(rootFrame);
+624: 
+625:   if (data.root?.childNodes) {
+626:     for (const child of data.root.childNodes) {
+627:       await renderNode(child, rootFrame, 0, 0, data.assets, data.root.styles);
+628:     }
+629:   } else if (data.root) {
+630:     await renderNode(data.root, rootFrame, 0, 0, data.assets, data.root.styles);
+631:   }
+632: 
+633:   figma.currentPage.selection = [rootFrame];
+634:   figma.viewport.scrollAndZoomIntoView([rootFrame]);
+635: 
+636:   figma.ui.postMessage({
+637:     type: 'complete',
+638:     duration: Date.now() - startTime
+639:   });
+640: }
+641: 
+642: figma.ui.onmessage = async (msg) => {
+643:   if (msg.type === 'import' && msg.data) {
+644:     try {
+645:       await renderTree(msg.data);
+646:     } catch (e) {
+647:       figma.ui.postMessage({ type: 'error', message: e.message || String(e) });
+648:     }
+649:   }
+650: };
+651: 
+The above content shows the entire, complete file contents of the requested file.

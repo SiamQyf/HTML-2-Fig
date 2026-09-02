@@ -150,15 +150,24 @@ function parseLinearGradient(css) {
 
     const stops = [];
     const n = rawStops.length;
+    let maxPos = 0;
+    
     rawStops.forEach((raw, i) => {
       const trimmed = raw.trim();
       const posMatch = trimmed.match(/(.*?)\s+([\d.]+)%$/);
       let colStr = trimmed;
       let pos = i / (n - 1);
+      
       if (posMatch) {
         colStr = posMatch[1].trim();
         pos = parseFloat(posMatch[2]) / 100;
       }
+      
+      // CSS Rule: If a color stop's position is less than the specified position 
+      // of any stop before it, set its position to the largest position before it.
+      pos = Math.max(pos, maxPos);
+      maxPos = pos;
+      
       const col = parseColor(colStr);
       if (col) {
         stops.push({
@@ -230,24 +239,63 @@ function applyFills(node, styles, assets) {
     fills.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: clamp01(bg.a) });
   }
 
-  // CSS Gradients
-  if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
-    const grad = parseLinearGradient(styles.backgroundImage);
-    if (grad) fills.push(grad);
+  // Check if background is intentionally hidden via size 0 (e.g., collapsed hover effects)
+  const bgSize = (styles.backgroundSize || '').trim();
+  let isZeroSize = false;
+  if (bgSize && bgSize !== 'auto' && bgSize !== 'cover' && bgSize !== 'contain') {
+    const parts = bgSize.split(/\s+/);
+    const w = parseFloat(parts[0]);
+    const h = parts.length > 1 ? parseFloat(parts[1]) : w; // if only 1 value, height is auto (but sometimes treated as same for 0)
+    if (w === 0 || h === 0) isZeroSize = true;
   }
 
-  // Background image fill
-  if (styles.backgroundImage && styles.backgroundImage.includes('url(')) {
-    const m = styles.backgroundImage.match(/url\(["']?(.*?)["']?\)/);
-    if (m && m[1]) {
-      const asset = assets?.[m[1]];
-      const blobObj = asset?.blob || asset?.base64Blob || asset;
+  if (!isZeroSize) {
+    // CSS Gradients
+    if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
+      const grad = parseLinearGradient(styles.backgroundImage);
+      if (grad) fills.push(grad);
+    }
+  }
+
+  // Background and mask image fill
+  const combinedImages = [
+    (!isZeroSize ? styles.backgroundImage : ''),
+    styles.maskImage,
+    styles.webkitMaskImage
+  ].filter(Boolean).join(' ');
+
+  if (combinedImages.includes('url(')) {
+    const matches = combinedImages.matchAll(/url\(["']?(.*?)["']?\)/g);
+    for (const match of matches) {
+      const imgUrl = match[1]?.trim();
+      if (!imgUrl) continue;
+      
+      let blobObj;
+      if (imgUrl.startsWith('data:')) {
+        blobObj = imgUrl;
+      } else {
+        let assetData = assets?.[imgUrl];
+        if (!assetData && imgUrl) {
+          const filename = imgUrl.split('/').pop()?.split('?')[0];
+          if (filename && assets) {
+            for (const key of Object.keys(assets)) {
+              if (key.includes(filename)) {
+                assetData = assets[key];
+                break;
+              }
+            }
+          }
+        }
+        blobObj = assetData?.blob || assetData?.base64Blob || assetData;
+      }
+
       if (blobObj) {
         const bytes = decodeBase64Image(blobObj);
         if (bytes) {
           try {
             const img = figma.createImage(bytes);
             fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
+            break; // Apply primary image fill
           } catch {}
         }
       }
@@ -259,31 +307,44 @@ function applyFills(node, styles, assets) {
 }
 
 function applyStrokes(node, styles) {
-  const borderTopStyle = styles.borderTopStyle;
-  const borderStyle = styles.borderStyle;
-  const borderLeftStyle = styles.borderLeftStyle;
-  const borderRightStyle = styles.borderRightStyle;
-  const borderBottomStyle = styles.borderBottomStyle;
+  const topW = (styles.borderTopStyle && styles.borderTopStyle !== 'none' && styles.borderTopStyle !== 'hidden') ? (parseFloat(styles.borderTopWidth) || 0) : 0;
+  const rightW = (styles.borderRightStyle && styles.borderRightStyle !== 'none' && styles.borderRightStyle !== 'hidden') ? (parseFloat(styles.borderRightWidth) || 0) : 0;
+  const bottomW = (styles.borderBottomStyle && styles.borderBottomStyle !== 'none' && styles.borderBottomStyle !== 'hidden') ? (parseFloat(styles.borderBottomWidth) || 0) : 0;
+  const leftW = (styles.borderLeftStyle && styles.borderLeftStyle !== 'none' && styles.borderLeftStyle !== 'hidden') ? (parseFloat(styles.borderLeftWidth) || 0) : 0;
 
-  // Don't apply stroke if border style is none
-  const hasStyle = (borderTopStyle && borderTopStyle !== 'none' && borderTopStyle !== 'hidden') ||
-                   (borderStyle && borderStyle !== 'none' && borderStyle !== 'hidden') ||
-                   (borderBottomStyle && borderBottomStyle !== 'none' && borderBottomStyle !== 'hidden') ||
-                   (borderLeftStyle && borderLeftStyle !== 'none' && borderLeftStyle !== 'hidden');
-  if (!hasStyle) return;
+  const totalBorder = topW + rightW + bottomW + leftW;
+  if (totalBorder <= 0) return;
 
-  const borderWidth = parseFloat(styles.borderTopWidth || styles.borderWidth || styles.borderLeftWidth) || 0;
-  if (borderWidth <= 0) return;
-  const borderColor = parseColor(styles.borderTopColor || styles.borderColor || styles.borderLeftColor);
+  const borderColor = parseColor(
+    (topW > 0 && styles.borderTopColor) ||
+    (bottomW > 0 && styles.borderBottomColor) ||
+    (leftW > 0 && styles.borderLeftColor) ||
+    (rightW > 0 && styles.borderRightColor) ||
+    styles.borderColor
+  );
   if (!borderColor || borderColor.a <= 0.005) return;
 
-  node.strokes = [{
+  const strokeColor = {
     type: 'SOLID',
     color: { r: borderColor.r, g: borderColor.g, b: borderColor.b },
     opacity: clamp01(borderColor.a)
-  }];
-  node.strokeWeight = borderWidth;
+  };
+
+  node.strokes = [strokeColor];
   node.strokeAlign = 'INSIDE';
+
+  if (topW === rightW && rightW === bottomW && bottomW === leftW) {
+    node.strokeWeight = topW;
+  } else {
+    try {
+      node.strokeTopWeight = topW;
+      node.strokeRightWeight = rightW;
+      node.strokeBottomWeight = bottomW;
+      node.strokeLeftWeight = leftW;
+    } catch {
+      node.strokeWeight = Math.max(topW, rightW, bottomW, leftW);
+    }
+  }
 }
 
 function applyEffects(node, styles) {
@@ -352,7 +413,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       // Strip potentially problematic script tags or broken entities inside SVG
       cleanSvg = cleanSvg.replace(/<script[\s\S]*?<\/script>/gi, '');
       const svgNode = figma.createNodeFromSvg(cleanSvg);
-      svgNode.name = sNode.tag.toLowerCase();
+      svgNode.name = (sNode.tag || 'node').toLowerCase();
       parentFrame.appendChild(svgNode);
       svgNode.x = x; svgNode.y = y;
       if (w > 0 && h > 0) svgNode.resize(w, h);
@@ -368,27 +429,33 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (sNode.tag === 'IMG') {
     const attrs = sNode.attributes || {};
     const imgUrl = attrs.currentSrc || attrs.src || attrs['data-src'] || attrs['data-lazy-src'] || attrs['data-original'];
-    let assetData = null;
-    if (assets) {
-      assetData = (imgUrl && assets[imgUrl]) ||
-                  (attrs.currentSrc && assets[attrs.currentSrc]) ||
-                  (attrs.src && assets[attrs.src]) ||
-                  (attrs['data-src'] && assets[attrs['data-src']]) ||
-                  (attrs['data-lazy-src'] && assets[attrs['data-lazy-src']]);
-      if (!assetData && imgUrl) {
-        // Fallback: match by filename or partial URL
-        const filename = imgUrl.split('/').pop()?.split('?')[0];
-        if (filename) {
-          for (const key of Object.keys(assets)) {
-            if (key.includes(filename)) {
-              assetData = assets[key];
-              break;
+    let blobObj;
+    if (imgUrl && imgUrl.startsWith('data:')) {
+      blobObj = imgUrl;
+    } else {
+      let assetData = null;
+      if (assets) {
+        assetData = (imgUrl && assets[imgUrl]) ||
+                    (attrs.currentSrc && assets[attrs.currentSrc]) ||
+                    (attrs.src && assets[attrs.src]) ||
+                    (attrs['data-src'] && assets[attrs['data-src']]) ||
+                    (attrs['data-lazy-src'] && assets[attrs['data-lazy-src']]);
+        if (!assetData && imgUrl) {
+          // Fallback: match by filename or partial URL
+          const filename = imgUrl.split('/').pop()?.split('?')[0];
+          if (filename) {
+            for (const key of Object.keys(assets)) {
+              if (key.includes(filename)) {
+                assetData = assets[key];
+                break;
+              }
             }
           }
         }
       }
+      blobObj = assetData?.blob || assetData?.base64Blob || assetData;
     }
-    const blobObj = assetData?.blob || assetData?.base64Blob || assetData;
+    
     if (blobObj) {
       const bytes = decodeBase64Image(blobObj);
       if (bytes) {
@@ -420,7 +487,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       if (bytes) {
         try {
           const rect = figma.createRectangle();
-          rect.name = sNode.tag.toLowerCase();
+          rect.name = (sNode.tag || 'node').toLowerCase();
           parentFrame.appendChild(rect);
           rect.x = x; rect.y = y;
           rect.resize(w, h);
@@ -439,7 +506,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
   // Frame container
   const frame = figma.createFrame();
-  frame.name = sNode.tag.toLowerCase() + (sNode.attributes?.id ? `#${sNode.attributes.id}` : '');
+  frame.name = (sNode.tag || 'node').toLowerCase() + (sNode.attributes?.id ? `#${sNode.attributes.id}` : '');
   parentFrame.appendChild(frame);
   frame.x = x;
   frame.y = y;
@@ -529,15 +596,23 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const h = sNode.rect?.height || 0;
   const textStr = finalText.trim();
 
-  // If short token/number/single line, let Figma compute exact natural bounds
-  if ((!sNode.lineCount || sNode.lineCount <= 1) && (!textStr.includes('\n') || textStr.length < 40)) {
-    textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
-  } else if (w > 0 && h > 0) {
-    // Fixed dimensions from browser — no re-wrapping to avoid overlap with inline elements
-    textNode.textAutoResize = 'NONE';
-    textNode.resize(Math.ceil(w), Math.ceil(h));
+  // Use HEIGHT for multi-line to allow wrapping, and WIDTH_AND_HEIGHT for single-line
+  // to prevent unwanted word-wrapping when Figma's font metrics differ from the browser's.
+  if (isMultiLine && w > 0) {
+    textNode.textAutoResize = 'HEIGHT';
+    textNode.resize(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
   } else {
     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
+    // When using WIDTH_AND_HEIGHT, Figma sizes the node exactly to its own font rendering width.
+    // If this differs from the browser's bounding box `w`, center/right aligned text will be misaligned.
+    // We compensate by shifting `x` so the text remains correctly aligned within the browser's original `w`.
+    if (w > 0) {
+      if (s.textAlign === 'center') {
+        textNode.x = posX + (w - textNode.width) / 2;
+      } else if (s.textAlign === 'right' || s.textAlign === 'end') {
+        textNode.x = posX + (w - textNode.width);
+      }
+    }
   }
 }
 
@@ -570,14 +645,16 @@ async function renderTree(data) {
   } else {
     rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
   }
-  rootFrame.clipsContent = false;
+  rootFrame.clipsContent = true;
 
   figma.currentPage.appendChild(rootFrame);
 
   if (data.root?.childNodes) {
     for (const child of data.root.childNodes) {
-      await renderNode(child, rootFrame, data.root.rect?.x || 0, data.root.rect?.y || 0, data.assets, data.root.styles);
+      await renderNode(child, rootFrame, 0, 0, data.assets, data.root.styles);
     }
+  } else if (data.root) {
+    await renderNode(data.root, rootFrame, 0, 0, data.assets, data.root.styles);
   }
 
   figma.currentPage.selection = [rootFrame];
