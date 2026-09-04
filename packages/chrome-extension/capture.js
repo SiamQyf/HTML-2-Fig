@@ -19,7 +19,7 @@
   const CSS_DEFAULTS = {
     alignContent: 'normal', alignItems: 'normal', alignSelf: 'auto',
     aspectRatio: 'auto', backdropFilter: 'none', backgroundAttachment: 'scroll',
-    backgroundBlendMode: 'normal', backgroundClip: 'border-box',
+    backgroundBlendMode: 'normal', backgroundClip: 'border-box', webkitBackgroundClip: 'border-box',
     backgroundColor: 'rgba(0, 0, 0, 0)', backgroundImage: 'none',
     backgroundOrigin: 'padding-box', backgroundPositionX: '0%', backgroundPositionY: '0%',
     backgroundRepeat: 'repeat', backgroundSize: 'auto', borderBottomColor: 'rgb(0, 0, 0)',
@@ -53,7 +53,7 @@
     transform: 'none', transformOrigin: 'auto', translate: 'none',
     rotate: 'none', scale: 'none', verticalAlign: 'baseline',
     visibility: 'visible', webkitTextFillColor: '', whiteSpace: 'normal',
-    width: 'auto', writingMode: 'horizontal-tb', zIndex: 'auto'
+    width: 'auto', writingMode: 'horizontal-tb', zIndex: 'auto', clipPath: 'none'
   };
 
   /* ======================================================================
@@ -94,18 +94,30 @@
     style.innerHTML = 'html, body { scroll-behavior: auto !important; }';
     document.head.appendChild(style);
 
-    const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-    const step = Math.max(window.innerHeight * 2, 1200);
+    let scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+    
+    // Use an even smaller step for a gentle, deliberate scroll (~2250px per second)
+    const step = 45; // 45px per step
+    const delay = 20;  // 20ms delay (approx 50 fps)
 
     for (let y = 0; y < scrollHeight; y += step) {
       window.scrollTo(0, y);
-      await new Promise(r => setTimeout(r, 40));
+      await new Promise(r => setTimeout(r, delay));
+      scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
     }
+    
     window.scrollTo(0, scrollHeight);
-    await new Promise(r => setTimeout(r, 100));
-    // Always restore to top (0, 0) for DOM serialization
+    await new Promise(r => setTimeout(r, 450));
+    
+    // Smoothly return to top at a moderate speed
+    for (let y = scrollHeight; y > 0; y -= (step * 4)) {
+      window.scrollTo(0, y);
+      await new Promise(r => setTimeout(r, 15));
+    }
+
+    // Always restore exactly to top (0, 0) for DOM serialization
     window.scrollTo(0, 0);
-    await new Promise(r => setTimeout(r, 60));
+    await new Promise(r => setTimeout(r, 200));
   }
 
   /* ======================================================================
@@ -475,8 +487,8 @@
 
       // Read computed fill/stroke from ORIGINAL in-DOM elements, write onto clone
       const computedColor = cs.color;
-      const origChildren = el.querySelectorAll('*');
-      const cloneChildren = clone.querySelectorAll('*');
+      const origChildren = [el, ...Array.from(el.querySelectorAll('*'))];
+      const cloneChildren = [clone, ...Array.from(clone.querySelectorAll('*'))];
       for (let i = 0; i < origChildren.length && i < cloneChildren.length; i++) {
         const orig = origChildren[i];
         const cloned = cloneChildren[i];
@@ -519,33 +531,14 @@
     try {
       const cs = window.getComputedStyle(el, pseudo);
       const content = cs.content;
+      if (!content || content === 'none' || content === 'normal' || content === '""') return null;
+      
       const display = cs.display;
-      if (display === 'none' || cs.opacity === '0') return null;
+      if (display === 'none' || parseFloat(cs.opacity) < 0.02 || cs.visibility === 'hidden') return null;
+      if (parseInt(cs.zIndex) < 0) return null;
+      if (parseFloat(cs.width) === 0 || parseFloat(cs.height) === 0) return null;
+      if (cs.clipPath && cs.clipPath !== 'none' && (cs.clipPath.includes('inset(100%)') || cs.clipPath.includes('(0px'))) return null;
 
-      // Skip elements hidden via scale(0) transform (common for hover underlines)
-      if (cs.transform && cs.transform.startsWith('matrix')) {
-        const parts = cs.transform.match(/matrix\(([^)]+)\)/);
-        if (parts) {
-          const [a, b, c, d] = parts[1].split(',').map(s => parseFloat(s.trim()));
-          if ((Math.abs(a) < 0.001 && Math.abs(b) < 0.001) || (Math.abs(c) < 0.001 && Math.abs(d) < 0.001)) {
-            return null;
-          }
-        }
-      }
-      
-      const hasContent = content && content !== 'none' && content !== 'normal' && content !== '""';
-      const hasBgImage = cs.backgroundImage && cs.backgroundImage !== 'none';
-      const hasMaskImage = (cs.maskImage && cs.maskImage !== 'none') || (cs.webkitMaskImage && cs.webkitMaskImage !== 'none');
-      const hasBgColor = cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
-      const hasBorder = cs.borderWidth && parseFloat(cs.borderWidth) > 0 && cs.borderStyle !== 'none';
-      const hasShadow = cs.boxShadow && cs.boxShadow !== 'none';
-      
-      if (!hasContent && !hasBgImage && !hasMaskImage && !hasBgColor && !hasBorder && !hasShadow) {
-        return null;
-      }
-
-      const text = hasContent ? content.replace(/^[\"']|[\"']$/g, '').trim() : '';
-      
       const styles = {};
       for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
         const val = cs[prop];
@@ -553,16 +546,57 @@
           styles[prop] = val;
         }
       }
+      
+      const text = content.replace(/^[\"']|[\"']$/g, '').trim();
+      
       if (styles.fontFamily) fonts.addFont(styles.fontFamily);
       
+      let pseudoRect = { ...parentRect };
+      const w = parseFloat(cs.width);
+      const h = parseFloat(cs.height);
+      if (!isNaN(w) && cs.width !== 'auto') pseudoRect.width = w;
+      if (!isNaN(h) && cs.height !== 'auto') pseudoRect.height = h;
+
+      if (cs.position === 'absolute') {
+        const t = parseFloat(cs.top);
+        const b = parseFloat(cs.bottom);
+        const l = parseFloat(cs.left);
+        const r = parseFloat(cs.right);
+
+        if (!isNaN(l) && cs.left !== 'auto') pseudoRect.x = parentRect.x + l;
+        else if (!isNaN(r) && cs.right !== 'auto') pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - r;
+        
+        if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = parentRect.y + t;
+        else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = parentRect.y + parentRect.height - pseudoRect.height - b;
+      }
+
+      if (cs.transform && cs.transform.includes('matrix')) {
+        const parts = cs.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+        if (parts) {
+          const vals = parts[1].split(',').map(s => parseFloat(s.trim()));
+          let tx = 0, ty = 0;
+          if (cs.transform.startsWith('matrix3d')) {
+            const sx = vals[0], sy = vals[5];
+            if (Math.abs(sx) < 0.001 || Math.abs(sy) < 0.001) return null;
+            tx = vals[12]; ty = vals[13];
+          } else {
+            const [a, b, c, d] = vals;
+            if ((Math.abs(a) < 0.001 && Math.abs(b) < 0.001) || (Math.abs(c) < 0.001 && Math.abs(d) < 0.001)) return null;
+            tx = vals[4]; ty = vals[5];
+          }
+          pseudoRect.x += tx;
+          pseudoRect.y += ty;
+        }
+      }
+
       if (Array.from(text).length === 1) {
         const fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize);
         if (fontData && fontData.svgPath) {
            const { svgPath, bbox } = fontData;
            const pathW = bbox.x2 - bbox.x1;
            const pathH = bbox.y2 - bbox.y1;
-           const parentW = Math.ceil(parentRect.width);
-           const parentH = Math.ceil(parentRect.height);
+           const parentW = Math.ceil(pseudoRect.width);
+           const parentH = Math.ceil(pseudoRect.height);
            const tx = (parentW - pathW) / 2 - bbox.x1;
            const ty = (parentH - pathH) / 2 - bbox.y1;
 
@@ -572,7 +606,7 @@
             tag: 'SVG',
             content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: styles,
-            rect: parentRect
+            rect: pseudoRect
           };
         }
       }
@@ -583,7 +617,7 @@
         tag: 'SPAN',
         attributes: { class: pseudo.replace('::', '__') },
         styles,
-        rect: parentRect,
+        rect: pseudoRect,
         text
       };
     } catch {
@@ -752,7 +786,21 @@
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE'].includes(tag)) return null;
 
     const styles = getElementStyles(el);
-    if (styles.display === 'none' || styles.visibility === 'hidden') return null;
+    if (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02) return null;
+
+    if (styles.transform && styles.transform.includes('matrix')) {
+      const parts = styles.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+      if (parts) {
+        const vals = parts[1].split(',').map(s => parseFloat(s.trim()));
+        if (styles.transform.startsWith('matrix3d')) {
+          const sx = vals[0], sy = vals[5];
+          if (Math.abs(sx) < 0.001 || Math.abs(sy) < 0.001) return null;
+        } else {
+          const [a, b, c, d] = vals;
+          if ((Math.abs(a) < 0.001 && Math.abs(b) < 0.001) || (Math.abs(c) < 0.001 && Math.abs(d) < 0.001)) return null;
+        }
+      }
+    }
     if (styles.fontFamily) fonts.addFont(styles.fontFamily);
 
     if (el instanceof HTMLImageElement) {
@@ -827,8 +875,10 @@
       const val = el.value || el.placeholder || el.getAttribute('placeholder') || '';
       if (val && !childNodes.length) {
         const isPlaceholder = !el.value && (el.placeholder || el.getAttribute('placeholder'));
-        const padLeft = parseFloat(styles.paddingLeft) || 12;
-        const padTop = parseFloat(styles.paddingTop) || 8;
+        const padLeft = parseFloat(styles.paddingLeft) || 0;
+        const padTop = parseFloat(styles.paddingTop) || 0;
+        const padRight = parseFloat(styles.paddingRight) || 0;
+        const padBottom = parseFloat(styles.paddingBottom) || 0;
         
         // Placeholder text style (slightly lighter if it's placeholder)
         const textStyles = { ...styles };
@@ -844,8 +894,8 @@
           rect: {
             x: docRect.x + padLeft,
             y: docRect.y + padTop,
-            width: Math.max(1, docRect.width - padLeft - (parseFloat(styles.paddingRight) || 12)),
-            height: Math.max(1, docRect.height - padTop - (parseFloat(styles.paddingBottom) || 8))
+            width: Math.max(1, docRect.width - padLeft - padRight),
+            height: Math.max(1, docRect.height - padTop - padBottom)
           },
           styles: textStyles,
           lineCount: 1

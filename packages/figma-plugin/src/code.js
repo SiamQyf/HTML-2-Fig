@@ -1,14 +1,7 @@
-/*
- * HTML 2 Fig — Plugin Canvas Renderer
- * Translates serialized DOM payloads into editable native Figma layers,
- * vector SVG nodes, high-fidelity typography, and image fills.
- */
 
 figma.showUI(__html__, { width: 360, height: 480, themeColors: true });
 
-/* ======================================================================
- *  1.  COLOR & GRADIENT PARSING
- * ====================================================================== */
+
 const NAMED_COLORS = {
   transparent: { r: 0, g: 0, b: 0, a: 0 },
   black: { r: 0, g: 0, b: 0, a: 1 },
@@ -232,34 +225,37 @@ function parseBoxShadows(css) {
  * ====================================================================== */
 function applyFills(node, styles, assets) {
   const fills = [];
+  const isTextClip = styles.backgroundClip === 'text' || styles.webkitBackgroundClip === 'text';
 
-  // Background color
-  const bg = parseColor(styles.backgroundColor);
-  if (bg && bg.a > 0.005) {
-    fills.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: clamp01(bg.a) });
-  }
+  if (!isTextClip) {
+    // Background color
+    const bg = parseColor(styles.backgroundColor);
+    if (bg && bg.a > 0.005) {
+      fills.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: clamp01(bg.a) });
+    }
 
-  // Check if background is intentionally hidden via size 0 (e.g., collapsed hover effects)
-  const bgSize = (styles.backgroundSize || '').trim();
-  let isZeroSize = false;
-  if (bgSize && bgSize !== 'auto' && bgSize !== 'cover' && bgSize !== 'contain') {
-    const parts = bgSize.split(/\s+/);
-    const w = parseFloat(parts[0]);
-    const h = parts.length > 1 ? parseFloat(parts[1]) : w; // if only 1 value, height is auto (but sometimes treated as same for 0)
-    if (w === 0 || h === 0) isZeroSize = true;
-  }
+    // Check if background is intentionally hidden via size 0 (e.g., collapsed hover effects)
+    const bgSize = (styles.backgroundSize || '').trim();
+    let isZeroSize = false;
+    if (bgSize && bgSize !== 'auto' && bgSize !== 'cover' && bgSize !== 'contain') {
+      const parts = bgSize.split(/\s+/);
+      const w = parseFloat(parts[0]);
+      const h = parts.length > 1 ? parseFloat(parts[1]) : w; // if only 1 value, height is auto (but sometimes treated as same for 0)
+      if (w === 0 || h === 0) isZeroSize = true;
+    }
 
-  if (!isZeroSize) {
-    // CSS Gradients
-    if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
-      const grad = parseLinearGradient(styles.backgroundImage);
-      if (grad) fills.push(grad);
+    if (!isZeroSize) {
+      // CSS Gradients
+      if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
+        const grad = parseLinearGradient(styles.backgroundImage);
+        if (grad) fills.push(grad);
+      }
     }
   }
 
   // Background and mask image fill
   const combinedImages = [
-    (!isZeroSize ? styles.backgroundImage : ''),
+    (!isTextClip && !(styles.backgroundSize === '0px') ? styles.backgroundImage : ''),
     styles.maskImage,
     styles.webkitMaskImage
   ].filter(Boolean).join(' ');
@@ -579,10 +575,29 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const alignMap = { 'left': 'LEFT', 'start': 'LEFT', 'center': 'CENTER', 'right': 'RIGHT', 'end': 'RIGHT', 'justify': 'JUSTIFIED' };
   textNode.textAlignHorizontal = alignMap[s.textAlign] || 'LEFT';
 
-  const color = parseColor(s.webkitTextFillColor || s.color || '#000000');
-  if (color) {
-    textNode.fills = [{ type: 'SOLID', color: { r: color.r, g: color.g, b: color.b }, opacity: clamp01(color.a) }];
+  const isTextClip = s.backgroundClip === 'text' || s.webkitBackgroundClip === 'text';
+  if (isTextClip) {
+    const textFills = [];
+    const bg = parseColor(s.backgroundColor);
+    if (bg && bg.a > 0.005) textFills.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: clamp01(bg.a) });
+    if (s.backgroundImage && s.backgroundImage.includes('gradient')) {
+      const grad = parseLinearGradient(s.backgroundImage);
+      if (grad) textFills.push(grad);
+    }
+    
+    if (textFills.length > 0) {
+      textNode.fills = textFills;
+    } else {
+      const color = parseColor(s.webkitTextFillColor || s.color || '#000000');
+      if (color) textNode.fills = [{ type: 'SOLID', color: { r: color.r, g: color.g, b: color.b }, opacity: clamp01(color.a) }];
+    }
+  } else {
+    const color = parseColor(s.webkitTextFillColor || s.color || '#000000');
+    if (color) {
+      textNode.fills = [{ type: 'SOLID', color: { r: color.r, g: color.g, b: color.b }, opacity: clamp01(color.a) }];
+    }
   }
+  
   applyOpacity(textNode, s);
 
   parentFrame.appendChild(textNode);
@@ -596,9 +611,16 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const h = sNode.rect?.height || 0;
   const textStr = finalText.trim();
 
-  // Use HEIGHT for multi-line to allow wrapping, and WIDTH_AND_HEIGHT for single-line
-  // to prevent unwanted word-wrapping when Figma's font metrics differ from the browser's.
-  if (isMultiLine && w > 0) {
+
+  if (sNode.id && sNode.id.includes('input-text') && w > 0 && h > 0) {
+    try {
+      textNode.textAutoResize = 'TRUNCATE';
+    } catch {
+      textNode.textAutoResize = 'NONE';
+    }
+    textNode.resize(Math.ceil(w), Math.ceil(h));
+    textNode.textAlignVertical = 'CENTER';
+  } else if (isMultiLine && w > 0) {
     textNode.textAutoResize = 'HEIGHT';
     textNode.resize(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
   } else {
