@@ -503,14 +503,22 @@
 
           if (attrFill === 'currentColor') {
             cloned.setAttribute('fill', computedColor);
-          } else if (computedFill && computedFill !== 'none') {
-            cloned.setAttribute('fill', computedFill);
+          } else if (computedFill) {
+            if (computedFill === 'rgba(0, 0, 0, 0)' || computedFill === 'transparent') {
+              cloned.setAttribute('fill', 'none');
+            } else {
+              cloned.setAttribute('fill', computedFill);
+            }
           }
 
           if (attrStroke === 'currentColor') {
             cloned.setAttribute('stroke', computedColor);
-          } else if (computedStroke && computedStroke !== 'none' && computedStroke !== 'rgba(0, 0, 0, 0)') {
-            cloned.setAttribute('stroke', computedStroke);
+          } else if (computedStroke) {
+            if (computedStroke === 'rgba(0, 0, 0, 0)' || computedStroke === 'transparent') {
+              cloned.setAttribute('stroke', 'none');
+            } else {
+              cloned.setAttribute('stroke', computedStroke);
+            }
           }
         } catch {}
       }
@@ -599,12 +607,13 @@
            const parentH = Math.ceil(pseudoRect.height);
            const tx = (parentW - pathW) / 2 - bbox.x1;
            const ty = (parentH - pathH) / 2 - bbox.y1;
+           const fillColor = cs.color || '#000000';
 
            return {
             nodeType: ELEMENT_NODE,
             id: getNodeId('svg-icon-pseudo'),
             tag: 'SVG',
-            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${fillColor}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: styles,
             rect: pseudoRect
           };
@@ -651,12 +660,13 @@
           const parentH = Math.ceil(rect.height);
           const tx = (parentW - pathW) / 2 - bbox.x1;
           const ty = (parentH - pathH) / 2 - bbox.y1;
+          const fillColor = parentStyles?.webkitTextFillColor || parentStyles?.color || '#000000';
 
           return {
             nodeType: ELEMENT_NODE,
             id: getNodeId('svg-icon'),
             tag: 'SVG',
-            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${fillColor}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: parentStyles || {},
             rect: {
               x: rect.x + (isFixed ? 0 : window.scrollX),
