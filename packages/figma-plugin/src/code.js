@@ -223,7 +223,7 @@ function parseBoxShadows(css) {
 /* ======================================================================
  *  4.  STYLE APPLIERS
  * ====================================================================== */
-function applyFills(node, styles, assets) {
+async function applyFills(node, styles, assets, nodeW, nodeH) {
   const fills = [];
   const isTextClip = styles.backgroundClip === 'text' || styles.webkitBackgroundClip === 'text';
 
@@ -290,7 +290,69 @@ function applyFills(node, styles, assets) {
         if (bytes) {
           try {
             const img = figma.createImage(bytes);
-            fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
+            
+            const bgSize = (styles.backgroundSize || 'auto').trim();
+            const posX = (styles.backgroundPositionX || '0%').trim();
+            const posY = (styles.backgroundPositionY || '0%').trim();
+            
+            if (bgSize !== 'auto' || posX !== '0%' || posY !== '0%') {
+              const size = await img.getSizeAsync();
+              let imgW = size.width;
+              let imgH = size.height;
+              
+              if (bgSize === 'contain' || bgSize === 'cover') {
+                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: bgSize === 'contain' ? 'FIT' : 'FILL' });
+              } else {
+                const parts = bgSize.split(' ');
+                let wStr = parts[0];
+                let hStr = parts.length > 1 ? parts[1] : wStr;
+                
+                if (wStr.endsWith('%')) {
+                  imgW = (parseFloat(wStr) / 100) * nodeW;
+                } else if (wStr.endsWith('px')) {
+                  imgW = parseFloat(wStr);
+                }
+                
+                if (hStr === 'auto') {
+                  imgH = imgW * (size.height / size.width);
+                } else if (hStr.endsWith('%')) {
+                  imgH = (parseFloat(hStr) / 100) * nodeH;
+                } else if (hStr.endsWith('px')) {
+                  imgH = parseFloat(hStr);
+                }
+                
+                let x = 0;
+                if (posX.endsWith('%')) {
+                  x = (parseFloat(posX) / 100) * (nodeW - imgW);
+                } else if (posX.endsWith('px')) {
+                  x = parseFloat(posX);
+                }
+                
+                let y = 0;
+                if (posY.endsWith('%')) {
+                  y = (parseFloat(posY) / 100) * (nodeH - imgH);
+                } else if (posY.endsWith('px')) {
+                  y = parseFloat(posY);
+                }
+                
+                if (imgW > 0 && imgH > 0 && nodeW > 0 && nodeH > 0) {
+                  const imageTransform = [
+                    [nodeW / imgW, 0, -x / imgW],
+                    [0, nodeH / imgH, -y / imgH]
+                  ];
+                  fills.push({
+                    type: 'IMAGE',
+                    imageHash: img.hash,
+                    scaleMode: 'CROP',
+                    imageTransform: imageTransform
+                  });
+                } else {
+                  fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
+                }
+              }
+            } else {
+              fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
+            }
             break; // Apply primary image fill
           } catch {}
         }
@@ -509,7 +571,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   frame.resize(w, h);
   frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden');
 
-  applyFills(frame, s, assets);
+  await applyFills(frame, s, assets, w, h);
   applyStrokes(frame, s);
   applyEffects(frame, s);
   applyCornerRadius(frame, s);
@@ -660,7 +722,7 @@ async function renderTree(data) {
   rootFrame.y = figma.viewport.center.y - dh / 2;
   
   if (data.root?.styles) {
-    applyFills(rootFrame, data.root.styles, data.assets);
+    await applyFills(rootFrame, data.root.styles, data.assets, dw, dh);
     if (!rootFrame.fills || !rootFrame.fills.length) {
       rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
     }
