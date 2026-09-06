@@ -500,13 +500,17 @@
               const src = rule.style.src;
               if (family && src) {
                 let fontUrl = null;
-                const ttfMatch = src.match(/url\(["']?(.*?\.ttf(\?.*?)?)["']?\)/i);
-                const woffMatch = src.match(/url\(["']?(.*?\.woff(\?.*?)?)["']?\)/i);
-                const fallbackMatch = src.match(/url\(["']?(.*?)["']?\)/);
                 
-                if (ttfMatch) fontUrl = ttfMatch[1];
-                else if (woffMatch && !woffMatch[1].endsWith('.woff2')) fontUrl = woffMatch[1];
-                else if (fallbackMatch && !fallbackMatch[1].includes('.woff2')) fontUrl = fallbackMatch[1];
+                // src string can contain multiple urls, e.g.:
+                // url("...woff2") format("woff2"), url("...woff") format("woff"), url("...ttf") format("truetype")
+                // opentype.js doesn't support woff2 natively without brotli, so we must find woff or ttf
+                const urls = Array.from(src.matchAll(/url\(["']?(.*?)["']?\)/gi)).map(m => m[1]);
+                
+                // Prioritize TTF, then WOFF (not WOFF2), then anything not WOFF2
+                fontUrl = urls.find(u => u.toLowerCase().endsWith('.ttf')) || 
+                          urls.find(u => u.toLowerCase().endsWith('.woff')) || 
+                          urls.find(u => !u.toLowerCase().includes('.woff2')) || 
+                          urls[0]; // ultimate fallback
                 
                 if (fontUrl && !fontUrl.startsWith('data:')) {
                   try { fontUrl = new URL(fontUrl, sheet.href || window.location.href).href; } catch {}
@@ -1119,7 +1123,6 @@
       document.body ? document.body.scrollWidth : 0,
       window.innerWidth
     );
-    fullDocWidth = Math.min(fullDocWidth, 1448); // Cap max width at 1448px
     const fullDocHeight = Math.max(
       document.documentElement.scrollHeight,
       document.body ? document.body.scrollHeight : 0,

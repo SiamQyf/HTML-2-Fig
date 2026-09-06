@@ -120,6 +120,22 @@ async function loadFont(family, weight, italic) {
 
   const candidates = [];
   
+  // Font Awesome Special Handling
+  if (cleanFamily.toLowerCase().includes('font awesome')) {
+    if (cleanFamily.toLowerCase().includes('brands')) {
+      candidates.push({ family: cleanFamily, style: 'Regular' });
+    } else {
+      const isSolid = weightKey === '900' || weightKey === 'bold' || weightKey === 'bolder';
+      candidates.push({ family: cleanFamily, style: isSolid ? 'Solid' : 'Regular' });
+      candidates.push({ family: cleanFamily, style: isSolid ? 'Regular' : 'Solid' }); // ultimate fa fallback
+    }
+    // Also try without version numbers if they fail
+    candidates.push({ family: 'Font Awesome 5 Free', style: 'Solid' });
+    candidates.push({ family: 'Font Awesome 5 Free', style: 'Regular' });
+    candidates.push({ family: 'Font Awesome 6 Free', style: 'Solid' });
+    candidates.push({ family: 'Font Awesome 5 Brands', style: 'Regular' });
+  }
+
   // 1. Try exact family with all weight variations
   for (const style of styleNames) {
     candidates.push({ family: cleanFamily, style: style + (italic ? ' Italic' : '') });
