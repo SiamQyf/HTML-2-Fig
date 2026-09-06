@@ -25,5 +25,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/SiamQyf/HTML-2-Fig.git"
+  },
+  "dependencies": {
+    "puppeteer": "^25.10.0"
   }
 }

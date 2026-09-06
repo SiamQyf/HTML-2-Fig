@@ -16,22 +16,25 @@ function parseColor(css) {
   css = css.trim().toLowerCase();
   if (NAMED_COLORS[css]) return { ...NAMED_COLORS[css] };
 
-  // rgb/rgba
-  let m = css.match(/^rgba?\(\s*([\d.]+)[,%\s]+([\d.]+)[,%\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/);
-  if (m) return { r: +m[1] / 255, g: +m[2] / 255, b: +m[3] / 255, a: m[4] !== undefined ? +m[4] : 1 };
+  let m;
+  // rgb/rgba (legacy and space-separated: rgb(255 255 255 / 0.8) or rgba(255, 255, 255, 0.8))
+  m = css.match(/^rgba?\(\s*([\d.]+)(%?)[,%\s]+([\d.]+)(%?)[,%\s]+([\d.]+)(%?)(?:[,/\s]+([\d.]+)[%]?\s*)?\)$/);
+  if (m) {
+    const r = m[2] ? clamp01(+m[1] / 100) : clamp01(+m[1] / 255);
+    const g = m[4] ? clamp01(+m[3] / 100) : clamp01(+m[3] / 255);
+    const b = m[6] ? clamp01(+m[5] / 100) : clamp01(+m[5] / 255);
+    return { r, g, b, a: m[7] !== undefined ? clamp01(+m[7]) : 1 };
+  }
 
   // hsl/hsla
-  m = css.match(/^hsla?\(\s*([\d.]+)(?:deg)?[,%\s]+([\d.]+)%[,%\s]+([\d.]+)%(?:[,/\s]+([\d.]+))?\s*\)$/);
+  m = css.match(/^hsla?\(\s*([\d.]+)(?:deg)?[,%\s]+([\d.]+)%?[,%\s]+([\d.]+)%?(?:[,/\s]+([\d.]+)[%]?\s*)?\)$/);
   if (m) {
     const h = +m[1] / 360, s = +m[2] / 100, l = +m[3] / 100;
     const a = m[4] !== undefined ? +m[4] : 1;
     let r, g, b;
-    if (s === 0) {
-      r = g = b = l;
-    } else {
+    if (s === 0) { r = g = b = l; } else {
       const hue2rgb = (p, q, t) => {
-        if (t < 0) t += 1;
-        if (t > 1) t -= 1;
+        if (t < 0) t += 1; if (t > 1) t -= 1;
         if (t < 1/6) return p + (q - p) * 6 * t;
         if (t < 1/2) return q;
         if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
@@ -39,9 +42,7 @@ function parseColor(css) {
       };
       const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
       const p = 2 * l - q;
-      r = hue2rgb(p, q, h + 1/3);
-      g = hue2rgb(p, q, h);
-      b = hue2rgb(p, q, h - 1/3);
+      r = hue2rgb(p, q, h + 1/3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h - 1/3);
     }
     return { r, g, b, a };
   }
@@ -51,9 +52,27 @@ function parseColor(css) {
   if (m) {
     const h = m[1];
     if (h.length === 3) return { r: parseInt(h[0] + h[0], 16) / 255, g: parseInt(h[1] + h[1], 16) / 255, b: parseInt(h[2] + h[2], 16) / 255, a: 1 };
+    if (h.length === 4) return { r: parseInt(h[0] + h[0], 16) / 255, g: parseInt(h[1] + h[1], 16) / 255, b: parseInt(h[2] + h[2], 16) / 255, a: parseInt(h[3] + h[3], 16) / 255 };
     if (h.length === 6) return { r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: 1 };
     if (h.length === 8) return { r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: parseInt(h.slice(6, 8), 16) / 255 };
   }
+
+  // color(display-p3 r g b)
+  m = css.match(/^color\([^ ]+\s+([\d.-]+)[,%\s]+([\d.-]+)[,%\s]+([\d.-]+)(?:[,/\s]+([\d.-]+)[%]?\s*)?\)$/);
+  if (m) return { r: +m[1] > 1 ? clamp01(+m[1] / 255) : clamp01(+m[1]), g: +m[2] > 1 ? clamp01(+m[2] / 255) : clamp01(+m[2]), b: +m[3] > 1 ? clamp01(+m[3] / 255) : clamp01(+m[3]), a: m[4] !== undefined ? clamp01(+m[4]) : 1 };
+
+  // oklch/oklab/lab/lch extraction fallback (extracts lightness/grey approximation to prevent completely dropping the color)
+  m = css.match(/^(?:oklch|oklab|lab|lch)\(\s*([\d.-]+)%?\s+([\d.-]+)%?\s+([\d.-]+)%?(?:\s*\/\s*([\d.-]+)%?)?\s*\)$/);
+  if (m) {
+    let l = parseFloat(m[1]);
+    if (css.includes('ok') || css.includes('%')) {
+      if (l > 1) l = l / 100; // oklab/oklch L is usually 0-1, but sometimes 0-100%
+    } else {
+      l = l / 100; // lab/lch L is 0-100
+    }
+    return { r: clamp01(l), g: clamp01(l), b: clamp01(l), a: m[4] !== undefined ? clamp01(+m[4]) : 1 };
+  }
+
   return null;
 }
 
@@ -79,22 +98,45 @@ function decodeBase64Image(base64Obj) {
  *  3.  FONT LOADER WITH FALLBACK
  * ====================================================================== */
 const FONT_WEIGHT_MAP = {
-  '100': 'Thin', '200': 'ExtraLight', '300': 'Light',
-  '400': 'Regular', '500': 'Medium', '600': 'SemiBold',
-  '700': 'Bold', '800': 'ExtraBold', '900': 'Black'
+  '100': ['Thin'],
+  '200': ['Extra Light', 'ExtraLight', 'UltraLight'],
+  '300': ['Light'],
+  '400': ['Regular', 'Normal'],
+  '500': ['Medium'],
+  '600': ['Semi Bold', 'SemiBold', 'DemiBold'],
+  '700': ['Bold'],
+  '800': ['Extra Bold', 'ExtraBold', 'UltraBold'],
+  '900': ['Black', 'Heavy'],
+  'normal': ['Regular', 'Normal'],
+  'bold': ['Bold'],
+  'bolder': ['Extra Bold', 'ExtraBold', 'UltraBold'],
+  'lighter': ['Light']
 };
 
 async function loadFont(family, weight, italic) {
   const cleanFamily = (family || 'Inter').replace(/['"]/g, '').split(',')[0].trim();
-  const styleName = (FONT_WEIGHT_MAP[weight] || 'Regular') + (italic ? ' Italic' : '');
+  const weightKey = weight ? String(weight).toLowerCase() : '400';
+  const styleNames = FONT_WEIGHT_MAP[weightKey] || ['Regular'];
 
-  const candidates = [
-    { family: cleanFamily, style: styleName },
-    { family: cleanFamily, style: italic ? 'Italic' : 'Regular' },
-    { family: 'Inter', style: styleName },
-    { family: 'Inter', style: 'Regular' },
-    { family: 'Roboto', style: 'Regular' }
-  ];
+  const candidates = [];
+  
+  // 1. Try exact family with all weight variations
+  for (const style of styleNames) {
+    candidates.push({ family: cleanFamily, style: style + (italic ? ' Italic' : '') });
+    if (italic) candidates.push({ family: cleanFamily, style: style + 'Italic' });
+  }
+  
+  // 2. Try exact family with Regular/Italic fallback
+  candidates.push({ family: cleanFamily, style: italic ? 'Italic' : 'Regular' });
+  
+  // 3. Try Inter with all weight variations
+  for (const style of styleNames) {
+    candidates.push({ family: 'Inter', style: style + (italic ? ' Italic' : '') });
+  }
+  
+  // 4. Ultimate fallbacks
+  candidates.push({ family: 'Inter', style: 'Regular' });
+  candidates.push({ family: 'Roboto', style: 'Regular' });
 
   for (const font of candidates) {
     try {
@@ -108,7 +150,7 @@ async function loadFont(family, weight, italic) {
 function parseLinearGradient(css) {
   if (!css || !css.includes('linear-gradient')) return null;
   try {
-    const contentMatch = css.match(/linear-gradient\((.*)\)$/s);
+    const contentMatch = css.match(/linear-gradient\((.*?)\)(?=\s*(?:,|$)(?!\s*(?:rgba?|hsla?|#|transparent|black|white|red|green|blue)))/is);
     if (!contentMatch) return null;
     const inner = contentMatch[1].trim();
 
@@ -227,6 +269,7 @@ async function applyFills(node, styles, assets, nodeW, nodeH) {
   const fills = [];
   const isTextClip = styles.backgroundClip === 'text' || styles.webkitBackgroundClip === 'text';
 
+  let isZeroSize = false;
   if (!isTextClip) {
     // Background color
     const bg = parseColor(styles.backgroundColor);
@@ -236,24 +279,15 @@ async function applyFills(node, styles, assets, nodeW, nodeH) {
 
     // Check if background is intentionally hidden via size 0 (e.g., collapsed hover effects)
     const bgSize = (styles.backgroundSize || '').trim();
-    let isZeroSize = false;
     if (bgSize && bgSize !== 'auto' && bgSize !== 'cover' && bgSize !== 'contain') {
       const parts = bgSize.split(/\s+/);
       const w = parseFloat(parts[0]);
       const h = parts.length > 1 ? parseFloat(parts[1]) : w; // if only 1 value, height is auto (but sometimes treated as same for 0)
       if (w === 0 || h === 0) isZeroSize = true;
     }
-
-    if (!isZeroSize) {
-      // CSS Gradients
-      if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
-        const grad = parseLinearGradient(styles.backgroundImage);
-        if (grad) fills.push(grad);
-      }
-    }
   }
 
-  // Background and mask image fill
+  // Parse images first so they are at the bottom of the fill stack
   const combinedImages = [
     (!isTextClip && !(styles.backgroundSize === '0px') ? styles.backgroundImage : ''),
     styles.maskImage,
@@ -261,7 +295,7 @@ async function applyFills(node, styles, assets, nodeW, nodeH) {
   ].filter(Boolean).join(' ');
 
   if (combinedImages.includes('url(')) {
-    const matches = combinedImages.matchAll(/url\(["']?(.*?)["']?\)/g);
+    const matches = Array.from(combinedImages.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g)).reverse();
     for (const match of matches) {
       const imgUrl = match[1]?.trim();
       if (!imgUrl) continue;
@@ -303,58 +337,74 @@ async function applyFills(node, styles, assets, nodeW, nodeH) {
               if (bgSize === 'contain' || bgSize === 'cover') {
                 fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: bgSize === 'contain' ? 'FIT' : 'FILL' });
               } else {
-                const parts = bgSize.split(' ');
-                let wStr = parts[0];
-                let hStr = parts.length > 1 ? parts[1] : wStr;
-                
-                if (wStr.endsWith('%')) {
-                  imgW = (parseFloat(wStr) / 100) * nodeW;
-                } else if (wStr.endsWith('px')) {
-                  imgW = parseFloat(wStr);
-                }
-                
-                if (hStr === 'auto') {
-                  imgH = imgW * (size.height / size.width);
-                } else if (hStr.endsWith('%')) {
-                  imgH = (parseFloat(hStr) / 100) * nodeH;
-                } else if (hStr.endsWith('px')) {
-                  imgH = parseFloat(hStr);
-                }
-                
-                let x = 0;
-                if (posX.endsWith('%')) {
-                  x = (parseFloat(posX) / 100) * (nodeW - imgW);
-                } else if (posX.endsWith('px')) {
-                  x = parseFloat(posX);
-                }
-                
-                let y = 0;
-                if (posY.endsWith('%')) {
-                  y = (parseFloat(posY) / 100) * (nodeH - imgH);
-                } else if (posY.endsWith('px')) {
-                  y = parseFloat(posY);
-                }
-                
-                if (imgW > 0 && imgH > 0 && nodeW > 0 && nodeH > 0) {
-                  const imageTransform = [
-                    [nodeW / imgW, 0, -x / imgW],
-                    [0, nodeH / imgH, -y / imgH]
+                try {
+                  const parts = bgSize.split(' ');
+                  let wStr = parts[0];
+                  let hStr = parts.length > 1 ? parts[1] : wStr;
+                  
+                  // Convert percentages to pixels based on node size
+                  if (wStr.endsWith('%')) imgW = nodeW * (parseFloat(wStr) / 100);
+                  else if (wStr.endsWith('px')) imgW = parseFloat(wStr);
+                  
+                  if (hStr === 'auto') {
+                    imgH = imgW * (size.height / size.width);
+                  } else if (hStr.endsWith('%')) {
+                    imgH = nodeH * (parseFloat(hStr) / 100);
+                  } else if (hStr.endsWith('px')) {
+                    imgH = parseFloat(hStr);
+                  }
+                  
+                  // Calculate position offsets
+                  let ox = 0, oy = 0;
+                  if (posX.endsWith('%')) ox = (nodeW - imgW) * (parseFloat(posX) / 100);
+                  else if (posX.endsWith('px')) ox = parseFloat(posX);
+                  
+                  if (posY.endsWith('%')) oy = (nodeH - imgH) * (parseFloat(posY) / 100);
+                  else if (posY.endsWith('px')) oy = parseFloat(posY);
+                  
+                  if (!isFinite(imgW) || !isFinite(imgH) || !isFinite(ox) || !isFinite(oy) || nodeW === 0 || nodeH === 0) {
+                    throw new Error('Invalid transform parameters');
+                  }
+
+                  const transform = [
+                    [imgW / nodeW, 0, ox / nodeW],
+                    [0, imgH / nodeH, oy / nodeH]
                   ];
-                  fills.push({
-                    type: 'IMAGE',
-                    imageHash: img.hash,
-                    scaleMode: 'CROP',
-                    imageTransform: imageTransform
-                  });
-                } else {
+                  fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'CROP', imageTransform: transform });
+                } catch (err) {
+                  // Fallback to FILL if transform math fails (e.g. division by zero or NaN)
                   fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
                 }
               }
             } else {
               fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
             }
-            break; // Apply primary image fill
-          } catch {}
+          } catch (e) {
+            figma.notify(`Failed to create image: ${e.message}`, { error: true });
+          }
+        } else {
+          figma.notify(`Failed to decode base64 for image: ${imgUrl}`, { error: true });
+        }
+      } else {
+        figma.notify(`Asset not found in payload: ${imgUrl}`, { error: true });
+      }
+    }
+  }
+
+  if (!isTextClip && !isZeroSize) {
+    // CSS Gradients go ON TOP of background images in Figma
+    if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
+      const grad = parseLinearGradient(styles.backgroundImage);
+      if (grad) {
+        fills.push(grad);
+      } else {
+        // Fallback: If gradient parsing fails (e.g. radial/conic), extract the first valid color and use as solid fill
+        const firstColorMatch = styles.backgroundImage.match(/(?:rgba?|hsla?|color)\([^)]+\)|#[0-9a-f]{3,8}|\b(?:transparent|black|white|red|green|blue)\b/i);
+        if (firstColorMatch) {
+          const fallbackBg = parseColor(firstColorMatch[0]);
+          if (fallbackBg && fallbackBg.a > 0.005) {
+            fills.push({ type: 'SOLID', color: { r: fallbackBg.r, g: fallbackBg.g, b: fallbackBg.b }, opacity: clamp01(fallbackBg.a) });
+          }
         }
       }
     }
@@ -406,10 +456,26 @@ function applyStrokes(node, styles) {
 }
 
 function applyEffects(node, styles) {
+  const effects = [];
+
   if (styles.boxShadow && styles.boxShadow !== 'none') {
-    const effects = parseBoxShadows(styles.boxShadow);
-    if (effects.length > 0) node.effects = effects;
+    const shadowEffects = parseBoxShadows(styles.boxShadow);
+    effects.push(...shadowEffects);
   }
+
+  const bdrop = styles.backdropFilter || styles.webkitBackdropFilter || '';
+  if (bdrop.includes('blur')) {
+    const m = bdrop.match(/blur\(([\d.]+)px\)/);
+    if (m) effects.push({ type: 'BACKGROUND_BLUR', radius: parseFloat(m[1]), visible: true });
+  }
+
+  const filter = styles.filter || styles.webkitFilter || '';
+  if (filter.includes('blur')) {
+    const m = filter.match(/blur\(([\d.]+)px\)/);
+    if (m) effects.push({ type: 'LAYER_BLUR', radius: parseFloat(m[1]), visible: true });
+  }
+
+  if (effects.length > 0) node.effects = effects;
 }
 
 function applyCornerRadius(node, styles) {
@@ -518,6 +584,24 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       const bytes = decodeBase64Image(blobObj);
       if (bytes) {
         try {
+          const header = String.fromCharCode.apply(null, bytes.slice(0, 100)).toLowerCase();
+          if (header.includes('<svg') || header.includes('<?xml')) {
+            let svgString = "";
+            for (let i = 0; i < bytes.length; i++) {
+              svgString += String.fromCharCode(bytes[i]);
+            }
+            try { svgString = decodeURIComponent(escape(svgString)); } catch {}
+            svgString = svgString.replace(/<script[\s\S]*?<\/script>/gi, '');
+            const svgNode = figma.createNodeFromSvg(svgString);
+            svgNode.name = 'img-svg';
+            parentFrame.appendChild(svgNode);
+            svgNode.x = x; svgNode.y = y;
+            if (w > 0 && h > 0) svgNode.resize(w, h);
+            applyOpacity(svgNode, s);
+            reportProgress();
+            return;
+          }
+
           const rect = figma.createRectangle();
           rect.name = 'img';
           parentFrame.appendChild(rect);
@@ -544,6 +628,24 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       const bytes = decodeBase64Image(blobObj);
       if (bytes) {
         try {
+          const header = String.fromCharCode.apply(null, bytes.slice(0, 100)).toLowerCase();
+          if (header.includes('<svg') || header.includes('<?xml')) {
+            let svgString = "";
+            for (let i = 0; i < bytes.length; i++) {
+              svgString += String.fromCharCode(bytes[i]);
+            }
+            try { svgString = decodeURIComponent(escape(svgString)); } catch {}
+            svgString = svgString.replace(/<script[\s\S]*?<\/script>/gi, '');
+            const svgNode = figma.createNodeFromSvg(svgString);
+            svgNode.name = (sNode.tag || 'node').toLowerCase();
+            parentFrame.appendChild(svgNode);
+            svgNode.x = x; svgNode.y = y;
+            if (w > 0 && h > 0) svgNode.resize(w, h);
+            applyOpacity(svgNode, s);
+            reportProgress();
+            return;
+          }
+
           const rect = figma.createRectangle();
           rect.name = (sNode.tag || 'node').toLowerCase();
           parentFrame.appendChild(rect);
@@ -723,8 +825,10 @@ async function renderTree(data) {
   
   if (data.root?.styles) {
     await applyFills(rootFrame, data.root.styles, data.assets, dw, dh);
-    if (!rootFrame.fills || !rootFrame.fills.length) {
-      rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+    // Ensure the root frame has a solid fill at the bottom so the Figma canvas doesn't bleed through
+    const hasSolidFill = rootFrame.fills && rootFrame.fills.some(f => f.type === 'SOLID' && f.opacity > 0.05);
+    if (!hasSolidFill) {
+      rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }, ...(rootFrame.fills || [])];
     }
   } else {
     rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];

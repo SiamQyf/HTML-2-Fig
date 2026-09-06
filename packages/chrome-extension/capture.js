@@ -9,7 +9,7 @@
   if (window.__html2FigRunning) return;
   window.__html2FigRunning = true;
 
-  const FETCH_TIMEOUT = 3500;
+  const FETCH_TIMEOUT = 15000;
   const ELEMENT_NODE = 1;
   const TEXT_NODE = 3;
 
@@ -51,6 +51,7 @@
     textDecorationLine: 'none', textDecorationStyle: 'solid', textIndent: '0px',
     textShadow: 'none', textTransform: 'none', top: 'auto',
     transform: 'none', transformOrigin: 'auto', translate: 'none',
+    filter: 'none', webkitFilter: 'none', backdropFilter: 'none', webkitBackdropFilter: 'none', maskImage: 'none',
     rotate: 'none', scale: 'none', verticalAlign: 'baseline',
     visibility: 'visible', webkitTextFillColor: '', whiteSpace: 'normal',
     width: 'auto', writingMode: 'horizontal-tb', zIndex: 'auto', clipPath: 'none'
@@ -96,9 +97,9 @@
 
     let scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
     
-    // Use an even smaller step for a gentle, deliberate scroll (~2250px per second)
-    const step = 45; // 45px per step
-    const delay = 20;  // 20ms delay (approx 50 fps)
+    // Smooth scroll (approx ~2000px per second)
+    const step = 32; // 32px per step
+    const delay = 16; // ~60fps
 
     for (let y = 0; y < scrollHeight; y += step) {
       window.scrollTo(0, y);
@@ -107,17 +108,23 @@
     }
     
     window.scrollTo(0, scrollHeight);
-    await new Promise(r => setTimeout(r, 450));
+    await new Promise(r => setTimeout(r, 600));
     
     // Smoothly return to top at a moderate speed
-    for (let y = scrollHeight; y > 0; y -= (step * 4)) {
+    for (let y = scrollHeight; y > 0; y -= (step * 8)) {
       window.scrollTo(0, y);
-      await new Promise(r => setTimeout(r, 15));
+      await new Promise(r => setTimeout(r, 16));
     }
 
     // Always restore exactly to top (0, 0) for DOM serialization
     window.scrollTo(0, 0);
     await new Promise(r => setTimeout(r, 200));
+
+    // Automatically defeat scroll-linked animations
+    const animKiller = document.createElement('style');
+    animKiller.id = 'h2f-animation-killer';
+    animKiller.innerHTML = `* { transition: none !important; animation: none !important; }`;
+    document.head.appendChild(animKiller);
   }
 
   /* ======================================================================
@@ -125,39 +132,79 @@
    * ====================================================================== */
   async function convertToPngBlob(blob) {
     if (!blob) return null;
-    if (blob.type === 'image/png' || blob.type === 'image/jpeg') return blob;
+    
+    const MAX_SIZE = 4000; // Keep safely under Figma's 4096 absolute limit
 
     try {
       if (typeof createImageBitmap === 'function') {
         const bmp = await createImageBitmap(blob);
+        const isOversized = bmp.width > MAX_SIZE || bmp.height > MAX_SIZE;
+        
+        // Check magic bytes because CDNs often lie and serve WebP/AVIF with image/jpeg headers
+        const buffer = await blob.slice(0, 16).arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        const isWebP = bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 && 
+                       bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50; // RIFF....WEBP
+        const isAvif = bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70 &&
+                       bytes[8] === 0x61 && bytes[9] === 0x76 && bytes[10] === 0x69 && bytes[11] === 0x66; // ftypavif
+        
+        const isSafeFormat = !isWebP && !isAvif && blob.type !== 'image/svg+xml' && (blob.type === 'image/png' || blob.type === 'image/jpeg' || blob.type === 'image/gif');
+
+        if (!isOversized && isSafeFormat) {
+          return blob; // Safe to return directly!
+        }
+        
+        // Otherwise, draw to canvas (downscaling if needed, and converting format to PNG)
         const c = document.createElement('canvas');
-        c.width = bmp.width || 1;
-        c.height = bmp.height || 1;
+        let drawWidth = bmp.width;
+        let drawHeight = bmp.height;
+        if (drawWidth > MAX_SIZE || drawHeight > MAX_SIZE) {
+          const ratio = Math.min(MAX_SIZE / drawWidth, MAX_SIZE / drawHeight);
+          drawWidth = Math.floor(drawWidth * ratio);
+          drawHeight = Math.floor(drawHeight * ratio);
+        }
+        c.width = drawWidth || 1;
+        c.height = drawHeight || 1;
         const ctx = c.getContext('2d');
         if (ctx) {
-          ctx.drawImage(bmp, 0, 0);
+          ctx.drawImage(bmp, 0, 0, drawWidth, drawHeight);
           return new Promise(resolve => c.toBlob(resolve, 'image/png'));
         }
       }
     } catch {}
 
+    // Fallback if createImageBitmap is not supported
     return new Promise(resolve => {
       const url = URL.createObjectURL(blob);
       const img = new Image();
       img.crossOrigin = 'anonymous';
-      img.onload = () => {
+      img.onload = async () => {
         try {
+          const isOversized = img.width > MAX_SIZE || img.height > MAX_SIZE;
+          const buffer = await blob.slice(0, 16).arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          const isWebP = bytes[0] === 0x52 && bytes[2] === 0x46; // simplified check
+          const isSafeFormat = !isWebP && (blob.type === 'image/png' || blob.type === 'image/jpeg');
+
+          if (!isOversized && isSafeFormat) {
+            resolve(blob);
+            return;
+          }
+
           const c = document.createElement('canvas');
-          c.width = img.naturalWidth || 1;
-          c.height = img.naturalHeight || 1;
+          let drawWidth = img.width;
+          let drawHeight = img.height;
+          if (drawWidth > MAX_SIZE || drawHeight > MAX_SIZE) {
+            const ratio = Math.min(MAX_SIZE / drawWidth, MAX_SIZE / drawHeight);
+            drawWidth = Math.floor(drawWidth * ratio);
+            drawHeight = Math.floor(drawHeight * ratio);
+          }
+          c.width = drawWidth || 1;
+          c.height = drawHeight || 1;
           const ctx = c.getContext('2d');
-          if (ctx) ctx.drawImage(img, 0, 0);
-          c.toBlob(b => {
-            URL.revokeObjectURL(url);
-            resolve(b || blob);
-          }, 'image/png');
+          ctx.drawImage(img, 0, 0, drawWidth, drawHeight);
+          c.toBlob(b => resolve(b), 'image/png');
         } catch {
-          URL.revokeObjectURL(url);
           resolve(blob);
         }
       };
@@ -239,7 +286,15 @@
           });
         });
         if (bgRes && bgRes.data) {
-          return { url: absoluteUrl, blob: { type: 'image/png', data: bgRes.data } };
+          try {
+            const res = await fetch(bgRes.data);
+            let blob = await res.blob();
+            blob = await convertToPngBlob(blob);
+            const b64 = await blobToBase64(blob);
+            if (b64 && b64.data) return { url: absoluteUrl, blob: b64 };
+          } catch {
+            return { url: absoluteUrl, blob: { type: 'image/png', data: bgRes.data } };
+          }
         }
       }
     } catch {}
@@ -329,21 +384,61 @@
   let nodeCounter = 0;
   function getNodeId(prefix = 'h2f') { return `${prefix}-node-${++nodeCounter}`; }
 
+  // Memoized Canvas-based color normalizer
+  const colorCache = new Map();
+  let colorCanvas = null, colorCtx = null;
+  function normalizeColor(cssColor) {
+    if (!cssColor || cssColor === 'none' || cssColor === 'transparent') return 'rgba(0, 0, 0, 0)';
+    if (cssColor.startsWith('rgba') || (cssColor.startsWith('rgb(') && cssColor.includes(',')) || cssColor.startsWith('#')) return cssColor;
+    if (colorCache.has(cssColor)) return colorCache.get(cssColor);
+    
+    if (!colorCanvas) {
+      colorCanvas = document.createElement('canvas');
+      colorCanvas.width = 1;
+      colorCanvas.height = 1;
+      colorCtx = colorCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    
+    colorCtx.fillStyle = '#123456';
+    colorCtx.fillStyle = cssColor;
+    if (colorCtx.fillStyle === '#123456' && cssColor !== '#123456') {
+      return cssColor;
+    }
+
+    colorCtx.clearRect(0, 0, 1, 1);
+    colorCtx.fillRect(0, 0, 1, 1);
+    const data = colorCtx.getImageData(0, 0, 1, 1).data;
+    const rgba = 'rgba(' + data[0] + ', ' + data[1] + ', ' + data[2] + ', ' + (data[3] / 255) + ')';
+    colorCache.set(cssColor, rgba);
+    return rgba;
+  }
+
   function getElementStyles(el) {
     const cs = window.getComputedStyle(el);
     const styles = {};
+
+    // Helper to convert complex color functions to rgba using the canvas
+    const convertColors = (str) => {
+      if (!str || typeof str !== 'string') return str;
+      if (!str.includes('okl') && !str.includes('lab') && !str.includes('lch') && !str.includes('color(')) return str;
+      return str.replace(/(?:oklch|oklab|lab|lch|color)\([^)]+\)/g, match => {
+        const normalized = normalizeColor(match);
+        return normalized !== match ? normalized : match;
+      });
+    };
+
     for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
       const val = cs[prop];
       if (val !== undefined && val !== defVal && val !== '') {
-        styles[prop] = val;
+        styles[prop] = convertColors(val);
       }
     }
     styles.fontFamily = cs.fontFamily;
     styles.fontSize = cs.fontSize;
     styles.fontWeight = cs.fontWeight;
     styles.fontStyle = cs.fontStyle;
-    styles.color = cs.color;
-    styles.webkitTextFillColor = cs.webkitTextFillColor || cs.color;
+    styles.color = convertColors(cs.color);
+    styles.webkitTextFillColor = convertColors(cs.webkitTextFillColor || cs.color);
     styles.lineHeight = cs.lineHeight;
     styles.letterSpacing = cs.letterSpacing;
     styles.textAlign = cs.textAlign;
@@ -485,8 +580,7 @@
         clone.setAttribute('height', String(Math.round(h)));
       }
 
-      // Read computed fill/stroke from ORIGINAL in-DOM elements, write onto clone
-      const computedColor = cs.color;
+      const computedColor = cs.color ? normalizeColor(cs.color) || cs.color : null;
       const origChildren = [el, ...Array.from(el.querySelectorAll('*'))];
       const cloneChildren = [clone, ...Array.from(clone.querySelectorAll('*'))];
       for (let i = 0; i < origChildren.length && i < cloneChildren.length; i++) {
@@ -494,17 +588,38 @@
         const cloned = cloneChildren[i];
         try {
           const origCs = window.getComputedStyle(orig);
-          const computedFill = origCs.fill;
-          const computedStroke = origCs.stroke;
+          
+          const tagName = orig.tagName.toUpperCase();
+          const isDefTag = ['DEFS', 'CLIPPATH', 'LINEARGRADIENT', 'RADIALGRADIENT', 'MASK', 'PATTERN', 'SYMBOL', 'STOP', 'USE', 'G'].includes(tagName);
+          
+          if (!isDefTag && (origCs.display === 'none' || origCs.visibility === 'hidden' || parseFloat(origCs.opacity) === 0)) {
+            cloned.remove();
+            continue;
+          }
 
-          // Resolve currentColor and inline the actual rendered color
+          if (isDefTag) {
+            continue; // Do not corrupt gradients, stops, masks, or groups with explicit fills
+          }
+
+          let computedFill = origCs.fill;
+          let computedStroke = origCs.stroke;
+          
+          // CRITICAL: Chrome resolves url(#gradient) to url("http://page...#gradient").
+          // Figma's SVG importer crashes if it sees a full URL.
+          // If the computed fill/stroke is a URL, we MUST NOT override the attribute!
+          if (computedFill && computedFill.includes('url(')) computedFill = null;
+          else if (computedFill) computedFill = normalizeColor(computedFill) || computedFill;
+          
+          if (computedStroke && computedStroke.includes('url(')) computedStroke = null;
+          else if (computedStroke) computedStroke = normalizeColor(computedStroke) || computedStroke;
+
           const attrFill = cloned.getAttribute('fill');
           const attrStroke = cloned.getAttribute('stroke');
 
           if (attrFill === 'currentColor') {
             cloned.setAttribute('fill', computedColor);
           } else if (computedFill) {
-            if (computedFill === 'rgba(0, 0, 0, 0)' || computedFill === 'transparent') {
+            if (computedFill === 'rgba(0, 0, 0, 0)' || computedFill === 'transparent' || computedFill === 'none') {
               cloned.setAttribute('fill', 'none');
             } else {
               cloned.setAttribute('fill', computedFill);
@@ -514,23 +629,30 @@
           if (attrStroke === 'currentColor') {
             cloned.setAttribute('stroke', computedColor);
           } else if (computedStroke) {
-            if (computedStroke === 'rgba(0, 0, 0, 0)' || computedStroke === 'transparent') {
+            if (computedStroke === 'rgba(0, 0, 0, 0)' || computedStroke === 'transparent' || computedStroke === 'none') {
               cloned.setAttribute('stroke', 'none');
             } else {
               cloned.setAttribute('stroke', computedStroke);
             }
           }
+          
+          const op = parseFloat(origCs.opacity);
+          if (!isNaN(op) && op < 1) {
+            cloned.setAttribute('opacity', op.toString());
+          }
         } catch {}
       }
 
-      // Set color on the SVG root too for any remaining currentColor references
+      clone.removeAttribute('fill');
+      clone.removeAttribute('stroke');
+
       if (computedColor) {
         clone.setAttribute('color', computedColor);
         clone.style.color = computedColor;
       }
 
       return clone.outerHTML;
-    } catch {
+    } catch (e) {
       return null;
     }
   }
@@ -824,9 +946,9 @@
       }
     }
     if (styles.backgroundImage && styles.backgroundImage !== 'none') {
-      const matches = styles.backgroundImage.matchAll(/url\(["']?(.*?)["']?\)/g);
+      const matches = styles.backgroundImage.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
       for (const m of matches) {
-        if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1]);
+        if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
       }
     }
 
@@ -972,13 +1094,32 @@
     // Target document.body directly to avoid double nesting HTML + BODY frames
     const targetElement = document.body || document.documentElement;
     const root = await serializeNode(targetElement, assets, fonts, null);
+
+    if (targetElement === document.body && document.documentElement) {
+      const htmlStyles = window.getComputedStyle(document.documentElement);
+      if (htmlStyles.backgroundColor !== 'rgba(0, 0, 0, 0)' && (!root.styles.backgroundColor || root.styles.backgroundColor === 'rgba(0, 0, 0, 0)')) {
+        root.styles.backgroundColor = htmlStyles.backgroundColor;
+      }
+      if (htmlStyles.backgroundImage !== 'none' && (!root.styles.backgroundImage || root.styles.backgroundImage === 'none')) {
+        root.styles.backgroundImage = htmlStyles.backgroundImage;
+        root.styles.backgroundSize = htmlStyles.backgroundSize;
+        root.styles.backgroundPositionX = htmlStyles.backgroundPositionX;
+        root.styles.backgroundPositionY = htmlStyles.backgroundPositionY;
+        root.styles.backgroundRepeat = htmlStyles.backgroundRepeat;
+        const matches = htmlStyles.backgroundImage.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
+        for (const m of matches) {
+          if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
+        }
+      }
+    }
     const assetMap = await assets.getBlobMap();
 
-    const fullDocWidth = Math.max(
+    let fullDocWidth = Math.max(
       document.documentElement.scrollWidth,
       document.body ? document.body.scrollWidth : 0,
       window.innerWidth
     );
+    fullDocWidth = Math.min(fullDocWidth, 1448); // Cap max width at 1448px
     const fullDocHeight = Math.max(
       document.documentElement.scrollHeight,
       document.body ? document.body.scrollHeight : 0,
