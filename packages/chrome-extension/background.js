@@ -51,6 +51,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
   
+  if (request.type === 'FETCH_TEXT') {
+    fetch(request.url)
+      .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.text();
+      })
+      .then(text => {
+        sendResponse({ data: text, error: null });
+      })
+      .catch(err => {
+        sendResponse({ data: null, error: err.message });
+      });
+    return true; // Keep channel open for async response
+  }
+  
   if (request.type === 'FETCH_FONT') {
     fetch(request.url)
       .then(res => {

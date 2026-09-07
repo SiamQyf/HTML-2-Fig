@@ -21,7 +21,7 @@
     aspectRatio: 'auto', backdropFilter: 'none', backgroundAttachment: 'scroll',
     backgroundBlendMode: 'normal', backgroundClip: 'border-box', webkitBackgroundClip: 'border-box',
     backgroundColor: 'rgba(0, 0, 0, 0)', backgroundImage: 'none',
-    backgroundOrigin: 'padding-box', backgroundPositionX: '0%', backgroundPositionY: '0%',
+    backgroundOrigin: 'padding-box', backgroundPosition: '0% 0%', backgroundPositionX: '0%', backgroundPositionY: '0%',
     backgroundRepeat: 'repeat', backgroundSize: 'auto', borderBottomColor: 'rgb(0, 0, 0)',
     borderBottomLeftRadius: '0px', borderBottomRightRadius: '0px', borderBottomStyle: 'none',
     borderBottomWidth: '0px', borderCollapse: 'separate', borderImageOutset: '0',
@@ -445,6 +445,10 @@
     styles.textTransform = cs.textTransform;
     // Always capture background and border radius for frame fills
     styles.backgroundColor = cs.backgroundColor;
+    styles.backgroundPosition = cs.backgroundPosition;
+    styles.backgroundPositionX = cs.backgroundPositionX;
+    styles.backgroundPositionY = cs.backgroundPositionY;
+    styles.backgroundSize = cs.backgroundSize;
     styles.borderRadius = cs.borderRadius;
     styles.borderTopLeftRadius = cs.borderTopLeftRadius;
     styles.borderTopRightRadius = cs.borderTopRightRadius;
@@ -490,36 +494,74 @@
   const fontUrlMap = new Map();
   const fontParseCache = new Map();
 
-  function initFontMap() {
+  function parseFontFaceRule(rawFamily, rawSrc, baseUrl) {
+    if (!rawFamily || !rawSrc) return;
+    const cleanFamily = rawFamily.replace(/['"]/g, '').trim();
+    if (!cleanFamily) return;
+    const urls = Array.from(rawSrc.matchAll(/url\(["']?(.*?)["']?\)/gi)).map(m => m[1]);
+    const fontUrl = urls.find(u => u.toLowerCase().endsWith('.ttf')) || 
+                    urls.find(u => u.toLowerCase().endsWith('.woff') && !u.toLowerCase().includes('.woff2')) || 
+                    urls.find(u => u.toLowerCase().endsWith('.otf')) ||
+                    urls.find(u => !u.toLowerCase().includes('.woff2')) || 
+                    urls[0];
+    if (fontUrl && !fontUrl.startsWith('data:')) {
+      try {
+        const fullUrl = new URL(fontUrl, baseUrl).href;
+        fontUrlMap.set(cleanFamily, fullUrl);
+        fontUrlMap.set(cleanFamily.toLowerCase(), fullUrl);
+      } catch {}
+    }
+  }
+
+  function parseCssFontFaces(cssText, baseUrl) {
+    if (!cssText) return;
+    const fontFaceRegex = /@font-face\s*\{([^}]+)\}/gi;
+    let match;
+    while ((match = fontFaceRegex.exec(cssText)) !== null) {
+      const block = match[1];
+      const familyMatch = block.match(/font-family\s*:\s*([^;]+)/i);
+      const srcMatch = block.match(/src\s*:\s*([^;]+)/i);
+      if (familyMatch && srcMatch) {
+        parseFontFaceRule(familyMatch[1], srcMatch[1], baseUrl);
+      }
+    }
+  }
+
+  async function initFontMap() {
     try {
       for (const sheet of Array.from(document.styleSheets)) {
         try {
-          for (const rule of Array.from(sheet.cssRules)) {
-            if (rule.type === CSSRule.FONT_FACE_RULE) {
-              const family = rule.style.fontFamily?.replace(/['"]/g, '');
-              const src = rule.style.src;
-              if (family && src) {
-                let fontUrl = null;
-                
-                // src string can contain multiple urls, e.g.:
-                // url("...woff2") format("woff2"), url("...woff") format("woff"), url("...ttf") format("truetype")
-                // opentype.js doesn't support woff2 natively without brotli, so we must find woff or ttf
-                const urls = Array.from(src.matchAll(/url\(["']?(.*?)["']?\)/gi)).map(m => m[1]);
-                
-                // Prioritize TTF, then WOFF (not WOFF2), then anything not WOFF2
-                fontUrl = urls.find(u => u.toLowerCase().endsWith('.ttf')) || 
-                          urls.find(u => u.toLowerCase().endsWith('.woff')) || 
-                          urls.find(u => !u.toLowerCase().includes('.woff2')) || 
-                          urls[0]; // ultimate fallback
-                
-                if (fontUrl && !fontUrl.startsWith('data:')) {
-                  try { fontUrl = new URL(fontUrl, sheet.href || window.location.href).href; } catch {}
-                  fontUrlMap.set(family, fontUrl);
-                }
+          if (sheet.cssRules) {
+            for (const rule of Array.from(sheet.cssRules)) {
+              if (rule.type === CSSRule.FONT_FACE_RULE) {
+                parseFontFaceRule(rule.style.fontFamily, rule.style.src, sheet.href || window.location.href);
               }
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          // Cross-origin stylesheet: fetch CSS text via background service worker
+          if (sheet.href) {
+            try {
+              let cssText = null;
+              if (typeof chrome !== 'undefined' && chrome.runtime) {
+                const bgRes = await new Promise((res) => {
+                  chrome.runtime.sendMessage({ type: 'FETCH_TEXT', url: sheet.href }, (resp) => {
+                    if (chrome.runtime.lastError) res(null);
+                    else res(resp);
+                  });
+                });
+                if (bgRes && bgRes.data) cssText = bgRes.data;
+              }
+              if (!cssText) {
+                const r = await fetch(sheet.href);
+                if (r.ok) cssText = await r.text();
+              }
+              if (cssText) {
+                parseCssFontFaces(cssText, sheet.href);
+              }
+            } catch {}
+          }
+        }
       }
     } catch(e) {}
   }
@@ -527,7 +569,7 @@
   async function getFontSvgPath(family, char, fontSize) {
     if (!family || !char || typeof opentype === 'undefined') return null;
     const cleanFamily = family.replace(/['"]/g, '').split(',')[0].trim();
-    const url = fontUrlMap.get(cleanFamily);
+    const url = fontUrlMap.get(cleanFamily) || fontUrlMap.get(cleanFamily.toLowerCase());
     if (!url) return null;
 
     if (!fontParseCache.has(url)) {
@@ -566,9 +608,71 @@
       const baselineY = (font.ascender / font.unitsPerEm) * size;
       const path = font.getPath(char, 0, baselineY, size);
       const bbox = path.getBoundingBox();
-      
+      if (!bbox || (bbox.x1 === 0 && bbox.x2 === 0 && bbox.y1 === 0 && bbox.y2 === 0)) return null;
       return { svgPath: path.toSVG(), bbox };
     } catch {
+      return null;
+    }
+  }
+
+  function isIconElementOrFont(text, fontFamily, className) {
+    if (!text) return false;
+    for (const char of Array.from(text)) {
+      const code = char.codePointAt(0);
+      if ((code >= 0xE000 && code <= 0xF8FF) || 
+          (code >= 0xF0000 && code <= 0xFFFFD) || 
+          (code >= 0x100000 && code <= 0x10FFFD)) {
+        return true;
+      }
+    }
+    const f = (fontFamily || '').toLowerCase();
+    if (/(?:icon|awesome|glyph|symbol|feather|tabler|boxicon|remix|bootstrap)/i.test(f)) return true;
+    const c = (className || '').toLowerCase();
+    if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|icon|material-icons|material-symbols)\b/i.test(c)) return true;
+    return false;
+  }
+
+  function renderGlyphToImage(char, styles, width, height) {
+    try {
+      if (!char) return null;
+      const scale = 4;
+      const w = Math.max(1, Math.round((width || 16) * scale));
+      const h = Math.max(1, Math.round((height || 16) * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      ctx.scale(scale, scale);
+
+      let fontStr = styles.font;
+      if (!fontStr || fontStr === 'normal') {
+        const style = styles.fontStyle || 'normal';
+        const weight = styles.fontWeight || '400';
+        const size = styles.fontSize || '16px';
+        const family = styles.fontFamily || 'sans-serif';
+        fontStr = `${style} ${weight} ${size} ${family}`;
+      }
+      ctx.font = fontStr;
+      ctx.fillStyle = styles.color || '#000000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      const drawW = width || 16;
+      const drawH = height || 16;
+      ctx.fillText(char, drawW / 2, drawH / 2);
+
+      const imgData = ctx.getImageData(0, 0, w, h).data;
+      let hasPixels = false;
+      for (let i = 3; i < imgData.length; i += 4) {
+        if (imgData[i] > 10) {
+          hasPixels = true;
+          break;
+        }
+      }
+      if (!hasPixels) return null;
+      return canvas.toDataURL('image/png');
+    } catch (e) {
       return null;
     }
   }
@@ -620,24 +724,36 @@
           const attrFill = cloned.getAttribute('fill');
           const attrStroke = cloned.getAttribute('stroke');
 
-          if (attrFill === 'currentColor') {
-            cloned.setAttribute('fill', computedColor);
-          } else if (computedFill) {
-            if (computedFill === 'rgba(0, 0, 0, 0)' || computedFill === 'transparent' || computedFill === 'none') {
-              cloned.setAttribute('fill', 'none');
+          function applyColorAttr(el, attrName, colorVal) {
+            if (!colorVal || colorVal === 'rgba(0, 0, 0, 0)' || colorVal === 'transparent' || colorVal === 'none') {
+              el.setAttribute(attrName, 'none');
+              return;
+            }
+            const m = colorVal.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+            if (m) {
+              const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+              const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+              const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+              el.setAttribute(attrName, `#${r}${g}${b}`);
+              if (m[4] !== undefined) {
+                const opAttr = attrName === 'fill' ? 'fill-opacity' : 'stroke-opacity';
+                el.setAttribute(opAttr, parseFloat(m[4]).toString());
+              }
             } else {
-              cloned.setAttribute('fill', computedFill);
+              el.setAttribute(attrName, colorVal);
             }
           }
 
+          if (attrFill === 'currentColor') {
+            applyColorAttr(cloned, 'fill', computedColor);
+          } else if (computedFill) {
+            applyColorAttr(cloned, 'fill', computedFill);
+          }
+
           if (attrStroke === 'currentColor') {
-            cloned.setAttribute('stroke', computedColor);
+            applyColorAttr(cloned, 'stroke', computedColor);
           } else if (computedStroke) {
-            if (computedStroke === 'rgba(0, 0, 0, 0)' || computedStroke === 'transparent' || computedStroke === 'none') {
-              cloned.setAttribute('stroke', 'none');
-            } else {
-              cloned.setAttribute('stroke', computedStroke);
-            }
+            applyColorAttr(cloned, 'stroke', computedStroke);
           }
           
           const op = parseFloat(origCs.opacity);
@@ -661,11 +777,124 @@
     }
   }
 
+  function splitByTopLevelCommas(str) {
+    if (!str) return [];
+    let result = [];
+    let current = '';
+    let depth = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str[i];
+      if (char === '(') depth++;
+      else if (char === ')') depth--;
+      else if (char === ',' && depth === 0) {
+        result.push(current.trim());
+        current = '';
+        continue;
+      }
+      current += char;
+    }
+    if (current.trim()) result.push(current.trim());
+    return result;
+  }
+
+  function convertMultipleBackgroundsToSvg(csOrEl, w, h, defaultColor) {
+    if (!csOrEl) return null;
+    const cs = (csOrEl instanceof Element) ? window.getComputedStyle(csOrEl) : csOrEl;
+    const bgImage = cs.backgroundImage || '';
+    if (!bgImage || !bgImage.includes(',')) return null;
+    const bgs = splitByTopLevelCommas(bgImage);
+    if (bgs.length < 2 || !bgs.every(b => b.includes('linear-gradient'))) return null;
+
+    const sizes = splitByTopLevelCommas(cs.backgroundSize || '');
+    let pos = splitByTopLevelCommas(cs.backgroundPosition || '');
+    const posXList = splitByTopLevelCommas(cs.backgroundPositionX || '');
+    const posYList = splitByTopLevelCommas(cs.backgroundPositionY || '');
+
+    function parseDimVal(valStr, containerDim) {
+      if (!valStr || valStr === 'auto') return containerDim;
+      valStr = valStr.trim().toLowerCase();
+      if (valStr.endsWith('%')) {
+        return containerDim * (parseFloat(valStr) / 100);
+      }
+      const num = parseFloat(valStr);
+      return isNaN(num) ? containerDim : num;
+    }
+
+    function parsePosVal(valStr, containerDim, elementDim) {
+      if (!valStr) return 0;
+      valStr = valStr.trim().toLowerCase();
+      if (valStr === 'left' || valStr === 'top' || valStr === '0' || valStr === '0px' || valStr === '0%') return 0;
+      if (valStr === 'right' || valStr === 'bottom') return containerDim - elementDim;
+      if (valStr === 'center') return (containerDim - elementDim) / 2;
+      if (valStr.endsWith('%')) {
+        const pct = parseFloat(valStr) / 100;
+        return (containerDim - elementDim) * pct;
+      }
+      const num = parseFloat(valStr);
+      return isNaN(num) ? 0 : num;
+    }
+
+    const roundW = Math.round(w) || 1;
+    const roundH = Math.round(h) || 1;
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${roundW}" height="${roundH}" viewBox="0 0 ${roundW} ${roundH}">`;
+
+    for (let i = 0; i < bgs.length; i++) {
+      const bg = bgs[i];
+      const sizeStr = sizes[i] || sizes[0] || '100% 100%';
+      const sizeParts = sizeStr.trim().split(/\s+/);
+      const swStr = sizeParts[0] || '100%';
+      const shStr = sizeParts[1] || sizeParts[0] || '100%';
+
+      const rw = parseDimVal(swStr, w);
+      const rh = parseDimVal(shStr, h);
+
+      let pxStr = '0%';
+      let pyStr = '50%';
+      if (pos.length >= bgs.length) {
+        const posParts = pos[i].trim().split(/\s+/);
+        pxStr = posParts[0] || '0%';
+        pyStr = posParts[1] || '50%';
+      } else if (posXList.length >= bgs.length || posYList.length >= bgs.length) {
+        pxStr = posXList[i] || posXList[0] || '0%';
+        pyStr = posYList[i] || posYList[0] || '50%';
+      } else if (pos.length > 0) {
+        const posParts = (pos[i] || pos[0]).trim().split(/\s+/);
+        pxStr = posParts[0] || '0%';
+        pyStr = posParts[1] || '50%';
+      }
+
+      const rx = parsePosVal(pxStr, w, rw);
+      const ry = parsePosVal(pyStr, h, rh);
+
+      let color = defaultColor || cs.color || '#000000';
+      const colorMatch = bg.match(/(?:rgba?|hsla?|color)\([^)]+\)|#[0-9a-f]{3,8}|\b(?:transparent|black|white|red|green|blue|yellow)\b/i);
+      if (colorMatch && colorMatch[0].toLowerCase() !== 'transparent') {
+        color = colorMatch[0];
+      }
+
+      let fillOpacity = 1;
+      let hexColor = color;
+      const m = color.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+      if (m) {
+        const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+        const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+        const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+        hexColor = `#${r}${g}${b}`;
+        if (m[4] !== undefined) fillOpacity = parseFloat(m[4]);
+      }
+      const opAttr = fillOpacity < 1 ? ` fill-opacity="${fillOpacity}"` : '';
+
+      svg += `<rect x="${Number(rx.toFixed(2))}" y="${Number(ry.toFixed(2))}" width="${Number(rw.toFixed(2))}" height="${Number(rh.toFixed(2))}" fill="${hexColor}"${opAttr} />`;
+    }
+    svg += `</svg>`;
+    return svg;
+  }
+
   async function serializePseudo(el, pseudo, fonts, parentRect) {
     try {
       const cs = window.getComputedStyle(el, pseudo);
       const content = cs.content;
-      if (!content || content === 'none' || content === 'normal' || content === '""') return null;
+      if (!content || content === 'none' || content === 'normal') return null;
       
       const display = cs.display;
       if (display === 'none' || parseFloat(cs.opacity) < 0.02 || cs.visibility === 'hidden') return null;
@@ -681,7 +910,10 @@
         }
       }
       
-      const text = content.replace(/^[\"']|[\"']$/g, '').trim();
+      let rawContent = content;
+      const altSep = rawContent.indexOf('" / "');
+      if (altSep !== -1) rawContent = rawContent.substring(0, altSep + 1);
+      const text = rawContent.replace(/^["']|["']$/g, '').trim();
       
       if (styles.fontFamily) fonts.addFont(styles.fontFamily);
       
@@ -704,13 +936,28 @@
         else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = parentRect.y + parentRect.height - pseudoRect.height - b;
       }
 
+      const bgs = splitByTopLevelCommas(cs.backgroundImage);
+      if (bgs.length > 1 && bgs.every(b => b.includes('linear-gradient'))) {
+        const svgStr = convertMultipleBackgroundsToSvg(cs, pseudoRect.width, pseudoRect.height, cs.color);
+        if (svgStr) {
+          return {
+            nodeType: ELEMENT_NODE,
+            id: getNodeId('svg-bg-pseudo'),
+            tag: 'SVG',
+            content: svgStr,
+            styles: styles,
+            rect: pseudoRect
+          };
+        }
+      }
+
       if (cs.transform && cs.transform.includes('matrix')) {
         const parts = cs.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
         if (parts) {
-          const vals = parts[1].split(',').map(s => parseFloat(s.trim()));
+          const vals = parts[1].split(',').map(parseFloat);
           let tx = 0, ty = 0;
-          if (cs.transform.startsWith('matrix3d')) {
-            const sx = vals[0], sy = vals[5];
+          if (vals.length === 16) {
+            const sx = vals[0]; const sy = vals[5];
             if (Math.abs(sx) < 0.001 || Math.abs(sy) < 0.001) return null;
             tx = vals[12]; ty = vals[13];
           } else {
@@ -723,8 +970,13 @@
         }
       }
 
-      if (Array.from(text).length === 1) {
-        const fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize);
+      const chars = Array.from(text);
+      const isIcon = chars.length === 1 || isIconElementOrFont(text, cs.fontFamily, el.className);
+      if (isIcon) {
+        let fontData = null;
+        if (chars.length === 1) {
+          fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize);
+        }
         if (fontData && fontData.svgPath) {
            const { svgPath, bbox } = fontData;
            const pathW = bbox.x2 - bbox.x1;
@@ -734,14 +986,44 @@
            const tx = (parentW - pathW) / 2 - bbox.x1;
            const ty = (parentH - pathH) / 2 - bbox.y1;
            const fillColor = cs.color || '#000000';
+           let fillOpacity = 1;
+           let hexColor = fillColor;
+           const m = fillColor.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+           if (m) {
+             const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+             const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+             const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+             hexColor = `#${r}${g}${b}`;
+             if (m[4] !== undefined) fillOpacity = parseFloat(m[4]);
+           }
+           const opAttr = fillOpacity < 1 ? ` fill-opacity="${fillOpacity}"` : '';
 
            return {
             nodeType: ELEMENT_NODE,
             id: getNodeId('svg-icon-pseudo'),
             tag: 'SVG',
-            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${fillColor}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${hexColor}"${opAttr}><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: styles,
             rect: pseudoRect
+          };
+        }
+
+        // Absolute match fallback: canvas glyph rendering
+        const iconW = Math.ceil(pseudoRect.width) || parseFloat(cs.fontSize) || 16;
+        const iconH = Math.ceil(pseudoRect.height) || parseFloat(cs.fontSize) || 16;
+        const dataUrl = renderGlyphToImage(text, cs, iconW, iconH);
+        if (dataUrl) {
+          return {
+            nodeType: ELEMENT_NODE,
+            id: getNodeId('icon-img-pseudo'),
+            tag: 'IMG',
+            attributes: { src: dataUrl, alt: 'icon' },
+            styles: { ...styles, backgroundColor: 'transparent', backgroundImage: 'none' },
+            rect: {
+              ...pseudoRect,
+              width: iconW,
+              height: iconH
+            }
           };
         }
       }
@@ -776,8 +1058,12 @@
       
       // Check if it's an icon font character
       const charStr = text.trim() || text;
-      if (Array.from(charStr).length === 1) {
-        const fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize);
+      const isIcon = Array.from(charStr).length === 1 || isIconElementOrFont(charStr, parentStyles?.fontFamily, node.parentElement?.className);
+      if (isIcon) {
+        let fontData = null;
+        if (Array.from(charStr).length === 1) {
+          fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize);
+        }
         if (fontData && fontData.svgPath) {
           const { svgPath, bbox } = fontData;
           const pathW = bbox.x2 - bbox.x1;
@@ -787,12 +1073,23 @@
           const tx = (parentW - pathW) / 2 - bbox.x1;
           const ty = (parentH - pathH) / 2 - bbox.y1;
           const fillColor = parentStyles?.webkitTextFillColor || parentStyles?.color || '#000000';
+          let fillOpacity = 1;
+          let hexColor = fillColor;
+          const m = fillColor.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+          if (m) {
+            const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+            const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+            const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+            hexColor = `#${r}${g}${b}`;
+            if (m[4] !== undefined) fillOpacity = parseFloat(m[4]);
+          }
+          const opAttr = fillOpacity < 1 ? ` fill-opacity="${fillOpacity}"` : '';
 
           return {
             nodeType: ELEMENT_NODE,
             id: getNodeId('svg-icon'),
             tag: 'SVG',
-            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${fillColor}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${hexColor}"${opAttr}><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: parentStyles || {},
             rect: {
               x: rect.x + (isFixed ? 0 : window.scrollX),
@@ -801,6 +1098,28 @@
               height: parentH
             }
           };
+        }
+
+        // Absolute match fallback: canvas glyph rendering
+        if (isIconElementOrFont(charStr, parentStyles?.fontFamily, node.parentElement?.className)) {
+          const iconW = Math.ceil(rect.width) || parseFloat(parentStyles?.fontSize) || 16;
+          const iconH = Math.ceil(rect.height) || parseFloat(parentStyles?.fontSize) || 16;
+          const dataUrl = renderGlyphToImage(charStr, parentStyles, iconW, iconH);
+          if (dataUrl) {
+            return {
+              nodeType: ELEMENT_NODE,
+              id: getNodeId('icon-img'),
+              tag: 'IMG',
+              attributes: { src: dataUrl, alt: 'icon' },
+              styles: { ...(parentStyles || {}), backgroundColor: 'transparent', backgroundImage: 'none' },
+              rect: {
+                x: rect.x + (isFixed ? 0 : window.scrollX),
+                y: rect.y + (isFixed ? 0 : window.scrollY),
+                width: iconW,
+                height: iconH
+              }
+            };
+          }
         }
       }
 
@@ -983,6 +1302,18 @@
     let svgContent = null;
     if (tag === 'SVG' || el instanceof SVGElement) {
       svgContent = serializeSVG(el);
+    } else {
+      const cs = window.getComputedStyle(el);
+      const bgs = splitByTopLevelCommas(cs.backgroundImage || styles.backgroundImage || '');
+      const hasChildElements = el.children && el.children.length > 0;
+      const hasText = el.childNodes && Array.from(el.childNodes).some(n => n.nodeType === 3 && n.textContent.trim().length > 0);
+      if (!hasChildElements && !hasText && bgs.length > 1 && bgs.every(b => b.includes('linear-gradient'))) {
+        const fallbackSvg = convertMultipleBackgroundsToSvg(cs, docRect.width, docRect.height, cs.color || styles.color);
+        if (fallbackSvg) {
+          svgContent = fallbackSvg;
+          styles.backgroundImage = 'none'; // Clear bg to prevent double rendering in code.js
+        }
+      }
     }
 
     const before = await serializePseudo(el, '::before', fonts, docRect);
@@ -1078,7 +1409,7 @@
   }
 
   try {
-    initFontMap();
+    await initFontMap();
     const toast = showToast('⏳ Pre-rendering full webpage…');
 
     // 1. Scroll through page to activate lazy-loaded elements & image sources
