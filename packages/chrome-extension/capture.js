@@ -444,7 +444,7 @@
     styles.textAlign = cs.textAlign;
     styles.textTransform = cs.textTransform;
     // Always capture background and border radius for frame fills
-    styles.backgroundColor = cs.backgroundColor;
+    styles.backgroundColor = convertColors(cs.backgroundColor);
     styles.backgroundPosition = cs.backgroundPosition;
     styles.backgroundPositionX = cs.backgroundPositionX;
     styles.backgroundPositionY = cs.backgroundPositionY;
@@ -462,10 +462,14 @@
     styles.borderBottomWidth = cs.borderBottomWidth;
     styles.borderLeftWidth = cs.borderLeftWidth;
     styles.borderRightWidth = cs.borderRightWidth;
-    styles.borderTopColor = cs.borderTopColor;
-    styles.borderBottomColor = cs.borderBottomColor;
-    styles.borderLeftColor = cs.borderLeftColor;
-    styles.borderRightColor = cs.borderRightColor;
+    styles.borderTopColor = convertColors(cs.borderTopColor);
+    styles.borderBottomColor = convertColors(cs.borderBottomColor);
+    styles.borderLeftColor = convertColors(cs.borderLeftColor);
+    styles.borderRightColor = convertColors(cs.borderRightColor);
+    styles.outlineStyle = cs.outlineStyle;
+    styles.outlineWidth = cs.outlineWidth;
+    styles.outlineColor = convertColors(cs.outlineColor);
+    styles.outlineOffset = cs.outlineOffset;
 
     return styles;
   }
@@ -763,8 +767,10 @@
         } catch {}
       }
 
-      clone.removeAttribute('fill');
-      clone.removeAttribute('stroke');
+      const hasOrigStroke = el.hasAttribute('stroke') && el.getAttribute('stroke') !== 'none';
+      const hasOrigFill = el.hasAttribute('fill') && el.getAttribute('fill') !== 'none';
+      if (!hasOrigFill) clone.removeAttribute('fill');
+      if (!hasOrigStroke) clone.removeAttribute('stroke');
 
       if (computedColor) {
         clone.setAttribute('color', computedColor);
@@ -906,9 +912,30 @@
       for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
         const val = cs[prop];
         if (val !== undefined && val !== defVal && val !== '') {
-          styles[prop] = val;
+          styles[prop] = convertColors(val);
         }
       }
+      styles.borderRadius = cs.borderRadius;
+      styles.borderTopLeftRadius = cs.borderTopLeftRadius;
+      styles.borderTopRightRadius = cs.borderTopRightRadius;
+      styles.borderBottomRightRadius = cs.borderBottomRightRadius;
+      styles.borderBottomLeftRadius = cs.borderBottomLeftRadius;
+      styles.borderTopStyle = cs.borderTopStyle;
+      styles.borderBottomStyle = cs.borderBottomStyle;
+      styles.borderLeftStyle = cs.borderLeftStyle;
+      styles.borderRightStyle = cs.borderRightStyle;
+      styles.borderTopWidth = cs.borderTopWidth;
+      styles.borderBottomWidth = cs.borderBottomWidth;
+      styles.borderLeftWidth = cs.borderLeftWidth;
+      styles.borderRightWidth = cs.borderRightWidth;
+      styles.borderTopColor = convertColors(cs.borderTopColor);
+      styles.borderBottomColor = convertColors(cs.borderBottomColor);
+      styles.borderLeftColor = convertColors(cs.borderLeftColor);
+      styles.borderRightColor = convertColors(cs.borderRightColor);
+      styles.outlineStyle = cs.outlineStyle;
+      styles.outlineWidth = cs.outlineWidth;
+      styles.outlineColor = convertColors(cs.outlineColor);
+      styles.outlineOffset = cs.outlineOffset;
       
       let rawContent = content;
       const altSep = rawContent.indexOf('" / "');
