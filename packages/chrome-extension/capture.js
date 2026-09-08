@@ -882,10 +882,10 @@
       if (cs.transform && cs.transform.includes('matrix')) {
         const parts = cs.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
         if (parts) {
-          const vals = parts[1].split(',').map(s => parseFloat(s.trim()));
+          const vals = parts[1].split(',').map(parseFloat);
           let tx = 0, ty = 0;
-          if (cs.transform.startsWith('matrix3d')) {
-            const sx = vals[0], sy = vals[5];
+          if (vals.length === 16) {
+            const sx = vals[0]; const sy = vals[5];
             if (Math.abs(sx) < 0.001 || Math.abs(sy) < 0.001) return null;
             tx = vals[12]; ty = vals[13];
           } else {
@@ -898,8 +898,24 @@
         }
       }
 
-      if (Array.from(text).length === 1) {
-        const fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize);
+      function isIconElementOrFont(text, fontFamily, className) {
+        if (!text) return false;
+        const fontName = (fontFamily || '').toLowerCase();
+        const cls = (className || '').toLowerCase();
+        if (fontName.includes('icon') || fontName.includes('awesome') || fontName.includes('material') || fontName.includes('glyph')) return true;
+        if (cls.includes('icon') || cls.includes('fa-') || cls.includes('mdi-')) return true;
+        // Many icon fonts use Private Use Area block (U+E000 - U+F8FF) or symbols
+        const code = text.charCodeAt(0);
+        return (code >= 0xE000 && code <= 0xF8FF) || (code >= 0x2000 && code <= 0x2BFF);
+      }
+
+      const chars = Array.from(text);
+      const isIcon = chars.length === 1 || isIconElementOrFont(text, cs.fontFamily, el.className);
+      if (isIcon) {
+        let fontData = null;
+        if (chars.length === 1) {
+          fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize);
+        }
         if (fontData && fontData.svgPath) {
            const { svgPath, bbox } = fontData;
            const pathW = bbox.x2 - bbox.x1;
@@ -933,18 +949,20 @@
         }
 
         // Absolute match fallback: canvas glyph rendering
-        const iconW = Math.ceil(pseudoRect.width) || parseFloat(cs.fontSize) || 16;
-        const iconH = Math.ceil(pseudoRect.height) || parseFloat(cs.fontSize) || 16;
-        const dataUrl = renderGlyphToImage(text, cs, iconW, iconH);
-        if (dataUrl) {
-          return {
-            nodeType: ELEMENT_NODE,
-            id: getNodeId('icon-img-pseudo'),
-            tag: 'IMG',
-            attributes: { src: dataUrl, alt: 'icon' },
-            styles: { ...styles, backgroundColor: 'transparent', backgroundImage: 'none' },
-            rect: { ...pseudoRect, width: iconW, height: iconH }
-          };
+        if (isIconElementOrFont(text, cs.fontFamily, el.className)) {
+          const iconW = Math.ceil(pseudoRect.width) || parseFloat(cs.fontSize) || 16;
+          const iconH = Math.ceil(pseudoRect.height) || parseFloat(cs.fontSize) || 16;
+          const dataUrl = renderGlyphToImage(text, cs, iconW, iconH);
+          if (dataUrl) {
+            return {
+              nodeType: ELEMENT_NODE,
+              id: getNodeId('icon-img-pseudo'),
+              tag: 'IMG',
+              attributes: { src: dataUrl, alt: 'icon' },
+              styles: { ...styles, backgroundColor: 'transparent', backgroundImage: 'none' },
+              rect: { ...pseudoRect, width: iconW, height: iconH }
+            };
+          }
         }
       }
 
@@ -980,8 +998,12 @@
       
       // Check if it's an icon font character
       const charStr = text.trim() || text;
-      if (Array.from(charStr).length === 1) {
-        const fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize);
+      const isIcon = Array.from(charStr).length === 1 || (typeof isIconElementOrFont === 'function' ? isIconElementOrFont(charStr, parentStyles?.fontFamily, node.parentElement?.className) : false);
+      if (isIcon) {
+        let fontData = null;
+        if (Array.from(charStr).length === 1) {
+          fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize);
+        }
         if (fontData && fontData.svgPath) {
           const { svgPath, bbox } = fontData;
           const pathW = bbox.x2 - bbox.x1;
@@ -1020,23 +1042,26 @@
         }
 
         // Absolute match fallback: canvas glyph rendering
-        const iconW = Math.ceil(rect.width) || parseFloat(parentStyles?.fontSize) || 16;
-        const iconH = Math.ceil(rect.height) || parseFloat(parentStyles?.fontSize) || 16;
-        const dataUrl = renderGlyphToImage(charStr, parentStyles || {}, iconW, iconH);
-        if (dataUrl) {
-          return {
-            nodeType: ELEMENT_NODE,
-            id: getNodeId('icon-img'),
-            tag: 'IMG',
-            attributes: { src: dataUrl, alt: 'icon' },
-            styles: { ...(parentStyles || {}), backgroundColor: 'transparent', backgroundImage: 'none' },
-            rect: {
-              x: rect.x + (isFixed ? 0 : window.scrollX),
-              y: rect.y + (isFixed ? 0 : window.scrollY),
-              width: iconW,
-              height: iconH
-            }
-          };
+        const shouldFallback = typeof isIconElementOrFont === 'function' ? isIconElementOrFont(charStr, parentStyles?.fontFamily, node.parentElement?.className) : true;
+        if (shouldFallback) {
+          const iconW = Math.ceil(rect.width) || parseFloat(parentStyles?.fontSize) || 16;
+          const iconH = Math.ceil(rect.height) || parseFloat(parentStyles?.fontSize) || 16;
+          const dataUrl = renderGlyphToImage(charStr, parentStyles || {}, iconW, iconH);
+          if (dataUrl) {
+            return {
+              nodeType: ELEMENT_NODE,
+              id: getNodeId('icon-img'),
+              tag: 'IMG',
+              attributes: { src: dataUrl, alt: 'icon' },
+              styles: { ...(parentStyles || {}), backgroundColor: 'transparent', backgroundImage: 'none' },
+              rect: {
+                x: rect.x + (isFixed ? 0 : window.scrollX),
+                y: rect.y + (isFixed ? 0 : window.scrollY),
+                width: iconW,
+                height: iconH
+              }
+            };
+          }
         }
       }
 
