@@ -163,12 +163,44 @@ async function loadFont(family, weight, italic) {
   return { family: 'Inter', style: 'Regular' };
 }
 
+function splitByTopLevelCommas(str) {
+  if (!str) return [];
+  let result = [];
+  let current = '';
+  let depth = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (char === '(') depth++;
+    else if (char === ')') depth--;
+    else if (char === ',' && depth === 0) {
+      result.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) result.push(current.trim());
+  return result;
+}
+
 function parseLinearGradient(css) {
-  if (!css || !css.includes('linear-gradient')) return null;
+  if (!css || !css.includes('linear-gradient(')) return null;
   try {
-    const contentMatch = css.match(/linear-gradient\((.*?)\)(?=\s*(?:,|$)(?!\s*(?:rgba?|hsla?|#|transparent|black|white|red|green|blue)))/is);
-    if (!contentMatch) return null;
-    const inner = contentMatch[1].trim();
+    const start = css.indexOf('linear-gradient(');
+    if (start === -1) return null;
+    let depth = 0;
+    let inner = '';
+    for (let i = start + 15; i < css.length; i++) {
+      if (css[i] === '(') depth++;
+      else if (css[i] === ')') {
+        depth--;
+        if (depth === 0) {
+          inner = css.substring(start + 16, i).trim();
+          break;
+        }
+      }
+    }
+    if (!inner) return null;
 
     // Determine angle
     let angleDeg = 180;
@@ -196,29 +228,29 @@ function parseLinearGradient(css) {
     }
 
     // Split stops safely
-    const rawStops = stopsStr.split(/,(?![^(]*\))/);
-    if (!rawStops || rawStops.length < 2) return null;
+    const rawStops = splitByTopLevelCommas(stopsStr);
+    if (!rawStops || rawStops.length === 0) return null;
 
     const stops = [];
     const n = rawStops.length;
     let maxPos = 0;
-    
+
     rawStops.forEach((raw, i) => {
       const trimmed = raw.trim();
       const posMatch = trimmed.match(/(.*?)\s+([\d.]+)%$/);
       let colStr = trimmed;
-      let pos = i / (n - 1);
-      
+      let pos = n > 1 ? (i / (n - 1)) : i;
+
       if (posMatch) {
         colStr = posMatch[1].trim();
         pos = parseFloat(posMatch[2]) / 100;
       }
-      
+
       // CSS Rule: If a color stop's position is less than the specified position 
       // of any stop before it, set its position to the largest position before it.
       pos = Math.max(pos, maxPos);
       maxPos = pos;
-      
+
       const col = parseColor(colStr);
       if (col) {
         stops.push({
@@ -228,7 +260,10 @@ function parseLinearGradient(css) {
       }
     });
 
-    if (stops.length < 2) return null;
+    if (stops.length === 0) return null;
+    if (stops.length === 1) {
+      stops.push({ position: 1, color: { ...stops[0].color } });
+    }
 
     const rad = ((angleDeg - 90) * Math.PI) / 180;
     const cos = Math.cos(rad);
@@ -251,18 +286,23 @@ function parseBoxShadows(css) {
   if (!css || css === 'none' || css === 'initial' || css === 'inherit') return [];
   const effects = [];
   try {
-    // Match each individual shadow
     const shadows = css.split(/,(?![^(]*\))/);
     for (const s of shadows) {
       const isInset = s.includes('inset');
-      const clean = s.replace('inset', '').trim();
-      const m = clean.match(/(.*?)\s*(-?[\d.]+px)\s+(-?[\d.]+px)(?:\s+([\d.]+px))?(?:\s+([\d.]+px))?/);
-      if (m) {
-        const col = parseColor(m[1]) || parseColor(clean.slice(clean.lastIndexOf(' ')).trim()) || { r: 0, g: 0, b: 0, a: 0.25 };
-        const x = parseFloat(m[2]) || 0;
-        const y = parseFloat(m[3]) || 0;
-        const radius = parseFloat(m[4]) || 0;
-        const spread = parseFloat(m[5]) || 0;
+      let clean = s.replace(/\binset\b/g, '').trim();
+      let colorStr = '';
+      const colorMatch = clean.match(/(?:rgba?|hsla?|color)\([^)]+\)|#[0-9a-fA-F]{3,8}\b|\b(?!px\b)[a-zA-Z]+\b/);
+      if (colorMatch) {
+        colorStr = colorMatch[0];
+        clean = clean.replace(colorStr, '').trim();
+      }
+      const lengths = clean.match(/-?[\d.]+(?:px)?/g) || [];
+      if (lengths.length >= 2) {
+        const x = parseFloat(lengths[0]) || 0;
+        const y = parseFloat(lengths[1]) || 0;
+        const radius = parseFloat(lengths[2]) || 0;
+        const spread = parseFloat(lengths[3]) || 0;
+        const col = parseColor(colorStr) || { r: 0, g: 0, b: 0, a: 0.25 };
         effects.push({
           type: isInset ? 'INNER_SHADOW' : 'DROP_SHADOW',
           color: { r: col.r, g: col.g, b: col.b, a: clamp01(col.a) },
@@ -410,12 +450,17 @@ async function applyFills(node, styles, assets, nodeW, nodeH) {
   if (!isTextClip && !isZeroSize) {
     // CSS Gradients go ON TOP of background images in Figma
     if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
-      const grad = parseLinearGradient(styles.backgroundImage);
-      if (grad) {
-        fills.push(grad);
-      } else {
+      const bgs = splitByTopLevelCommas(styles.backgroundImage);
+      for (const bg of bgs) {
+        if (bg.includes('linear-gradient')) {
+          const grad = parseLinearGradient(bg);
+          if (grad) {
+            fills.push(grad);
+            continue;
+          }
+        }
         // Fallback: If gradient parsing fails (e.g. radial/conic), extract the first valid color and use as solid fill
-        const firstColorMatch = styles.backgroundImage.match(/(?:rgba?|hsla?|color)\([^)]+\)|#[0-9a-f]{3,8}|\b(?:transparent|black|white|red|green|blue)\b/i);
+        const firstColorMatch = bg.match(/(?:rgba?|hsla?|color)\([^)]+\)|#[0-9a-f]{3,8}|\b(?:transparent|black|white|red|green|blue)\b/i);
         if (firstColorMatch) {
           const fallbackBg = parseColor(firstColorMatch[0]);
           if (fallbackBg && fallbackBg.a > 0.005) {
@@ -437,36 +482,115 @@ function applyStrokes(node, styles) {
   const leftW = (styles.borderLeftStyle && styles.borderLeftStyle !== 'none' && styles.borderLeftStyle !== 'hidden') ? (parseFloat(styles.borderLeftWidth) || 0) : 0;
 
   const totalBorder = topW + rightW + bottomW + leftW;
-  if (totalBorder <= 0) return;
 
-  const borderColor = parseColor(
-    (topW > 0 && styles.borderTopColor) ||
-    (bottomW > 0 && styles.borderBottomColor) ||
-    (leftW > 0 && styles.borderLeftColor) ||
-    (rightW > 0 && styles.borderRightColor) ||
-    styles.borderColor
-  );
-  if (!borderColor || borderColor.a <= 0.005) return;
+  // 1. Standard CSS Border
+  if (totalBorder > 0) {
+    const borderColor = parseColor(
+      (topW > 0 && styles.borderTopColor) ||
+      (bottomW > 0 && styles.borderBottomColor) ||
+      (leftW > 0 && styles.borderLeftColor) ||
+      (rightW > 0 && styles.borderRightColor) ||
+      styles.borderColor
+    );
+    if (borderColor && borderColor.a > 0.005) {
+      const strokeColor = {
+        type: 'SOLID',
+        color: { r: borderColor.r, g: borderColor.g, b: borderColor.b },
+        opacity: clamp01(borderColor.a)
+      };
 
-  const strokeColor = {
-    type: 'SOLID',
-    color: { r: borderColor.r, g: borderColor.g, b: borderColor.b },
-    opacity: clamp01(borderColor.a)
-  };
+      node.strokes = [strokeColor];
+      node.strokeAlign = 'INSIDE';
 
-  node.strokes = [strokeColor];
-  node.strokeAlign = 'INSIDE';
+      if (topW === rightW && rightW === bottomW && bottomW === leftW) {
+        node.strokeWeight = topW;
+      } else {
+        try {
+          node.strokeTopWeight = topW;
+          node.strokeRightWeight = rightW;
+          node.strokeBottomWeight = bottomW;
+          node.strokeLeftWeight = leftW;
+        } catch {
+          node.strokeWeight = Math.max(topW, rightW, bottomW, leftW);
+        }
+      }
 
-  if (topW === rightW && rightW === bottomW && bottomW === leftW) {
-    node.strokeWeight = topW;
-  } else {
-    try {
-      node.strokeTopWeight = topW;
-      node.strokeRightWeight = rightW;
-      node.strokeBottomWeight = bottomW;
-      node.strokeLeftWeight = leftW;
-    } catch {
-      node.strokeWeight = Math.max(topW, rightW, bottomW, leftW);
+      const borderStyle = (topW > 0 && styles.borderTopStyle) ||
+                          (bottomW > 0 && styles.borderBottomStyle) ||
+                          (leftW > 0 && styles.borderLeftStyle) ||
+                          (rightW > 0 && styles.borderRightStyle) ||
+                          styles.borderStyle;
+
+      if (borderStyle === 'dashed') {
+        const weight = Math.max(topW, rightW, bottomW, leftW) || 1;
+        node.dashPattern = [weight * 3, weight * 3];
+      } else if (borderStyle === 'dotted') {
+        const weight = Math.max(topW, rightW, bottomW, leftW) || 1;
+        node.dashPattern = [weight, weight * 2];
+        node.strokeCap = 'ROUND';
+      }
+      return;
+    }
+  }
+
+  // 2. CSS Outline (e.g. outline: 2px solid #ff7a00)
+  const outlineW = (styles.outlineStyle && styles.outlineStyle !== 'none' && styles.outlineStyle !== 'hidden') ? (parseFloat(styles.outlineWidth) || 0) : 0;
+  if (outlineW > 0) {
+    const outlineColor = parseColor(styles.outlineColor);
+    if (outlineColor && outlineColor.a > 0.005) {
+      const strokeColor = {
+        type: 'SOLID',
+        color: { r: outlineColor.r, g: outlineColor.g, b: outlineColor.b },
+        opacity: clamp01(outlineColor.a)
+      };
+
+      node.strokes = [strokeColor];
+      node.strokeAlign = 'OUTSIDE';
+      node.strokeWeight = outlineW;
+
+      if (styles.outlineStyle === 'dashed') {
+        node.dashPattern = [outlineW * 3, outlineW * 3];
+      } else if (styles.outlineStyle === 'dotted') {
+        node.dashPattern = [outlineW, outlineW * 2];
+        node.strokeCap = 'ROUND';
+      }
+      return;
+    }
+  }
+
+  // 3. CSS Box-Shadow Spread Ring fallback (e.g. box-shadow: 0 0 0 2px orange or Tailwind rings)
+  // Required because Figma drops spread on RectangleNode and ignores drop shadows on frames with empty fills
+  if (styles.boxShadow && styles.boxShadow !== 'none') {
+    const shadows = styles.boxShadow.split(/,(?![^(]*\))/);
+    for (const s of shadows) {
+      if (s.includes('inset')) continue;
+      let clean = s.replace(/\binset\b/g, '').trim();
+      let colorStr = '';
+      const colorMatch = clean.match(/(?:rgba?|hsla?|color)\([^)]+\)|#[0-9a-fA-F]{3,8}\b|\b(?!px\b)[a-zA-Z]+\b/);
+      if (colorMatch) {
+        colorStr = colorMatch[0];
+        clean = clean.replace(colorStr, '').trim();
+      }
+      const lengths = clean.match(/-?[\d.]+(?:px)?/g) || [];
+      if (lengths.length >= 2) {
+        const x = parseFloat(lengths[0]) || 0;
+        const y = parseFloat(lengths[1]) || 0;
+        const blur = parseFloat(lengths[2]) || 0;
+        const spread = parseFloat(lengths[3]) || 0;
+        if (x === 0 && y === 0 && blur === 0 && spread > 0) {
+          const ringColor = parseColor(colorStr);
+          if (ringColor && ringColor.a > 0.005) {
+            node.strokes = [{
+              type: 'SOLID',
+              color: { r: ringColor.r, g: ringColor.g, b: ringColor.b },
+              opacity: clamp01(ringColor.a)
+            }];
+            node.strokeWeight = spread;
+            node.strokeAlign = 'OUTSIDE';
+            return;
+          }
+        }
+      }
     }
   }
 }
@@ -491,14 +615,73 @@ function applyEffects(node, styles) {
     if (m) effects.push({ type: 'LAYER_BLUR', radius: parseFloat(m[1]), visible: true });
   }
 
-  if (effects.length > 0) node.effects = effects;
+  if (effects.length > 0) {
+    try {
+      node.effects = effects;
+    } catch {
+      try {
+        node.effects = effects.map(e => {
+          const clone = { ...e };
+          delete clone.spread;
+          return clone;
+        });
+      } catch {}
+    }
+  }
 }
 
-function applyCornerRadius(node, styles) {
-  const tl = parseFloat(styles.borderTopLeftRadius || styles.borderRadius) || 0;
-  const tr = parseFloat(styles.borderTopRightRadius || styles.borderRadius) || 0;
-  const br = parseFloat(styles.borderBottomRightRadius || styles.borderRadius) || 0;
-  const bl = parseFloat(styles.borderBottomLeftRadius || styles.borderRadius) || 0;
+function parseRadiusValue(val, dimension) {
+  if (typeof val === 'number') return val;
+  if (!val || typeof val !== 'string') return 0;
+  const str = val.trim().split(/[\s/]+/)[0];
+  if (str.endsWith('%')) {
+    const pct = parseFloat(str);
+    if (!isNaN(pct)) {
+      // In CSS, border-radius: 50% on a dimension D creates a radius of 0.5 * D (perfect circle/pill)
+      return Math.round((pct / 100) * (dimension || 0));
+    }
+  }
+  const px = parseFloat(str);
+  return isNaN(px) ? 0 : px;
+}
+
+function applyCornerRadius(node, styles, w, h) {
+  const nodeW = w || node.width || 0;
+  const nodeH = h || node.height || 0;
+  const minDim = Math.min(nodeW, nodeH);
+
+  let tl = parseRadiusValue(styles.borderTopLeftRadius, minDim);
+  let tr = parseRadiusValue(styles.borderTopRightRadius, minDim);
+  let br = parseRadiusValue(styles.borderBottomRightRadius, minDim);
+  let bl = parseRadiusValue(styles.borderBottomLeftRadius, minDim);
+
+  if (!tl && !tr && !br && !bl && styles.borderRadius) {
+    const parts = styles.borderRadius.trim().split(/[\s/]+/);
+    if (parts.length === 1) {
+      tl = tr = br = bl = parseRadiusValue(parts[0], minDim);
+    } else if (parts.length === 2) {
+      tl = br = parseRadiusValue(parts[0], minDim);
+      tr = bl = parseRadiusValue(parts[1], minDim);
+    } else if (parts.length === 3) {
+      tl = parseRadiusValue(parts[0], minDim);
+      tr = bl = parseRadiusValue(parts[1], minDim);
+      br = parseRadiusValue(parts[2], minDim);
+    } else if (parts.length >= 4) {
+      tl = parseRadiusValue(parts[0], minDim);
+      tr = parseRadiusValue(parts[1], minDim);
+      br = parseRadiusValue(parts[2], minDim);
+      bl = parseRadiusValue(parts[3], minDim);
+    }
+  }
+
+  // CSS Spec: When corner radii exceed half the dimension, they are proportionally clamped.
+  // When all corners are maxed (e.g. 50% or 9999px for pill/circle), clamp to minDim / 2.
+  if (minDim > 0) {
+    const maxR = minDim / 2;
+    if (tl >= maxR && tr >= maxR && br >= maxR && bl >= maxR) {
+      tl = tr = br = bl = maxR;
+    }
+  }
 
   if (tl > 0 || tr > 0 || br > 0 || bl > 0) {
     if (tl === tr && tr === br && br === bl) {
@@ -549,21 +732,16 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   // SVG Vector element
   if (sNode.content && (sNode.tag === 'SVG' || sNode.content.includes('<svg'))) {
     try {
-        let cleanSvg = sNode.content;
-        // Strip potentially problematic script tags or broken entities inside SVG
-        cleanSvg = cleanSvg.replace(/<script[\s\S]*?<\/script>/gi, '');
-        // Sanitize rgba to hex + opacity since Figma crashes on rgba inside SVGs
-        cleanSvg = cleanSvg.replace(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)/gi, (m, r, g, b) => {
-          const hexR = Math.round(parseFloat(r)).toString(16).padStart(2, '0');
-          const hexG = Math.round(parseFloat(g)).toString(16).padStart(2, '0');
-          const hexB = Math.round(parseFloat(b)).toString(16).padStart(2, '0');
-          return `#${hexR}${hexG}${hexB}`;
-        });
-        const svgNode = figma.createNodeFromSvg(cleanSvg);
+      let cleanSvg = sNode.content;
+      // Strip potentially problematic script tags or broken entities inside SVG
+      cleanSvg = cleanSvg.replace(/<script[\s\S]*?<\/script>/gi, '');
+      const svgNode = figma.createNodeFromSvg(cleanSvg);
       svgNode.name = (sNode.tag || 'node').toLowerCase();
       parentFrame.appendChild(svgNode);
       svgNode.x = x; svgNode.y = y;
-      if (w > 0 && h > 0) svgNode.resize(w, h);
+      if (w > 0 && h > 0 && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
+        svgNode.resize(w, h);
+      }
       applyOpacity(svgNode, s);
       reportProgress();
       return;
@@ -615,25 +793,20 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             }
             try { svgString = decodeURIComponent(escape(svgString)); } catch {}
             svgString = svgString.replace(/<script[\s\S]*?<\/script>/gi, '');
-            // Sanitize rgba to hex + opacity since Figma crashes on rgba inside SVGs
-            svgString = svgString.replace(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)/gi, (m, r, g, b) => {
-              const hexR = Math.round(parseFloat(r)).toString(16).padStart(2, '0');
-              const hexG = Math.round(parseFloat(g)).toString(16).padStart(2, '0');
-              const hexB = Math.round(parseFloat(b)).toString(16).padStart(2, '0');
-              return `#${hexR}${hexG}${hexB}`;
-            });
             const svgNode = figma.createNodeFromSvg(svgString);
             svgNode.name = 'img-svg';
             parentFrame.appendChild(svgNode);
             svgNode.x = x; svgNode.y = y;
-            if (w > 0 && h > 0) svgNode.resize(w, h);
+            if (w > 0 && h > 0 && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
+              svgNode.resize(w, h);
+            }
             applyOpacity(svgNode, s);
             reportProgress();
             return;
           }
 
           const rect = figma.createRectangle();
-          rect.name = 'img';
+          rect.name = sNode.attributes?.alt || 'img';
           parentFrame.appendChild(rect);
           rect.x = x; rect.y = y;
           rect.resize(w, h);
@@ -641,7 +814,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
           applyStrokes(rect, s);
           applyEffects(rect, s);
-          applyCornerRadius(rect, s);
+          applyCornerRadius(rect, s, w, h);
           applyOpacity(rect, s);
           reportProgress();
           return;
@@ -666,18 +839,13 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             }
             try { svgString = decodeURIComponent(escape(svgString)); } catch {}
             svgString = svgString.replace(/<script[\s\S]*?<\/script>/gi, '');
-            // Sanitize rgba to hex + opacity since Figma crashes on rgba inside SVGs
-            svgString = svgString.replace(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)/gi, (m, r, g, b) => {
-              const hexR = Math.round(parseFloat(r)).toString(16).padStart(2, '0');
-              const hexG = Math.round(parseFloat(g)).toString(16).padStart(2, '0');
-              const hexB = Math.round(parseFloat(b)).toString(16).padStart(2, '0');
-              return `#${hexR}${hexG}${hexB}`;
-            });
             const svgNode = figma.createNodeFromSvg(svgString);
             svgNode.name = (sNode.tag || 'node').toLowerCase();
             parentFrame.appendChild(svgNode);
             svgNode.x = x; svgNode.y = y;
-            if (w > 0 && h > 0) svgNode.resize(w, h);
+            if (w > 0 && h > 0 && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
+              svgNode.resize(w, h);
+            }
             applyOpacity(svgNode, s);
             reportProgress();
             return;
@@ -692,7 +860,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
           applyStrokes(rect, s);
           applyEffects(rect, s);
-          applyCornerRadius(rect, s);
+          applyCornerRadius(rect, s, w, h);
           applyOpacity(rect, s);
           reportProgress();
           return;
@@ -708,12 +876,44 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   frame.x = x;
   frame.y = y;
   frame.resize(w, h);
-  frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden');
+  frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden' || s.overflow === 'clip' || s.overflowX === 'clip');
+
+  // Apply CSS transform rotation (e.g. rotated ribbons, badges)
+  if (s.transform && s.transform.includes('matrix')) {
+    const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+    if (parts) {
+      const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
+      let a, b;
+      if (s.transform.startsWith('matrix3d')) {
+        a = vals[0]; b = vals[1];
+      } else {
+        a = vals[0]; b = vals[1];
+      }
+      const angleDeg = Math.atan2(b, a) * (180 / Math.PI);
+      if (Math.abs(angleDeg) > 0.1) {
+        const angleRad = angleDeg * (Math.PI / 180);
+        const cosA = Math.abs(Math.cos(angleRad));
+        const sinA = Math.abs(Math.sin(angleRad));
+        
+        // CSS positions at unrotated top-left, then rotates around center.
+        // Figma's x,y = top-left of the axis-aligned bounding box after rotation.
+        // Compute the offset: center stays the same, but bbox corner shifts.
+        const bboxW = w * cosA + h * sinA;
+        const bboxH = w * sinA + h * cosA;
+        const adjustX = (w - bboxW) / 2;  // shift from unrotated TL to bbox TL
+        const adjustY = (h - bboxH) / 2;
+
+        frame.x = x + adjustX;
+        frame.y = y + adjustY;
+        frame.rotation = -angleDeg; // Figma rotation is negative of CSS
+      }
+    }
+  }
 
   await applyFills(frame, s, assets, w, h);
   applyStrokes(frame, s);
   applyEffects(frame, s);
-  applyCornerRadius(frame, s);
+  applyCornerRadius(frame, s, w, h);
   applyOpacity(frame, s);
 
   // If node itself has direct text (like pseudo elements with content: "Logo #3")
@@ -880,6 +1080,11 @@ async function renderTree(data) {
     }
   } else if (data.root) {
     await renderNode(data.root, rootFrame, 0, 0, data.assets, data.root.styles);
+  }
+
+  // Adjust root frame width as requested by user
+  if (rootFrame.width > 16) {
+    rootFrame.resize(rootFrame.width - 16, rootFrame.height);
   }
 
   figma.currentPage.selection = [rootFrame];
