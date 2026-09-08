@@ -406,12 +406,12 @@
         fontStr = `${style} ${weight} ${size} ${family}`;
       }
       ctx.font = fontStr;
-      ctx.fillStyle = styles.webkitTextFillColor || styles.color || '#000000';
+      ctx.fillStyle = styles.color || '#000000';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      const drawW = Math.max(1, width || 16);
-      const drawH = Math.max(1, height || 16);
+      const drawW = width || 16;
+      const drawH = height || 16;
       ctx.fillText(char, drawW / 2, drawH / 2);
 
       const imgData = ctx.getImageData(0, 0, w, h).data;
@@ -427,27 +427,6 @@
     } catch (e) {
       return null;
     }
-  }
-
-  function isIconElementOrFont(text, fontFamily, className) {
-    if (!text) return false;
-    const chars = Array.from(text.trim());
-    for (const char of chars) {
-      const code = char.codePointAt(0);
-      if ((code >= 0xE000 && code <= 0xF8FF) || 
-          (code >= 0xF0000 && code <= 0xFFFFD) || 
-          (code >= 0x100000 && code <= 0x10FFFD)) {
-        return true;
-      }
-    }
-    if (chars.length > 1 && !/^[a-z_]+$/.test(text.trim())) {
-      return false; 
-    }
-    const f = (fontFamily || '').toLowerCase();
-    if (/(?:icon|awesome|glyph|symbol|feather|tabler|boxicon|remix|bootstrap)/i.test(f)) return true;
-    const c = (className || '').toLowerCase();
-    if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|icon|material-icons|material-symbols)\b/i.test(c)) return true;
-    return false;
   }
 
   // Memoized Canvas-based color normalizer
@@ -593,7 +572,7 @@
   async function getFontSvgPath(family, char, fontSize) {
     if (!family || !char || typeof opentype === 'undefined') return null;
     const cleanFamily = family.replace(/['"]/g, '').split(',')[0].trim();
-    const url = fontUrlMap.get(cleanFamily);
+    const url = fontUrlMap.get(cleanFamily) || fontUrlMap.get(cleanFamily.toLowerCase());
     if (!url) return null;
 
     if (!fontParseCache.has(url)) {
@@ -792,8 +771,7 @@
         }
       }
 
-      const isIcon = Array.from(text).length === 1 || isIconElementOrFont(text, cs.fontFamily, el.className);
-      if (isIcon) {
+      if (Array.from(text).length === 1) {
         const fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize);
         if (fontData && fontData.svgPath) {
            const { svgPath, bbox } = fontData;
@@ -804,12 +782,24 @@
            const tx = (parentW - pathW) / 2 - bbox.x1;
            const ty = (parentH - pathH) / 2 - bbox.y1;
            const fillColor = cs.color || '#000000';
+           
+           let fillOpacity = 1;
+           let hexColor = fillColor;
+           const m = fillColor.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+           if (m) {
+             const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+             const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+             const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+             hexColor = `#${r}${g}${b}`;
+             if (m[4] !== undefined) fillOpacity = parseFloat(m[4]);
+           }
+           const opAttr = fillOpacity < 1 ? ` fill-opacity="${fillOpacity}"` : '';
 
            return {
             nodeType: ELEMENT_NODE,
             id: getNodeId('svg-icon-pseudo'),
             tag: 'SVG',
-            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${fillColor}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${hexColor}"${opAttr}><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: styles,
             rect: pseudoRect
           };
@@ -857,10 +847,11 @@
       if (rect.width === 0 && rect.height === 0) return null;
       const isFixed = parentStyles?.position === 'fixed';
 
+      // If single line or small inline token (like '$', '13', 'Popular Package'), preserve exact position
+      
       // Check if it's an icon font character
       const charStr = text.trim() || text;
-      const isIcon = Array.from(charStr).length === 1 || isIconElementOrFont(charStr, parentStyles?.fontFamily, node.parentElement?.className);
-      if (isIcon) {
+      if (Array.from(charStr).length === 1) {
         const fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize);
         if (fontData && fontData.svgPath) {
           const { svgPath, bbox } = fontData;
@@ -871,12 +862,24 @@
           const tx = (parentW - pathW) / 2 - bbox.x1;
           const ty = (parentH - pathH) / 2 - bbox.y1;
           const fillColor = parentStyles?.webkitTextFillColor || parentStyles?.color || '#000000';
+          
+          let fillOpacity = 1;
+          let hexColor = fillColor;
+          const m = fillColor.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+          if (m) {
+            const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+            const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+            const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+            hexColor = `#${r}${g}${b}`;
+            if (m[4] !== undefined) fillOpacity = parseFloat(m[4]);
+          }
+          const opAttr = fillOpacity < 1 ? ` fill-opacity="${fillOpacity}"` : '';
 
           return {
             nodeType: ELEMENT_NODE,
             id: getNodeId('svg-icon'),
             tag: 'SVG',
-            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${fillColor}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${hexColor}"${opAttr}><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: parentStyles || {},
             rect: {
               x: rect.x + (isFixed ? 0 : window.scrollX),
