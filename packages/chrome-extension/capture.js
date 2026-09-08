@@ -468,6 +468,20 @@
         styles.textDecorationLine = 'underline';
       }
     }
+
+    // Capture effective CSS filter (including ancestor invert filters for SVGs)
+    styles.filter = cs.filter || 'none';
+    if (!styles.filter || styles.filter === 'none') {
+      let p = el.parentElement;
+      while (p && p !== document.body && p !== document.documentElement) {
+        const pf = window.getComputedStyle(p).filter;
+        if (pf && pf !== 'none' && pf.includes('invert')) {
+          styles.filter = pf;
+          break;
+        }
+        p = p.parentElement;
+      }
+    }
     // Always capture background and border radius for frame fills
     styles.backgroundColor = cs.backgroundColor;
     styles.backgroundPosition = cs.backgroundPosition;

@@ -586,7 +586,84 @@ function reportProgress(label) {
   }
 }
 
-function prepareSvgString(svgString) {
+function invertHex(hex) {
+  let c = hex.replace('#', '').trim();
+  if (c.length === 3) {
+    c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+  }
+  if (c.length !== 6) return hex;
+  const num = parseInt(c, 16);
+  if (isNaN(num)) return hex;
+  const invertedNum = 0xFFFFFF - num;
+  return '#' + invertedNum.toString(16).padStart(6, '0');
+}
+
+function invertSingleColor(val) {
+  if (!val) return val;
+  const trimmed = val.trim();
+  if (trimmed === 'none' || trimmed === 'transparent' || trimmed.startsWith('url(')) {
+    return trimmed;
+  }
+  if (trimmed.toLowerCase() === 'black') return '#ffffff';
+  if (trimmed.toLowerCase() === 'white') return '#000000';
+
+  if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed)) {
+    return invertHex(trimmed);
+  }
+
+  const m = trimmed.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)/i);
+  if (m) {
+    const r = 255 - Math.round(parseFloat(m[1]));
+    const g = 255 - Math.round(parseFloat(m[2]));
+    const b = 255 - Math.round(parseFloat(m[3]));
+    const hexR = Math.max(0, Math.min(255, r)).toString(16).padStart(2, '0');
+    const hexG = Math.max(0, Math.min(255, g)).toString(16).padStart(2, '0');
+    const hexB = Math.max(0, Math.min(255, b)).toString(16).padStart(2, '0');
+    return `#${hexR}${hexG}${hexB}`;
+  }
+  return trimmed;
+}
+
+function invertSvgColors(svgString) {
+  if (!svgString) return svgString;
+  let res = svgString;
+
+  // 1. Ensure shapes without fill/stroke get default fill="#000000" so they invert to #ffffff
+  res = res.replace(/<(path|circle|rect|polygon|polyline|ellipse)\b([^>]*?)(\/?>)/gi, (m, tag, attrs, close) => {
+    if (!/\b(fill|stroke)\s*=/i.test(attrs) && !/\bstyle\s*=\s*["'][^"']*\b(fill|stroke)\b/i.test(attrs)) {
+      return `<${tag}${attrs} fill="#000000"${close}`;
+    }
+    return m;
+  });
+
+  // 2. Invert colors in presentation attributes: fill, stroke, stop-color, flood-color, color
+  res = res.replace(/\b(fill|stroke|stop-color|flood-color|color)\s*=\s*(["'])([^"']+)\2/gi, (match, attr, quote, val) => {
+    const inverted = invertSingleColor(val);
+    return `${attr}=${quote}${inverted}${quote}`;
+  });
+
+  // 3. Invert colors inside style attributes: style="..."
+  res = res.replace(/\bstyle\s*=\s*(["'])([^"']+)\1/gi, (match, quote, styleContent) => {
+    const invertedStyle = styleContent.replace(/\b(fill|stroke|stop-color|flood-color|color)\s*:\s*([^;"]+)/gi, (m, prop, val) => {
+      return `${prop}: ${invertSingleColor(val)}`;
+    });
+    return `style=${quote}${invertedStyle}${quote}`;
+  });
+
+  return res;
+}
+
+function hasInvertFilter(filterStr) {
+  if (!filterStr || typeof filterStr !== 'string') return false;
+  if (!filterStr.includes('invert')) return false;
+  const m = filterStr.match(/invert\s*\(\s*([\d.]+%?)\s*\)/i);
+  if (!m) return true;
+  const val = m[1];
+  const num = val.endsWith('%') ? parseFloat(val) / 100 : parseFloat(val);
+  return isNaN(num) || num > 0.4;
+}
+
+function prepareSvgString(svgString, isInverted) {
   if (!svgString) return '';
   let clean = svgString;
   // Strip scripts
@@ -601,6 +678,10 @@ function prepareSvgString(svgString) {
   // Ensure xmlns is present on <svg>
   if (!clean.includes('xmlns=')) {
     clean = clean.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg" ');
+  }
+  // Invert colors if CSS filter has invert: inverted hex = 0xFFFFFF - original hex
+  if (isInverted) {
+    clean = invertSvgColors(clean);
   }
   return clean;
 }
@@ -623,7 +704,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   // SVG Vector element
   if (sNode.content && (sNode.tag === 'SVG' || sNode.content.includes('<svg'))) {
     try {
-      const cleanSvg = prepareSvgString(sNode.content);
+      const cleanSvg = prepareSvgString(sNode.content, hasInvertFilter(s.filter));
       const svgNode = figma.createNodeFromSvg(cleanSvg);
       svgNode.name = (sNode.tag || 'node').toLowerCase();
       parentFrame.appendChild(svgNode);
@@ -684,7 +765,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
                 svgString += String.fromCharCode(bytes[i]);
               }
             }
-            const cleanSvg = prepareSvgString(svgString);
+            const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter));
             const svgNode = figma.createNodeFromSvg(cleanSvg);
             svgNode.name = sNode.attributes?.alt || 'img-svg';
             parentFrame.appendChild(svgNode);
@@ -733,7 +814,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
                 svgString += String.fromCharCode(bytes[i]);
               }
             }
-            const cleanSvg = prepareSvgString(svgString);
+            const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter));
             const svgNode = figma.createNodeFromSvg(cleanSvg);
             svgNode.name = (sNode.tag || 'node').toLowerCase();
             parentFrame.appendChild(svgNode);
