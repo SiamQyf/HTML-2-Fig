@@ -665,24 +665,36 @@
           const attrFill = cloned.getAttribute('fill');
           const attrStroke = cloned.getAttribute('stroke');
 
-          if (attrFill === 'currentColor') {
-            cloned.setAttribute('fill', computedColor);
-          } else if (computedFill) {
-            if (computedFill === 'rgba(0, 0, 0, 0)' || computedFill === 'transparent' || computedFill === 'none') {
-              cloned.setAttribute('fill', 'none');
+          function applyColorAttr(el, attrName, colorVal) {
+            if (!colorVal || colorVal === 'rgba(0, 0, 0, 0)' || colorVal === 'transparent' || colorVal === 'none') {
+              el.setAttribute(attrName, 'none');
+              return;
+            }
+            const m = colorVal.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+            if (m) {
+              const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+              const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+              const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+              el.setAttribute(attrName, `#${r}${g}${b}`);
+              if (m[4] !== undefined) {
+                const opAttr = attrName === 'fill' ? 'fill-opacity' : 'stroke-opacity';
+                el.setAttribute(opAttr, parseFloat(m[4]).toString());
+              }
             } else {
-              cloned.setAttribute('fill', computedFill);
+              el.setAttribute(attrName, colorVal);
             }
           }
 
+          if (attrFill === 'currentColor') {
+            applyColorAttr(cloned, 'fill', computedColor);
+          } else if (computedFill) {
+            applyColorAttr(cloned, 'fill', computedFill);
+          }
+
           if (attrStroke === 'currentColor') {
-            cloned.setAttribute('stroke', computedColor);
+            applyColorAttr(cloned, 'stroke', computedColor);
           } else if (computedStroke) {
-            if (computedStroke === 'rgba(0, 0, 0, 0)' || computedStroke === 'transparent' || computedStroke === 'none') {
-              cloned.setAttribute('stroke', 'none');
-            } else {
-              cloned.setAttribute('stroke', computedStroke);
-            }
+            applyColorAttr(cloned, 'stroke', computedStroke);
           }
           
           const op = parseFloat(origCs.opacity);
@@ -750,6 +762,21 @@
         
         if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = parentRect.y + t;
         else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = parentRect.y + parentRect.height - pseudoRect.height - b;
+      }
+
+      const bgs = splitByTopLevelCommas(cs.backgroundImage);
+      if (bgs.length > 1 && bgs.every(b => b.includes('linear-gradient'))) {
+        const svgStr = convertMultipleBackgroundsToSvg(cs, pseudoRect.width, pseudoRect.height, cs.color);
+        if (svgStr) {
+          return {
+            nodeType: ELEMENT_NODE,
+            id: getNodeId('svg-bg-pseudo'),
+            tag: 'SVG',
+            content: svgStr,
+            styles: styles,
+            rect: pseudoRect
+          };
+        }
       }
 
       if (cs.transform && cs.transform.includes('matrix')) {
@@ -836,6 +863,8 @@
   }
 
   async function serializeNode(node, assets, fonts, parentStyles) {
+    if (!node) return null;
+    
     if (node.nodeType === TEXT_NODE) {
       const text = node.textContent || '';
       if (!text.trim()) return null;
@@ -1090,6 +1119,18 @@
     let svgContent = null;
     if (tag === 'SVG' || el instanceof SVGElement) {
       svgContent = serializeSVG(el);
+    } else {
+      const cs = window.getComputedStyle(el);
+      const bgs = splitByTopLevelCommas(cs.backgroundImage || styles.backgroundImage || '');
+      const hasChildElements = el.children && el.children.length > 0;
+      const hasText = el.childNodes && Array.from(el.childNodes).some(n => n.nodeType === 3 && n.textContent.trim().length > 0);
+      if (!hasChildElements && !hasText && bgs.length > 1 && bgs.every(b => b.includes('linear-gradient'))) {
+        const fallbackSvg = convertMultipleBackgroundsToSvg(cs, docRect.width, docRect.height, cs.color || styles.color);
+        if (fallbackSvg) {
+          svgContent = fallbackSvg;
+          styles.backgroundImage = 'none'; // Clear bg to prevent double rendering in code.js
+        }
+      }
     }
 
     const before = await serializePseudo(el, '::before', fonts, docRect);
