@@ -163,12 +163,44 @@ async function loadFont(family, weight, italic) {
   return { family: 'Inter', style: 'Regular' };
 }
 
+function splitByTopLevelCommas(str) {
+  if (!str) return [];
+  let result = [];
+  let current = '';
+  let depth = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (char === '(') depth++;
+    else if (char === ')') depth--;
+    else if (char === ',' && depth === 0) {
+      result.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) result.push(current.trim());
+  return result;
+}
+
 function parseLinearGradient(css) {
-  if (!css || !css.includes('linear-gradient')) return null;
+  if (!css || !css.includes('linear-gradient(')) return null;
   try {
-    const contentMatch = css.match(/linear-gradient\((.*?)\)(?=\s*(?:,|$)(?!\s*(?:rgba?|hsla?|#|transparent|black|white|red|green|blue)))/is);
-    if (!contentMatch) return null;
-    const inner = contentMatch[1].trim();
+    const start = css.indexOf('linear-gradient(');
+    if (start === -1) return null;
+    let depth = 0;
+    let inner = '';
+    for (let i = start + 15; i < css.length; i++) {
+      if (css[i] === '(') depth++;
+      else if (css[i] === ')') {
+        depth--;
+        if (depth === 0) {
+          inner = css.substring(start + 16, i).trim();
+          break;
+        }
+      }
+    }
+    if (!inner) return null;
 
     // Determine angle
     let angleDeg = 180;
@@ -196,8 +228,8 @@ function parseLinearGradient(css) {
     }
 
     // Split stops safely
-    const rawStops = stopsStr.split(/,(?![^(]*\))/);
-    if (!rawStops || rawStops.length < 2) return null;
+    const rawStops = splitByTopLevelCommas(stopsStr);
+    if (!rawStops || rawStops.length === 0) return null;
 
     const stops = [];
     const n = rawStops.length;
@@ -207,7 +239,7 @@ function parseLinearGradient(css) {
       const trimmed = raw.trim();
       const posMatch = trimmed.match(/(.*?)\s+([\d.]+)%$/);
       let colStr = trimmed;
-      let pos = i / (n - 1);
+      let pos = n > 1 ? (i / (n - 1)) : i;
       
       if (posMatch) {
         colStr = posMatch[1].trim();
@@ -228,7 +260,10 @@ function parseLinearGradient(css) {
       }
     });
 
-    if (stops.length < 2) return null;
+    if (stops.length === 0) return null;
+    if (stops.length === 1) {
+      stops.push({ position: 1, color: { ...stops[0].color } });
+    }
 
     const rad = ((angleDeg - 90) * Math.PI) / 180;
     const cos = Math.cos(rad);
@@ -410,12 +445,17 @@ async function applyFills(node, styles, assets, nodeW, nodeH) {
   if (!isTextClip && !isZeroSize) {
     // CSS Gradients go ON TOP of background images in Figma
     if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
-      const grad = parseLinearGradient(styles.backgroundImage);
-      if (grad) {
-        fills.push(grad);
-      } else {
+      const bgs = splitByTopLevelCommas(styles.backgroundImage);
+      for (const bg of bgs) {
+        if (bg.includes('linear-gradient')) {
+          const grad = parseLinearGradient(bg);
+          if (grad) {
+            fills.push(grad);
+            continue;
+          }
+        }
         // Fallback: If gradient parsing fails (e.g. radial/conic), extract the first valid color and use as solid fill
-        const firstColorMatch = styles.backgroundImage.match(/(?:rgba?|hsla?|color)\([^)]+\)|#[0-9a-f]{3,8}|\b(?:transparent|black|white|red|green|blue)\b/i);
+        const firstColorMatch = bg.match(/(?:rgba?|hsla?|color)\([^)]+\)|#[0-9a-f]{3,8}|\b(?:transparent|black|white|red|green|blue)\b/i);
         if (firstColorMatch) {
           const fallbackBg = parseColor(firstColorMatch[0]);
           if (fallbackBg && fallbackBg.a > 0.005) {
@@ -686,8 +726,49 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   parentFrame.appendChild(frame);
   frame.x = x;
   frame.y = y;
-  frame.resize(w, h);
-  frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden');
+
+  let rectW = w;
+  let rectH = h;
+
+  // Apply CSS transform rotation (e.g. rotated ribbons, badges)
+  if (s.transform && s.transform.includes('matrix')) {
+    const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+    if (parts) {
+      const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
+      let a, b;
+      if (s.transform.startsWith('matrix3d')) {
+        a = vals[0]; b = vals[1];
+      } else {
+        a = vals[0]; b = vals[1];
+      }
+      const angleDeg = Math.atan2(b, a) * (180 / Math.PI);
+      if (Math.abs(angleDeg) > 0.1) {
+        const angleRad = angleDeg * (Math.PI / 180);
+        const cosA = Math.abs(Math.cos(angleRad));
+        const sinA = Math.abs(Math.sin(angleRad));
+
+        if (sinA > cosA) {
+          rectW = h;
+          rectH = w;
+        }
+        
+        // CSS positions at unrotated top-left, then rotates around center.
+        // Figma's x,y = top-left of the axis-aligned bounding box after rotation.
+        // Compute the offset: center stays the same, but bbox corner shifts.
+        const bboxW = rectW * cosA + rectH * sinA;
+        const bboxH = rectW * sinA + rectH * cosA;
+        const adjustX = (rectW - bboxW) / 2;  // shift from unrotated TL to bbox TL
+        const adjustY = (rectH - bboxH) / 2;
+
+        frame.x = x + adjustX;
+        frame.y = y + adjustY;
+        frame.rotation = -angleDeg; // Figma rotation is negative of CSS
+      }
+    }
+  }
+
+  frame.resize(rectW, rectH);
+  frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden' || s.overflow === 'clip' || s.overflowX === 'clip');
 
   await applyFills(frame, s, assets, w, h);
   applyStrokes(frame, s);
@@ -789,30 +870,40 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
 
   const w = sNode.rect?.width || 0;
   const h = sNode.rect?.height || 0;
-  const textStr = finalText.trim();
+  let rectW = w;
+  let rectH = h;
+  
+  if (s.transform && s.transform.includes('matrix')) {
+    const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+    if (parts) {
+      const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
+      const a = vals[0], b = vals[1];
+      const angleDeg = Math.atan2(b, a) * (180 / Math.PI);
+      const angleRad = angleDeg * (Math.PI / 180);
+      if (Math.abs(Math.sin(angleRad)) > Math.abs(Math.cos(angleRad))) {
+        rectW = h;
+        rectH = w;
+      }
+    }
+  }
 
-
-  if (sNode.id && sNode.id.includes('input-text') && w > 0 && h > 0) {
+  if (sNode.id && sNode.id.includes('input-text') && rectW > 0 && rectH > 0) {
     try {
       textNode.textAutoResize = 'TRUNCATE';
     } catch {
       textNode.textAutoResize = 'NONE';
     }
-    textNode.resize(Math.ceil(w), Math.ceil(h));
+    textNode.resize(Math.ceil(rectW), Math.ceil(rectH));
     textNode.textAlignVertical = 'CENTER';
-  } else if (isMultiLine && w > 0) {
+  } else if (isMultiLine && rectW > 0) {
     textNode.textAutoResize = 'HEIGHT';
-    textNode.resize(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
+    textNode.resize(Math.max(1, Math.ceil(rectW)), Math.max(1, Math.ceil(rectH)));
   } else {
     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
-    // When using WIDTH_AND_HEIGHT, Figma sizes the node exactly to its own font rendering width.
-    // If this differs from the browser's bounding box `w`, center/right aligned text will be misaligned.
-    // We compensate by shifting `x` so the text remains correctly aligned within the browser's original `w`.
-    if (w > 0) {
-      if (s.textAlign === 'center') {
-        textNode.x = posX + (w - textNode.width) / 2;
-      } else if (s.textAlign === 'right' || s.textAlign === 'end') {
-        textNode.x = posX + (w - textNode.width);
+    if (alignMap[s.textAlign] === 'RIGHT' || alignMap[s.textAlign] === 'CENTER') {
+      const diff = rectW - textNode.width;
+      if (diff !== 0) {
+        textNode.x = posX + (alignMap[s.textAlign] === 'RIGHT' ? diff : diff / 2);
       }
     }
   }

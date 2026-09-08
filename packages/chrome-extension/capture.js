@@ -384,6 +384,72 @@
   let nodeCounter = 0;
   function getNodeId(prefix = 'h2f') { return `${prefix}-node-${++nodeCounter}`; }
 
+  function renderGlyphToImage(char, styles, width, height) {
+    try {
+      if (!char) return null;
+      const scale = 4;
+      const w = Math.max(1, Math.round((width || 16) * scale));
+      const h = Math.max(1, Math.round((height || 16) * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      ctx.scale(scale, scale);
+
+      let fontStr = styles.font;
+      if (!fontStr || fontStr === 'normal') {
+        const style = styles.fontStyle || 'normal';
+        const weight = styles.fontWeight || '400';
+        const size = styles.fontSize || '16px';
+        const family = styles.fontFamily || 'sans-serif';
+        fontStr = `${style} ${weight} ${size} ${family}`;
+      }
+      ctx.font = fontStr;
+      ctx.fillStyle = styles.webkitTextFillColor || styles.color || '#000000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      const drawW = Math.max(1, width || 16);
+      const drawH = Math.max(1, height || 16);
+      ctx.fillText(char, drawW / 2, drawH / 2);
+
+      const imgData = ctx.getImageData(0, 0, w, h).data;
+      let hasPixels = false;
+      for (let i = 3; i < imgData.length; i += 4) {
+        if (imgData[i] > 10) {
+          hasPixels = true;
+          break;
+        }
+      }
+      if (!hasPixels) return null;
+      return canvas.toDataURL('image/png');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function isIconElementOrFont(text, fontFamily, className) {
+    if (!text) return false;
+    const chars = Array.from(text.trim());
+    for (const char of chars) {
+      const code = char.codePointAt(0);
+      if ((code >= 0xE000 && code <= 0xF8FF) || 
+          (code >= 0xF0000 && code <= 0xFFFFD) || 
+          (code >= 0x100000 && code <= 0x10FFFD)) {
+        return true;
+      }
+    }
+    if (chars.length > 1 && !/^[a-z_]+$/.test(text.trim())) {
+      return false; 
+    }
+    const f = (fontFamily || '').toLowerCase();
+    if (/(?:icon|awesome|glyph|symbol|feather|tabler|boxicon|remix|bootstrap)/i.test(f)) return true;
+    const c = (className || '').toLowerCase();
+    if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|icon|material-icons|material-symbols)\b/i.test(c)) return true;
+    return false;
+  }
+
   // Memoized Canvas-based color normalizer
   const colorCache = new Map();
   let colorCanvas = null, colorCtx = null;
@@ -681,7 +747,10 @@
         }
       }
       
-      const text = content.replace(/^[\"']|[\"']$/g, '').trim();
+      let rawContent = content;
+      const altSep = rawContent.indexOf('" / "');
+      if (altSep !== -1) rawContent = rawContent.substring(0, altSep + 1);
+      const text = rawContent.replace(/^[\"']|[\"']$/g, '').trim();
       
       if (styles.fontFamily) fonts.addFont(styles.fontFamily);
       
@@ -723,7 +792,8 @@
         }
       }
 
-      if (Array.from(text).length === 1) {
+      const isIcon = Array.from(text).length === 1 || isIconElementOrFont(text, cs.fontFamily, el.className);
+      if (isIcon) {
         const fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize);
         if (fontData && fontData.svgPath) {
            const { svgPath, bbox } = fontData;
@@ -742,6 +812,21 @@
             content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${fillColor}"><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: styles,
             rect: pseudoRect
+          };
+        }
+
+        // Absolute match fallback: canvas glyph rendering
+        const iconW = Math.ceil(pseudoRect.width) || parseFloat(cs.fontSize) || 16;
+        const iconH = Math.ceil(pseudoRect.height) || parseFloat(cs.fontSize) || 16;
+        const dataUrl = renderGlyphToImage(text, cs, iconW, iconH);
+        if (dataUrl) {
+          return {
+            nodeType: ELEMENT_NODE,
+            id: getNodeId('icon-img-pseudo'),
+            tag: 'IMG',
+            attributes: { src: dataUrl, alt: 'icon' },
+            styles: { ...styles, backgroundColor: 'transparent', backgroundImage: 'none' },
+            rect: { ...pseudoRect, width: iconW, height: iconH }
           };
         }
       }
@@ -772,11 +857,10 @@
       if (rect.width === 0 && rect.height === 0) return null;
       const isFixed = parentStyles?.position === 'fixed';
 
-      // If single line or small inline token (like '$', '13', 'Popular Package'), preserve exact position
-      
       // Check if it's an icon font character
       const charStr = text.trim() || text;
-      if (Array.from(charStr).length === 1) {
+      const isIcon = Array.from(charStr).length === 1 || isIconElementOrFont(charStr, parentStyles?.fontFamily, node.parentElement?.className);
+      if (isIcon) {
         const fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize);
         if (fontData && fontData.svgPath) {
           const { svgPath, bbox } = fontData;
@@ -799,6 +883,26 @@
               y: rect.y + (isFixed ? 0 : window.scrollY),
               width: parentW,
               height: parentH
+            }
+          };
+        }
+
+        // Absolute match fallback: canvas glyph rendering
+        const iconW = Math.ceil(rect.width) || parseFloat(parentStyles?.fontSize) || 16;
+        const iconH = Math.ceil(rect.height) || parseFloat(parentStyles?.fontSize) || 16;
+        const dataUrl = renderGlyphToImage(charStr, parentStyles || {}, iconW, iconH);
+        if (dataUrl) {
+          return {
+            nodeType: ELEMENT_NODE,
+            id: getNodeId('icon-img'),
+            tag: 'IMG',
+            attributes: { src: dataUrl, alt: 'icon' },
+            styles: { ...(parentStyles || {}), backgroundColor: 'transparent', backgroundImage: 'none' },
+            rect: {
+              x: rect.x + (isFixed ? 0 : window.scrollX),
+              y: rect.y + (isFixed ? 0 : window.scrollY),
+              width: iconW,
+              height: iconH
             }
           };
         }
