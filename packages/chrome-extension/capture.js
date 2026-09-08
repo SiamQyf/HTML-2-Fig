@@ -458,6 +458,106 @@
     return rgba;
   }
 
+  function splitByTopLevelCommas(str) {
+    if (!str) return [];
+    let result = [];
+    let current = '';
+    let depth = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str[i];
+      if (char === '(') depth++;
+      else if (char === ')') depth--;
+      else if (char === ',' && depth === 0) {
+        result.push(current.trim());
+        current = '';
+        continue;
+      }
+      current += char;
+    }
+    if (current.trim()) result.push(current.trim());
+    return result;
+  }
+
+  function convertMultipleBackgroundsToSvg(csOrEl, w, h, defaultColor) {
+    if (!csOrEl) return null;
+    const cs = (csOrEl instanceof Element) ? window.getComputedStyle(csOrEl) : csOrEl;
+    const bgImage = cs.backgroundImage || '';
+    if (!bgImage || !bgImage.includes(',')) return null;
+    const bgs = splitByTopLevelCommas(bgImage);
+    if (bgs.length < 2 || !bgs.every(b => b.includes('linear-gradient'))) return null;
+
+    const sizes = splitByTopLevelCommas(cs.backgroundSize || '');
+    let pos = splitByTopLevelCommas(cs.backgroundPosition || '');
+    const posXList = splitByTopLevelCommas(cs.backgroundPositionX || '');
+    const posYList = splitByTopLevelCommas(cs.backgroundPositionY || '');
+
+    function parseDimVal(valStr, containerDim) {
+      if (!valStr || valStr === 'auto') return containerDim;
+      valStr = valStr.trim().toLowerCase();
+      if (valStr.endsWith('%')) {
+        return containerDim * (parseFloat(valStr) / 100);
+      }
+      const num = parseFloat(valStr);
+      return isNaN(num) ? containerDim : num;
+    }
+
+    function parsePosVal(valStr, containerDim, elementDim) {
+      if (!valStr) return 0;
+      valStr = valStr.trim().toLowerCase();
+      if (valStr === 'left' || valStr === 'top' || valStr === '0' || valStr === '0px' || valStr === '0%') return 0;
+      if (valStr === 'right' || valStr === 'bottom') return containerDim - elementDim;
+      if (valStr === 'center') return (containerDim - elementDim) / 2;
+      if (valStr.endsWith('%')) {
+        const pct = parseFloat(valStr) / 100;
+        return (containerDim - elementDim) * pct;
+      }
+      const num = parseFloat(valStr);
+      return isNaN(num) ? 0 : num;
+    }
+
+    const roundW = Math.round(w) || 1;
+    const roundH = Math.round(h) || 1;
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${roundW}" height="${roundH}" viewBox="0 0 ${roundW} ${roundH}">`;
+
+    for (let i = 0; i < bgs.length; i++) {
+      const bg = bgs[i];
+      const sizeStr = sizes[i] || sizes[0] || '100% 100%';
+      const sizeParts = sizeStr.trim().split(/\s+/);
+      const swStr = sizeParts[0] || '100%';
+      const shStr = sizeParts[1] || sizeParts[0] || '100%';
+
+      const rw = parseDimVal(swStr, w);
+      const rh = parseDimVal(shStr, h);
+
+      const pxStr = posXList[i] || pos[i]?.split(/\s+/)[0] || '0';
+      const pyStr = posYList[i] || pos[i]?.split(/\s+/)[1] || '0';
+      const rx = parsePosVal(pxStr, w, rw);
+      const ry = parsePosVal(pyStr, h, rh);
+
+      let hexColor = defaultColor || '#000000';
+      let fillOpacity = 1;
+      const firstColorMatch = bg.match(/(?:rgba?|hsla?|color)\([^)]+\)|#[0-9a-f]{3,8}|\b(?:transparent|black|white|red|green|blue)\b/i);
+      if (firstColorMatch) {
+        const c = normalizeColor(firstColorMatch[0]);
+        if (c) {
+          const m = c.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+          if (m) {
+            const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+            const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+            const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+            hexColor = `#${r}${g}${b}`;
+            if (m[4] !== undefined) fillOpacity = parseFloat(m[4]);
+          }
+        }
+      }
+      const opAttr = fillOpacity < 1 ? ` fill-opacity="${fillOpacity}"` : '';
+
+      svg += `<rect x="${Number(rx.toFixed(2))}" y="${Number(ry.toFixed(2))}" width="${Number(rw.toFixed(2))}" height="${Number(rh.toFixed(2))}" fill="${hexColor}"${opAttr} />`;
+    }
+    svg += `</svg>`;
+    return svg;
+  }
+
   function getElementStyles(el) {
     const cs = window.getComputedStyle(el);
     const styles = {};
