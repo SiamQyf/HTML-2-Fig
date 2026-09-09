@@ -87,7 +87,30 @@ function decodeBase64Image(base64Obj) {
     let dataStr = typeof base64Obj === 'string' ? base64Obj : (base64Obj.data || base64Obj.base64Blob || '');
     if (!dataStr) return null;
     const commaIdx = dataStr.indexOf(',');
-    const raw = commaIdx >= 0 ? dataStr.slice(commaIdx + 1) : dataStr;
+    const meta = commaIdx >= 0 ? dataStr.slice(0, commaIdx).toLowerCase() : '';
+    let raw = commaIdx >= 0 ? dataStr.slice(commaIdx + 1) : dataStr;
+
+    // Check if it is explicitly base64 encoded
+    if (meta.includes(';base64')) {
+      return figma.base64Decode(raw.trim());
+    }
+
+    // Support UTF-8 or URL-encoded SVG/image data URIs
+    if (meta.startsWith('data:') || raw.trim().startsWith('<svg') || raw.trim().startsWith('%3csvg')) {
+      let decoded = raw;
+      try {
+        decoded = decodeURIComponent(raw);
+      } catch {}
+      if (typeof TextEncoder !== 'undefined') {
+        return new TextEncoder().encode(decoded);
+      }
+      const bytes = new Uint8Array(decoded.length);
+      for (let i = 0; i < decoded.length; i++) {
+        bytes[i] = decoded.charCodeAt(i) & 0xff;
+      }
+      return bytes;
+    }
+
     return figma.base64Decode(raw.trim());
   } catch (e) {
     return null;
@@ -121,19 +144,27 @@ async function loadFont(family, weight, italic) {
   const candidates = [];
   
   // Font Awesome Special Handling
-  if (cleanFamily.toLowerCase().includes('font awesome')) {
-    if (cleanFamily.toLowerCase().includes('brands')) {
+  const lowerFamily = cleanFamily.toLowerCase();
+  if (lowerFamily.includes('font awesome') || lowerFamily === 'fontawesome') {
+    if (lowerFamily.includes('brands')) {
       candidates.push({ family: cleanFamily, style: 'Regular' });
     } else {
       const isSolid = weightKey === '900' || weightKey === 'bold' || weightKey === 'bolder';
-      candidates.push({ family: cleanFamily, style: isSolid ? 'Solid' : 'Regular' });
-      candidates.push({ family: cleanFamily, style: isSolid ? 'Regular' : 'Solid' }); // ultimate fa fallback
+      if (isSolid) {
+        candidates.push({ family: cleanFamily, style: 'Solid' });
+        candidates.push({ family: 'Font Awesome 5 Free', style: 'Solid' });
+        candidates.push({ family: 'Font Awesome 6 Free', style: 'Solid' });
+        candidates.push({ family: cleanFamily, style: 'Regular' });
+        candidates.push({ family: 'Font Awesome 5 Free', style: 'Regular' });
+      } else {
+        candidates.push({ family: cleanFamily, style: 'Regular' });
+        candidates.push({ family: cleanFamily, style: 'Light' });
+        candidates.push({ family: 'Font Awesome 5 Free', style: 'Regular' });
+        candidates.push({ family: 'Font Awesome 6 Free', style: 'Regular' });
+        candidates.push({ family: cleanFamily, style: 'Solid' });
+        candidates.push({ family: 'Font Awesome 5 Free', style: 'Solid' });
+      }
     }
-    // Also try without version numbers if they fail
-    candidates.push({ family: 'Font Awesome 5 Free', style: 'Solid' });
-    candidates.push({ family: 'Font Awesome 5 Free', style: 'Regular' });
-    candidates.push({ family: 'Font Awesome 6 Free', style: 'Solid' });
-    candidates.push({ family: 'Font Awesome 5 Brands', style: 'Regular' });
   }
 
   // 1. Try exact family with all weight variations
@@ -316,8 +347,8 @@ function parseBoxShadows(css) {
 /* ======================================================================
  *  4.  STYLE APPLIERS
  * ====================================================================== */
-async function applyFills(node, styles, assets, nodeW, nodeH) {
-  const fills = [];
+async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = false) {
+  let fills = [];
   const isTextClip = styles.backgroundClip === 'text' || styles.webkitBackgroundClip === 'text';
 
   let isZeroSize = false;
@@ -345,11 +376,15 @@ async function applyFills(node, styles, assets, nodeW, nodeH) {
     styles.webkitMaskImage
   ].filter(Boolean).join(' ');
 
+  let hasMaskSvg = false;
   if (combinedImages.includes('url(')) {
     const matches = Array.from(combinedImages.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g)).reverse();
     for (const match of matches) {
       const imgUrl = match[1]?.trim();
       if (!imgUrl) continue;
+      
+      const isMask = (styles.maskImage && styles.maskImage !== 'none' && (styles.maskImage.includes(imgUrl) || styles.maskImage.includes('data:') || styles.maskImage.includes('url('))) ||
+                     (styles.webkitMaskImage && styles.webkitMaskImage !== 'none' && (styles.webkitMaskImage.includes(imgUrl) || styles.webkitMaskImage.includes('data:') || styles.webkitMaskImage.includes('url(')));
       
       let blobObj;
       if (imgUrl.startsWith('data:')) {
@@ -371,14 +406,165 @@ async function applyFills(node, styles, assets, nodeW, nodeH) {
       }
 
       if (blobObj) {
+        // Check if image is an SVG (data URI, raw string, or SVG asset)
+        let isSvg = false;
+        let svgContent = '';
+
+        if (typeof blobObj === 'string') {
+          const lower = blobObj.trim().toLowerCase();
+          if (lower.startsWith('data:image/svg+xml') || lower.startsWith('<svg') || lower.startsWith('<?xml') || lower.includes('%3csvg')) {
+            isSvg = true;
+            const commaIdx = blobObj.indexOf(',');
+            const meta = commaIdx >= 0 ? blobObj.slice(0, commaIdx).toLowerCase() : '';
+            const raw = commaIdx >= 0 ? blobObj.slice(commaIdx + 1) : blobObj;
+            if (meta.includes(';base64')) {
+              try {
+                const bytes = figma.base64Decode(raw.trim());
+                svgContent = typeof TextDecoder !== 'undefined'
+                  ? new TextDecoder('utf-8').decode(bytes)
+                  : String.fromCharCode.apply(null, bytes);
+              } catch {}
+            } else {
+              try {
+                svgContent = decodeURIComponent(raw);
+              } catch {
+                svgContent = raw;
+              }
+            }
+            if (svgContent) {
+              svgContent = svgContent.replace(/\\"/g, '"').replace(/\\'/g, "'");
+            }
+          }
+        }
+
+        if (!isSvg) {
+          const testBytes = decodeBase64Image(blobObj);
+          if (testBytes) {
+            const header = String.fromCharCode.apply(null, testBytes.slice(0, 100)).toLowerCase();
+            if (header.includes('<svg') || header.includes('<?xml')) {
+              isSvg = true;
+              svgContent = typeof TextDecoder !== 'undefined'
+                ? new TextDecoder('utf-8').decode(testBytes)
+                : String.fromCharCode.apply(null, testBytes);
+            }
+          }
+        }
+
+        if (isSvg && svgContent) {
+          try {
+            const bgCol = parseColor(styles.backgroundColor);
+            let fillHex = null;
+            if (bgCol && bgCol.a > 0.005) {
+              const r = Math.round(bgCol.r * 255).toString(16).padStart(2, '0');
+              const g = Math.round(bgCol.g * 255).toString(16).padStart(2, '0');
+              const b = Math.round(bgCol.b * 255).toString(16).padStart(2, '0');
+              fillHex = `#${r}${g}${b}`;
+            }
+
+            let preparedSvg = svgContent;
+            if (isMask && hasChildren) {
+              // Container mask: requires an opaque shape fill to mask child layers in Figma
+              preparedSvg = preparedSvg.replace(/<(path|rect|polygon|circle|ellipse)\b([^>]*?)(\/?>)/gi, (m, tag, attrs, close) => {
+                if (!/\bfill\s*=/i.test(attrs) || /\bfill\s*=\s*["']none["']/i.test(attrs)) {
+                  return `<${tag}${attrs.replace(/\bfill\s*=\s*["']none["']/gi, '')} fill="#000000"${close}`;
+                }
+                return m;
+              });
+            } else if (isMask) {
+              // Standalone mask shape (e.g. ::before card background shape with mask + backgroundColor)
+              const targetFill = fillHex || '#ffffff';
+              preparedSvg = preparedSvg.replace(/<(path|rect|polygon|circle|ellipse)\b([^>]*?)(\/?>)/gi, (m, tag, attrs, close) => {
+                if (/\bfill\s*=\s*["']none["']/i.test(attrs)) {
+                  return m;
+                }
+                const cleanedAttrs = attrs.replace(/\bfill\s*=\s*["'][^"']*["']/gi, '');
+                return `<${tag}${cleanedAttrs} fill="${targetFill}"${close}`;
+              });
+            } else {
+              // Regular background-image SVG
+              const targetFill = fillHex || '#ffffff';
+              preparedSvg = preparedSvg.replace(/<(path|rect|polygon|circle|ellipse)\b([^>]*?)(\/?>)/gi, (m, tag, attrs, close) => {
+                if (!/\bfill\s*=/i.test(attrs) || /\bfill\s*=\s*["']none["']/i.test(attrs)) {
+                  return `<${tag}${attrs.replace(/\bfill\s*=\s*["']none["']/gi, '')} fill="${targetFill}"${close}`;
+                }
+                return m;
+              });
+            }
+
+            const cleanSvg = preparedSvg;
+            const svgNode = figma.createNodeFromSvg(cleanSvg);
+            svgNode.name = (isMask && hasChildren) ? 'mask-svg' : 'bg-svg';
+            node.insertChild(0, svgNode);
+
+            const bgSize = ((isMask ? (styles.maskSize || styles.webkitMaskSize) : null) || styles.backgroundSize || 'auto').trim();
+            const posX = ((isMask ? (styles.maskPositionX || styles.webkitMaskPositionX) : null) || styles.backgroundPositionX || '0%').trim();
+            const posY = ((isMask ? (styles.maskPositionY || styles.webkitMaskPositionY) : null) || styles.backgroundPositionY || '0%').trim();
+
+            const origW = svgNode.width || 1;
+            const origH = svgNode.height || 1;
+            let targetW = nodeW;
+            let targetH = nodeH;
+
+            if (bgSize === 'cover') {
+              const scale = Math.max(nodeW / origW, nodeH / origH);
+              targetW = origW * scale;
+              targetH = origH * scale;
+            } else if (bgSize === 'contain') {
+              const scale = Math.min(nodeW / origW, nodeH / origH);
+              targetW = origW * scale;
+              targetH = origH * scale;
+            } else if (bgSize && bgSize !== 'auto') {
+              const parts = bgSize.split(/\s+/);
+              let wStr = parts[0];
+              let hStr = parts.length > 1 ? parts[1] : 'auto';
+              if (wStr.endsWith('%')) targetW = nodeW * (parseFloat(wStr) / 100);
+              else if (wStr.endsWith('px')) targetW = parseFloat(wStr);
+
+              if (hStr === 'auto') targetH = targetW * (origH / origW);
+              else if (hStr.endsWith('%')) targetH = nodeH * (parseFloat(hStr) / 100);
+              else if (hStr.endsWith('px')) targetH = parseFloat(hStr);
+            } else {
+              targetW = nodeW;
+              targetH = nodeH;
+            }
+
+            let ox = 0, oy = 0;
+            if (posX.endsWith('%')) ox = (nodeW - targetW) * (parseFloat(posX) / 100);
+            else if (posX.endsWith('px')) ox = parseFloat(posX);
+
+            if (posY.endsWith('%')) oy = (nodeH - targetH) * (parseFloat(posY) / 100);
+            else if (posY.endsWith('px')) oy = parseFloat(posY);
+
+            svgNode.x = Math.round(ox);
+            svgNode.y = Math.round(oy);
+            try {
+              svgNode.resize(Math.max(1, Math.round(targetW)), Math.max(1, Math.round(targetH)));
+            } catch {}
+            applyOpacity(svgNode, styles);
+            node.clipsContent = true;
+
+            if (isMask) {
+              if (hasChildren) {
+                svgNode.isMask = true;
+                try { svgNode.maskType = 'ALPHA'; } catch {}
+              }
+              hasMaskSvg = true;
+            }
+            continue;
+          } catch (e) {
+            figma.notify(`SVG Error: ${e.message}`, { error: true });
+            continue; // Do not fall through to raster decode for SVGs
+          }
+        }
+
         const bytes = decodeBase64Image(blobObj);
         if (bytes) {
           try {
             const img = figma.createImage(bytes);
             
-            const bgSize = (styles.backgroundSize || 'auto').trim();
-            const posX = (styles.backgroundPositionX || '0%').trim();
-            const posY = (styles.backgroundPositionY || '0%').trim();
+            const bgSize = ((isMask ? (styles.maskSize || styles.webkitMaskSize) : null) || styles.backgroundSize || 'auto').trim();
+            const posX = ((isMask ? (styles.maskPositionX || styles.webkitMaskPositionX) : null) || styles.backgroundPositionX || '0%').trim();
+            const posY = ((isMask ? (styles.maskPositionY || styles.webkitMaskPositionY) : null) || styles.backgroundPositionY || '0%').trim();
             
             if (bgSize !== 'auto' || posX !== '0%' || posY !== '0%') {
               const size = await img.getSizeAsync();
@@ -440,6 +626,10 @@ async function applyFills(node, styles, assets, nodeW, nodeH) {
         figma.notify(`Asset not found in payload: ${imgUrl}`, { error: true });
       }
     }
+  }
+
+  if (hasMaskSvg) {
+    fills = [];
   }
 
   if (!isTextClip && !isZeroSize) {
@@ -560,20 +750,39 @@ function applyEffects(node, styles) {
   if (effects.length > 0) node.effects = effects;
 }
 
+function parseRadiusValue(raw, refDim) {
+  if (!raw) return 0;
+  const str = String(raw).trim();
+  const part = str.split(/[\s/]+/)[0];
+  if (part.endsWith('%')) {
+    const pct = parseFloat(part);
+    if (!isNaN(pct)) {
+      return (pct / 100) * (refDim || 0);
+    }
+  }
+  return parseFloat(part) || 0;
+}
+
 function applyCornerRadius(node, styles) {
-  const tl = parseFloat(styles.borderTopLeftRadius || styles.borderRadius) || 0;
-  const tr = parseFloat(styles.borderTopRightRadius || styles.borderRadius) || 0;
-  const br = parseFloat(styles.borderBottomRightRadius || styles.borderRadius) || 0;
-  const bl = parseFloat(styles.borderBottomLeftRadius || styles.borderRadius) || 0;
+  const refDim = Math.min(node.width || 0, node.height || 0);
+  const rawTL = styles.borderTopLeftRadius || styles.borderRadius;
+  const rawTR = styles.borderTopRightRadius || styles.borderRadius;
+  const rawBR = styles.borderBottomRightRadius || styles.borderRadius;
+  const rawBL = styles.borderBottomLeftRadius || styles.borderRadius;
+
+  const tl = parseRadiusValue(rawTL, refDim);
+  const tr = parseRadiusValue(rawTR, refDim);
+  const br = parseRadiusValue(rawBR, refDim);
+  const bl = parseRadiusValue(rawBL, refDim);
 
   if (tl > 0 || tr > 0 || br > 0 || bl > 0) {
-    if (tl === tr && tr === br && br === bl) {
-      node.cornerRadius = tl;
+    if (Math.abs(tl - tr) < 0.01 && Math.abs(tr - br) < 0.01 && Math.abs(br - bl) < 0.01) {
+      node.cornerRadius = Math.round(tl);
     } else {
-      node.topLeftRadius = tl;
-      node.topRightRadius = tr;
-      node.bottomRightRadius = br;
-      node.bottomLeftRadius = bl;
+      node.topLeftRadius = Math.round(tl);
+      node.topRightRadius = Math.round(tr);
+      node.bottomRightRadius = Math.round(br);
+      node.bottomLeftRadius = Math.round(bl);
     }
   }
 }
@@ -789,6 +998,30 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             return;
           }
 
+          const hasMask = (s.maskImage && s.maskImage !== 'none') || (s.webkitMaskImage && s.webkitMaskImage !== 'none');
+          if (hasMask) {
+            const imgFrame = figma.createFrame();
+            imgFrame.name = sNode.attributes?.alt || 'img-masked';
+            parentFrame.appendChild(imgFrame);
+            imgFrame.x = x; imgFrame.y = y;
+            imgFrame.resize(w, h);
+            imgFrame.clipsContent = true;
+            await applyFills(imgFrame, s, assets, w, h, true);
+            const rect = figma.createRectangle();
+            rect.name = sNode.attributes?.alt || 'img';
+            imgFrame.appendChild(rect);
+            rect.x = 0; rect.y = 0;
+            rect.resize(w, h);
+            const img = figma.createImage(bytes);
+            rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+            applyStrokes(imgFrame, s);
+            applyEffects(imgFrame, s);
+            applyCornerRadius(imgFrame, s);
+            applyOpacity(imgFrame, s);
+            reportProgress();
+            return;
+          }
+
           const rect = figma.createRectangle();
           rect.name = sNode.attributes?.alt || 'img';
           parentFrame.appendChild(rect);
@@ -988,7 +1221,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   frame.resize(rectW, rectH);
   frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden' || s.overflow === 'clip' || s.overflowX === 'clip');
 
-  await applyFills(frame, s, assets, rectW, rectH);
+  const hasChildren = (sNode.childNodes && sNode.childNodes.length > 0) || (sNode.pseudoElementNodes?.after != null);
+  await applyFills(frame, s, assets, rectW, rectH, hasChildren);
   applyStrokes(frame, s);
   applyEffects(frame, s);
   applyCornerRadius(frame, s);

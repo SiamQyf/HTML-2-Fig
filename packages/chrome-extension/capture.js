@@ -51,7 +51,11 @@
     textDecorationLine: 'none', textDecorationStyle: 'solid', textIndent: '0px',
     textShadow: 'none', textTransform: 'none', top: 'auto',
     transform: 'none', transformOrigin: 'auto', translate: 'none',
-    filter: 'none', webkitFilter: 'none', backdropFilter: 'none', webkitBackdropFilter: 'none', maskImage: 'none',
+    filter: 'none', webkitFilter: 'none', backdropFilter: 'none', webkitBackdropFilter: 'none',
+    mask: 'none', webkitMask: 'none', maskImage: 'none', webkitMaskImage: 'none',
+    maskSize: 'auto', webkitMaskSize: 'auto', maskPosition: '0% 0%', webkitMaskPosition: '0% 0%',
+    maskPositionX: '0%', webkitMaskPositionX: '0%', maskPositionY: '0%', webkitMaskPositionY: '0%',
+    maskRepeat: 'repeat', webkitMaskRepeat: 'repeat',
     rotate: 'none', scale: 'none', verticalAlign: 'baseline',
     visibility: 'visible', webkitTextFillColor: '', whiteSpace: 'normal',
     width: 'auto', writingMode: 'horizontal-tb', textOrientation: 'mixed', zIndex: 'auto', clipPath: 'none'
@@ -142,6 +146,9 @@
         animation: none !important;
         transition: none !important;
       }
+      .waves, .wave, [class*="wave-"] {
+        opacity: 0.15 !important;
+      }
       #preloader, .preloader, .loader-wrapper, #loading, .page-loader, .site-preloader, .animation-preloader, .loader-section {
         display: none !important;
         visibility: hidden !important;
@@ -162,9 +169,19 @@
         if (el.style.transform && el.style.transform.includes('translate')) el.style.transform = 'none';
         if (el.style.clipPath) el.style.clipPath = 'none';
         
-        for (const child of el.children) {
-          if (child.style.visibility === 'hidden') child.style.visibility = 'visible';
-          if (child.style.opacity === '0' || (parseFloat(child.style.opacity) || 0) < 0.05) child.style.opacity = '1';
+        // Unhide all descendant words and characters created by GSAP SplitText
+        for (const desc of el.querySelectorAll('*')) {
+          const isRipple = desc.matches && desc.matches('.wave, .waves, .waves-block, .pulse, .ripple, [class*="wave-"]');
+          if (desc.style.visibility === 'hidden') desc.style.visibility = 'visible';
+          if (!isRipple && (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05)) {
+            desc.style.opacity = '1';
+          }
+          if (isRipple && (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.01)) {
+            desc.style.opacity = '0.15';
+          }
+          if (!isRipple && desc.style.transform && (desc.style.transform.includes('translate') || desc.style.transform.includes('matrix'))) {
+            desc.style.transform = 'none';
+          }
         }
       }
     } catch {}
@@ -538,11 +555,41 @@
     styles.backgroundPositionX = cs.backgroundPositionX;
     styles.backgroundPositionY = cs.backgroundPositionY;
     styles.backgroundSize = cs.backgroundSize;
-    styles.borderRadius = cs.borderRadius;
-    styles.borderTopLeftRadius = cs.borderTopLeftRadius;
-    styles.borderTopRightRadius = cs.borderTopRightRadius;
-    styles.borderBottomRightRadius = cs.borderBottomRightRadius;
-    styles.borderBottomLeftRadius = cs.borderBottomLeftRadius;
+
+    const maskVal = (cs.maskImage && cs.maskImage !== 'none') ? cs.maskImage :
+                    (cs.webkitMaskImage && cs.webkitMaskImage !== 'none') ? cs.webkitMaskImage :
+                    (cs.mask && cs.mask !== 'none') ? cs.mask :
+                    (cs.webkitMask && cs.webkitMask !== 'none') ? cs.webkitMask : null;
+    if (maskVal) {
+      styles.maskImage = maskVal;
+      styles.webkitMaskImage = maskVal;
+      styles.maskSize = cs.maskSize || cs.webkitMaskSize;
+      styles.webkitMaskSize = cs.webkitMaskSize || cs.maskSize;
+      styles.maskPositionX = cs.maskPositionX || cs.webkitMaskPositionX;
+      styles.maskPositionY = cs.maskPositionY || cs.webkitMaskPositionY;
+      styles.webkitMaskPositionX = cs.webkitMaskPositionX || cs.maskPositionX;
+      styles.webkitMaskPositionY = cs.webkitMaskPositionY || cs.maskPositionY;
+    }
+
+    // Resolve percentage border-radius (e.g. 50% on circles/avatars) to pixels so Figma doesn't treat '50%' as 50px
+    const minDim = Math.min(el.offsetWidth || 0, el.offsetHeight || 0) || Math.min(parseFloat(cs.width) || 0, parseFloat(cs.height) || 0);
+    const resolveRadius = (val) => {
+      if (!val || typeof val !== 'string') return val;
+      const part = val.trim().split(/[\s/]+/)[0];
+      if (part.endsWith('%')) {
+        const pct = parseFloat(part);
+        if (!isNaN(pct) && minDim > 0) {
+          return `${(pct / 100) * minDim}px`;
+        }
+      }
+      return val;
+    };
+
+    styles.borderRadius = resolveRadius(cs.borderRadius);
+    styles.borderTopLeftRadius = resolveRadius(cs.borderTopLeftRadius);
+    styles.borderTopRightRadius = resolveRadius(cs.borderTopRightRadius);
+    styles.borderBottomRightRadius = resolveRadius(cs.borderBottomRightRadius);
+    styles.borderBottomLeftRadius = resolveRadius(cs.borderBottomLeftRadius);
     styles.borderTopStyle = cs.borderTopStyle;
     styles.borderBottomStyle = cs.borderBottomStyle;
     styles.borderLeftStyle = cs.borderLeftStyle;
@@ -583,7 +630,17 @@
   const fontUrlMap = new Map();
   const fontParseCache = new Map();
 
-  function parseFontFaceRule(rawFamily, rawSrc, baseUrl) {
+  function normalizeWeight(w) {
+    if (!w) return '400';
+    const s = String(w).toLowerCase().trim();
+    if (s === 'bold' || s === 'bolder' || s === '900') return '900';
+    if (s === 'normal' || s === '400') return '400';
+    if (s === 'light' || s === 'lighter' || s === '300') return '300';
+    if (s === 'thin' || s === '100') return '100';
+    return s;
+  }
+
+  function parseFontFaceRule(rawFamily, rawSrc, baseUrl, rawWeight, rawStyle) {
     if (!rawFamily || !rawSrc) return;
     const cleanFamily = rawFamily.replace(/['"]/g, '').trim();
     if (!cleanFamily) return;
@@ -604,8 +661,14 @@
     if (fontUrl && !fontUrl.startsWith('data:')) {
       try {
         const fullUrl = new URL(fontUrl, baseUrl).href;
-        fontUrlMap.set(cleanFamily, fullUrl);
-        fontUrlMap.set(cleanFamily.toLowerCase(), fullUrl);
+        const weight = normalizeWeight(rawWeight);
+        const keyWithWeight = `${cleanFamily.toLowerCase()}__${weight}`;
+        fontUrlMap.set(keyWithWeight, fullUrl);
+        // Default family key: prioritize regular (400) or set if not present
+        if (!fontUrlMap.has(cleanFamily.toLowerCase()) || weight === '400') {
+          fontUrlMap.set(cleanFamily, fullUrl);
+          fontUrlMap.set(cleanFamily.toLowerCase(), fullUrl);
+        }
       } catch {}
     }
   }
@@ -618,8 +681,10 @@
       const block = match[1];
       const familyMatch = block.match(/font-family\s*:\s*([^;]+)/i);
       const srcMatch = block.match(/src\s*:\s*([^;]+)/i);
+      const weightMatch = block.match(/font-weight\s*:\s*([^;]+)/i);
+      const styleMatch = block.match(/font-style\s*:\s*([^;]+)/i);
       if (familyMatch && srcMatch) {
-        parseFontFaceRule(familyMatch[1], srcMatch[1], baseUrl);
+        parseFontFaceRule(familyMatch[1], srcMatch[1], baseUrl, weightMatch ? weightMatch[1] : null, styleMatch ? styleMatch[1] : null);
       }
     }
   }
@@ -631,7 +696,7 @@
           if (sheet.cssRules) {
             for (const rule of Array.from(sheet.cssRules)) {
               if (rule.type === CSSRule.FONT_FACE_RULE) {
-                parseFontFaceRule(rule.style.fontFamily, rule.style.src, sheet.href || window.location.href);
+                parseFontFaceRule(rule.style.fontFamily, rule.style.src, sheet.href || window.location.href, rule.style.fontWeight, rule.style.fontStyle);
               }
             }
           }
@@ -665,10 +730,13 @@
     } catch(e) {}
   }
 
-  async function getFontSvgPath(family, char, fontSize) {
+  async function getFontSvgPath(family, char, fontSize, fontWeight, fontStyle) {
     if (!family || !char || typeof opentype === 'undefined') return null;
     const cleanFamily = family.replace(/['"]/g, '').split(',')[0].trim();
-    const url = fontUrlMap.get(cleanFamily) || fontUrlMap.get(cleanFamily.toLowerCase());
+    const weight = normalizeWeight(fontWeight);
+    const url = fontUrlMap.get(`${cleanFamily.toLowerCase()}__${weight}`) ||
+                fontUrlMap.get(cleanFamily.toLowerCase()) ||
+                fontUrlMap.get(cleanFamily);
     if (!url) return null;
 
     if (!fontParseCache.has(url)) {
@@ -1132,7 +1200,7 @@
     return { w: W, h: H, svg, dir: coloredSide, color: hexColor };
   }
 
-  async function serializePseudo(el, pseudo, fonts, parentRect) {
+  async function serializePseudo(el, pseudo, assets, fonts, parentRect) {
     try {
       const cs = window.getComputedStyle(el, pseudo);
       const content = cs.content;
@@ -1140,7 +1208,6 @@
       
       const display = cs.display;
       if (display === 'none' || parseFloat(cs.opacity) < 0.02 || cs.visibility === 'hidden') return null;
-      if (parseInt(cs.zIndex) < 0) return null;
       if (cs.clipPath && cs.clipPath !== 'none' && (cs.clipPath.includes('inset(100%)') || cs.clipPath.includes('(0px'))) return null;
 
       // Detect CSS border triangles on pseudo-elements
@@ -1213,6 +1280,33 @@
           styles[prop] = val;
         }
       }
+
+      const pseudoMask = (cs.maskImage && cs.maskImage !== 'none') ? cs.maskImage :
+                         (cs.webkitMaskImage && cs.webkitMaskImage !== 'none') ? cs.webkitMaskImage :
+                         (cs.mask && cs.mask !== 'none') ? cs.mask :
+                         (cs.webkitMask && cs.webkitMask !== 'none') ? cs.webkitMask : null;
+      if (pseudoMask) {
+        styles.maskImage = pseudoMask;
+        styles.webkitMaskImage = pseudoMask;
+        styles.maskSize = cs.maskSize || cs.webkitMaskSize;
+        styles.webkitMaskSize = cs.webkitMaskSize || cs.maskSize;
+        styles.maskPositionX = cs.maskPositionX || cs.webkitMaskPositionX;
+        styles.maskPositionY = cs.maskPositionY || cs.webkitMaskPositionY;
+        styles.webkitMaskPositionX = cs.webkitMaskPositionX || cs.maskPositionX;
+        styles.webkitMaskPositionY = cs.webkitMaskPositionY || cs.maskPositionY;
+      }
+
+      if (assets) {
+        const bgAndMask = [cs.backgroundImage, styles.maskImage, styles.webkitMaskImage];
+        for (const propVal of bgAndMask) {
+          if (propVal && propVal !== 'none') {
+            const matches = propVal.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
+            for (const m of matches) {
+              if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
+            }
+          }
+        }
+      }
       
       let rawContent = content;
       const altSep = rawContent.indexOf('" / "');
@@ -1279,7 +1373,7 @@
       if (isIcon) {
         let fontData = null;
         if (chars.length === 1) {
-          fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize);
+          fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize, cs.fontWeight, cs.fontStyle);
         }
         if (fontData && fontData.svgPath) {
            const { svgPath, bbox } = fontData;
@@ -1426,7 +1520,7 @@
       if (isIcon) {
         let fontData = null;
         if (Array.from(charStr).length === 1) {
-          fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize);
+          fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize, parentStyles?.fontWeight, parentStyles?.fontStyle);
         }
         if (fontData && fontData.svgPath) {
           const { svgPath, bbox } = fontData;
@@ -1682,14 +1776,19 @@
     const styles = getElementStyles(el);
     let isHidden = (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02);
     
-    // Exception for scroll-animated elements that might still have lingering visibility:hidden or opacity:0
+    // Exception for scroll-animated elements and pulsating ripple/wave elements
     if (isHidden && styles.display !== 'none') {
       const cls = (el.className && typeof el.className === 'string') ? el.className : '';
+      const isRipple = /\b(?:waves?|pulse|ripple)\b/i.test(cls) || (el.closest && el.closest('.waves-block, .wave-area'));
       const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos/i.test(cls) ||
         el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') ||
         el.closest('.title-anim, .text-anim, .hero-text-anim, .wow, [data-wow-delay], [data-aos]');
       
-      if (isAnimTarget) {
+      if (isRipple) {
+        styles.visibility = 'visible';
+        styles.opacity = '0.15';
+        isHidden = false;
+      } else if (isAnimTarget) {
         styles.visibility = 'visible';
         styles.opacity = '1';
         isHidden = false;
@@ -1723,10 +1822,13 @@
         if (url) assets.addImage(url);
       }
     }
-    if (styles.backgroundImage && styles.backgroundImage !== 'none') {
-      const matches = styles.backgroundImage.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
-      for (const m of matches) {
-        if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
+    const allImgProps = [styles.backgroundImage, styles.maskImage, styles.webkitMaskImage];
+    for (const p of allImgProps) {
+      if (p && p !== 'none') {
+        const matches = p.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
+        for (const m of matches) {
+          if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
+        }
       }
     }
 
@@ -1789,8 +1891,8 @@
       }
     }
 
-    const before = await serializePseudo(el, '::before', fonts, docRect);
-    const after = await serializePseudo(el, '::after', fonts, docRect);
+    const before = await serializePseudo(el, '::before', assets, fonts, docRect);
+    const after = await serializePseudo(el, '::after', assets, fonts, docRect);
     const pseudoElementNodes = (before || after) ? { before, after } : undefined;
 
     const childNodes = [];
