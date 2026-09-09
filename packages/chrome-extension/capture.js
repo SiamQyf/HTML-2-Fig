@@ -514,8 +514,7 @@
       const aEl = el.tagName === 'A' ? el : el.closest('a');
       const aCs = aEl ? window.getComputedStyle(aEl) : cs;
       const aDec = (aCs.textDecorationLine || aCs.textDecoration || '').toLowerCase();
-      const hasBorderUnderline = parseFloat(aCs.borderBottomWidth) > 0 && aCs.borderBottomStyle !== 'none';
-      if (aDec.includes('underline') || hasBorderUnderline) {
+      if (aDec.includes('underline')) {
         styles.textDecorationLine = 'underline';
       }
     }
@@ -643,7 +642,9 @@
               let cssText = null;
               if (typeof chrome !== 'undefined' && chrome.runtime) {
                 const bgRes = await new Promise((res) => {
+                  const timer = setTimeout(() => res(null), 3000);
                   chrome.runtime.sendMessage({ type: 'FETCH_TEXT', url: sheet.href }, (resp) => {
+                    clearTimeout(timer);
                     if (chrome.runtime.lastError) res(null);
                     else res(resp);
                   });
@@ -723,13 +724,30 @@
       return false;
     }
 
+    const chars = Array.from(trimmed);
+
     // Check for Private Use Area (PUA) characters (standard for icon fonts like FontAwesome, RemixIcon, etc.)
-    for (const char of Array.from(trimmed)) {
+    for (const char of chars) {
       const code = char.codePointAt(0);
       if ((code >= 0xE000 && code <= 0xF8FF) || 
           (code >= 0xF0000 && code <= 0xFFFFD) || 
           (code >= 0x100000 && code <= 0x10FFFD)) {
         return true;
+      }
+    }
+
+    // Check for Emoji, Regional Flags, and Unicode symbols when 1-2 characters
+    if (chars.length <= 2) {
+      for (const char of chars) {
+        const code = char.codePointAt(0);
+        // Regional Indicator Symbols (Flags, e.g. 🇬🇧 0x1F1E6-0x1F1FF)
+        if (code >= 0x1F1E6 && code <= 0x1F1FF) return true;
+        // Emoji & Pictographs (0x1F300 - 0x1FAFF)
+        if (code >= 0x1F300 && code <= 0x1FAFF) return true;
+        // Arrows block (0x2190 - 0x21FF, e.g. ↗ 0x2197, → 0x2192, ➔ 0x2794)
+        if (code >= 0x2190 && code <= 0x21FF) return true;
+        // Geometric Shapes, Dingbats, Misc Symbols (e.g. ▶ 0x25B6, ★ 0x2605, etc.)
+        if ((code >= 0x25A0 && code <= 0x27BF) || (code >= 0x2B00 && code <= 0x2BFF)) return true;
       }
     }
 
@@ -744,10 +762,11 @@
 
     // Icon fonts with 1-2 characters (e.g. FontAwesome, RemixIcon, Tabler, Bootstrap)
     const isIconFont = /(?:awesome|feather|tabler|boxicon|remix|glyph)/i.test(fontName) && !fontName.includes('system-ui');
-    if (Array.from(trimmed).length <= 2) {
+    if (chars.length <= 2) {
       if (isIconFont) return true;
-      // Specific icon library classes (do not match generic "icon" alone which is just a container)
-      if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|mdi-[a-z0-9-]+)\b/i.test(cls)) {
+      // Specific icon, glyph, or flag library classes
+      if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|mdi-[a-z0-9-]+|glyph|flag)\b/i.test(cls) ||
+          cls.includes('__glyph') || cls.includes('__flag') || cls.includes('-glyph') || cls.includes('-flag')) {
         return true;
       }
     }
@@ -1013,6 +1032,106 @@
     return svg;
   }
 
+  /* ======================================================================
+   *  CSS BORDER-TRIANGLE DETECTOR & SVG CONVERTER
+   *  Converts CSS border triangles (play buttons, dropdown arrows, carets)
+   *  into exact native SVG vector polygons.
+   * ====================================================================== */
+  function isTransparentColor(c) {
+    if (!c || c === 'transparent' || c === 'none') return true;
+    const m = c.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)/i);
+    if (m && m[4] !== undefined) return parseFloat(m[4]) <= 0.01;
+    return false;
+  }
+
+  function parseBorderSide(cs, side) {
+    const cap = side.charAt(0).toUpperCase() + side.slice(1);
+    const style = cs[`border${cap}Style`];
+    const widthStr = cs[`border${cap}Width`];
+    const color = cs[`border${cap}Color`];
+    const width = (style !== 'none' && style !== 'hidden') ? (parseFloat(widthStr) || 0) : 0;
+    return { width, color, isTransparent: isTransparentColor(color) || width <= 0 };
+  }
+
+  function convertCssTriangleToSvg(cs) {
+    if (!cs) return null;
+    if (!isTransparentColor(cs.backgroundColor)) return null;
+    if (cs.backgroundImage && cs.backgroundImage !== 'none') return null;
+
+    const top = parseBorderSide(cs, 'top');
+    const right = parseBorderSide(cs, 'right');
+    const bottom = parseBorderSide(cs, 'bottom');
+    const left = parseBorderSide(cs, 'left');
+
+    const elW = parseFloat(cs.width) || 0;
+    const elH = parseFloat(cs.height) || 0;
+    let contentW = elW;
+    let contentH = elH;
+    if (cs.boxSizing === 'border-box') {
+      contentW = Math.max(0, elW - left.width - right.width);
+      contentH = Math.max(0, elH - top.width - bottom.width);
+    }
+    if (contentW > 1.5 || contentH > 1.5) return null;
+
+    const activeSides = [];
+    if (!top.isTransparent && top.width > 0) activeSides.push('top');
+    if (!right.isTransparent && right.width > 0) activeSides.push('right');
+    if (!bottom.isTransparent && bottom.width > 0) activeSides.push('bottom');
+    if (!left.isTransparent && left.width > 0) activeSides.push('left');
+
+    if (activeSides.length !== 1) return null;
+    const coloredSide = activeSides[0];
+
+    let W = 0, H = 0, points = '', color = '';
+
+    if (coloredSide === 'left') {
+      // Points right ▶
+      if (top.width <= 0 && bottom.width <= 0) return null;
+      W = left.width;
+      H = top.width + bottom.width;
+      points = `0,0 ${W},${top.width} 0,${H}`;
+      color = left.color;
+    } else if (coloredSide === 'right') {
+      // Points left ◀
+      if (top.width <= 0 && bottom.width <= 0) return null;
+      W = right.width;
+      H = top.width + bottom.width;
+      points = `${W},0 0,${top.width} ${W},${H}`;
+      color = right.color;
+    } else if (coloredSide === 'top') {
+      // Points down ▼
+      if (left.width <= 0 && right.width <= 0) return null;
+      H = top.width;
+      W = left.width + right.width;
+      points = `0,0 ${W},0 ${left.width},${H}`;
+      color = top.color;
+    } else if (coloredSide === 'bottom') {
+      // Points up ▲
+      if (left.width <= 0 && right.width <= 0) return null;
+      H = bottom.width;
+      W = left.width + right.width;
+      points = `0,${H} ${W},${H} ${left.width},0`;
+      color = bottom.color;
+    }
+
+    if (W <= 0 || H <= 0 || !points || !color) return null;
+
+    let hexColor = color;
+    let fillOpacity = 1;
+    const m = color.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+    if (m) {
+      const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+      const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+      const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+      hexColor = `#${r}${g}${b}`;
+      if (m[4] !== undefined) fillOpacity = parseFloat(m[4]);
+    }
+    const opAttr = fillOpacity < 1 ? ` fill-opacity="${fillOpacity}"` : '';
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><polygon points="${points}" fill="${hexColor}"${opAttr} /></svg>`;
+    return { w: W, h: H, svg, dir: coloredSide, color: hexColor };
+  }
+
   async function serializePseudo(el, pseudo, fonts, parentRect) {
     try {
       const cs = window.getComputedStyle(el, pseudo);
@@ -1022,8 +1141,70 @@
       const display = cs.display;
       if (display === 'none' || parseFloat(cs.opacity) < 0.02 || cs.visibility === 'hidden') return null;
       if (parseInt(cs.zIndex) < 0) return null;
-      if (parseFloat(cs.width) === 0 || parseFloat(cs.height) === 0) return null;
       if (cs.clipPath && cs.clipPath !== 'none' && (cs.clipPath.includes('inset(100%)') || cs.clipPath.includes('(0px'))) return null;
+
+      // Detect CSS border triangles on pseudo-elements
+      const tri = convertCssTriangleToSvg(cs);
+      if (tri) {
+        let px = parentRect.x;
+        let py = parentRect.y;
+        const parentCs = window.getComputedStyle(el);
+
+        if (cs.position === 'absolute') {
+          const t = parseFloat(cs.top);
+          const b = parseFloat(cs.bottom);
+          const l = parseFloat(cs.left);
+          const r = parseFloat(cs.right);
+          if (!isNaN(l) && cs.left !== 'auto') px = parentRect.x + l;
+          else if (!isNaN(r) && cs.right !== 'auto') px = parentRect.x + parentRect.width - tri.w - r;
+          if (!isNaN(t) && cs.top !== 'auto') py = parentRect.y + t;
+          else if (!isNaN(b) && cs.bottom !== 'auto') py = parentRect.y + parentRect.height - tri.h - b;
+        } else if (parentCs.display && (parentCs.display.includes('grid') || parentCs.display.includes('flex'))) {
+          if (parentCs.placeItems === 'center' || parentCs.alignItems === 'center') {
+            py = parentRect.y + (parentRect.height - tri.h) / 2;
+          }
+          if (parentCs.placeItems === 'center' || parentCs.justifyContent === 'center') {
+            px = parentRect.x + (parentRect.width - tri.w) / 2;
+          }
+        }
+
+        if (cs.transform && cs.transform.includes('matrix')) {
+          const parts = cs.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+          if (parts) {
+            const vals = parts[1].split(',').map(parseFloat);
+            let tx = 0, ty = 0;
+            if (vals.length === 16) {
+              tx = vals[12]; ty = vals[13];
+            } else {
+              tx = vals[4]; ty = vals[5];
+            }
+            px += tx;
+            py += ty;
+          }
+        }
+
+        return {
+          nodeType: ELEMENT_NODE,
+          id: getNodeId('svg-triangle-pseudo'),
+          tag: 'SVG',
+          content: tri.svg,
+          styles: {
+            display: 'block',
+            position: 'absolute',
+            width: `${tri.w}px`,
+            height: `${tri.h}px`,
+            opacity: cs.opacity || '1'
+          },
+          rect: {
+            x: px,
+            y: py,
+            width: tri.w,
+            height: tri.h
+          }
+        };
+      }
+
+      if (parseFloat(cs.width) === 0 || parseFloat(cs.height) === 0) return null;
 
       const styles = {};
       for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
@@ -1219,8 +1400,16 @@
 
   async function serializeNode(node, assets, fonts, parentStyles) {
     if (node.nodeType === TEXT_NODE) {
-      const text = node.textContent || '';
-      if (!text.trim()) return null;
+      const rawText = node.textContent || '';
+      if (!rawText.trim()) return null;
+      const ws = parentStyles?.whiteSpace || 'normal';
+      const collapseWs = (str) => {
+        if (!str) return '';
+        if (ws === 'pre' || ws === 'pre-wrap' || ws === 'break-spaces') return str;
+        if (ws === 'pre-line') return str.replace(/[ \t\f\v]+/g, ' ');
+        return str.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ');
+      };
+
       const r = document.createRange();
       r.selectNodeContents(node);
       const rect = r.getBoundingClientRect();
@@ -1232,7 +1421,7 @@
       // If single line or small inline token (like '$', '13', 'Popular Package'), preserve exact position
       
       // Check if it's an icon font character
-      const charStr = text.trim() || text;
+      const charStr = collapseWs(rawText).trim() || rawText;
       const isIcon = isIconElementOrFont(charStr, parentStyles?.fontFamily, node.parentElement?.className);
       if (isIcon) {
         let fontData = null;
@@ -1298,7 +1487,83 @@
         }
       }
 
+      // Check if text has a trailing or leading symbol/arrow attached (e.g. "Search the archive ↗" or "→ Read more")
+      // When attached to regular text, standard fonts (like DM Mono, Inter) lack the arrow glyph,
+      // which causes Figma to fall back to the system emoji font (rendering a blue square emoji).
+      // Splitting the symbol allows it to be captured as an authentic SVG / canvas icon in the exact color.
+      const trailingSymbolMatch = rawText.match(/^(.*?\S)\s+([\u2190-\u21FF\u2300-\u23FF\u25A0-\u27BF\u2B00-\u2BFF\uE000-\uF8FF])$/);
+      const leadingSymbolMatch = !trailingSymbolMatch && rawText.match(/^([\u2190-\u21FF\u2300-\u23FF\u25A0-\u27BF\u2B00-\u2BFF\uE000-\uF8FF])\s+(.*?\S.*)$/);
+
+      if (trailingSymbolMatch || leadingSymbolMatch) {
+        const isTrailing = !!trailingSymbolMatch;
+        const mainTextPart = isTrailing ? trailingSymbolMatch[1] : leadingSymbolMatch[2];
+        const symbolPart = isTrailing ? trailingSymbolMatch[2] : leadingSymbolMatch[1];
+
+        const symbolIdx = isTrailing ? rawText.lastIndexOf(symbolPart) : rawText.indexOf(symbolPart);
+        const textStart = isTrailing ? 0 : symbolIdx + symbolPart.length;
+        const textEnd = isTrailing ? symbolIdx : rawText.length;
+
+        r.setStart(node, textStart);
+        r.setEnd(node, textEnd);
+        const textR = r.getBoundingClientRect();
+
+        r.setStart(node, symbolIdx);
+        r.setEnd(node, symbolIdx + symbolPart.length);
+        const symbolR = r.getBoundingClientRect();
+
+        const textChild = {
+          nodeType: TEXT_NODE,
+          id: getNodeId('text'),
+          text: collapseWs(mainTextPart).trim(),
+          rect: {
+            x: textR.x + (isFixed ? 0 : window.scrollX),
+            y: textR.y + (isFixed ? 0 : window.scrollY),
+            width: Math.ceil(textR.width),
+            height: Math.ceil(textR.height)
+          },
+          styles: parentStyles || {},
+          lineCount: 1
+        };
+
+        const iconW = Math.ceil(symbolR.width) || parseFloat(parentStyles?.fontSize) || 16;
+        const iconH = Math.ceil(symbolR.height) || parseFloat(parentStyles?.fontSize) || 16;
+        let iconChild = null;
+        const dataUrl = renderGlyphToImage(symbolPart, parentStyles, iconW, iconH);
+        if (dataUrl) {
+          iconChild = {
+            nodeType: ELEMENT_NODE,
+            id: getNodeId('icon-img'),
+            tag: 'IMG',
+            attributes: { src: dataUrl, alt: symbolPart },
+            styles: { ...(parentStyles || {}), backgroundColor: 'transparent', backgroundImage: 'none' },
+            rect: {
+              x: symbolR.x + (isFixed ? 0 : window.scrollX),
+              y: symbolR.y + (isFixed ? 0 : window.scrollY),
+              width: iconW,
+              height: iconH
+            }
+          };
+        }
+
+        if (iconChild) {
+          return {
+            nodeType: ELEMENT_NODE,
+            id: getNodeId('text-symbol-wrap'),
+            tag: 'SPAN',
+            styles: { ...parentStyles, backgroundColor: 'rgba(0, 0, 0, 0)' },
+            rect: {
+              x: rect.x + (isFixed ? 0 : window.scrollX),
+              y: rect.y + (isFixed ? 0 : window.scrollY),
+              width: Math.ceil(rect.width),
+              height: Math.ceil(rect.height)
+            },
+            childNodes: isTrailing ? [textChild, iconChild] : [iconChild, textChild]
+          };
+        }
+      }
+
       if (clientRects.length <= 1) {
+        const text = collapseWs(rawText).trim();
         return {
           nodeType: TEXT_NODE,
           id: getNodeId('text'),
@@ -1328,13 +1593,13 @@
 
         if (lastTop === null) {
           lastTop = charRect.top;
-        } else if (Math.abs(charRect.top - lastTop) > 3) {
+        } else if (Math.abs(charRect.top - lastTop) > Math.max(10, charRect.height * 0.4)) {
           // Line break detected
           r.setStart(node, lineStart);
           r.setEnd(node, i);
           const lineBox = r.getBoundingClientRect();
-          const lineText = text.slice(lineStart, i);
-          if (lineText.trim()) {
+          const lineText = collapseWs(rawText.slice(lineStart, i)).trim();
+          if (lineText) {
             segments.push({
               nodeType: TEXT_NODE,
               id: getNodeId('text-line'),
@@ -1358,8 +1623,8 @@
       r.setStart(node, lineStart);
       r.setEnd(node, len);
       const finalBox = r.getBoundingClientRect();
-      const finalLineText = text.slice(lineStart);
-      if (finalLineText.trim()) {
+      const finalLineText = collapseWs(rawText.slice(lineStart)).trim();
+      if (finalLineText) {
         segments.push({
           nodeType: TEXT_NODE,
           id: getNodeId('text-line'),
@@ -1397,7 +1662,7 @@
       return {
         nodeType: TEXT_NODE,
         id: getNodeId('text'),
-        text,
+        text: collapseWs(rawText).trim(),
         rect: {
           x: rect.x + (isFixed ? 0 : window.scrollX),
           y: rect.y + (isFixed ? 0 : window.scrollY),
@@ -1488,6 +1753,10 @@
       width: clientRect.width,
       height: clientRect.height
     };
+    if (el.offsetWidth !== undefined && el.offsetHeight !== undefined && (el.offsetWidth > 0 || el.offsetHeight > 0)) {
+      docRect.offsetWidth = el.offsetWidth;
+      docRect.offsetHeight = el.offsetHeight;
+    }
 
     let svgContent = null;
     if (tag === 'SVG' || el instanceof SVGElement) {
@@ -1497,7 +1766,21 @@
       const bgs = splitByTopLevelCommas(cs.backgroundImage || styles.backgroundImage || '');
       const hasChildElements = el.children && el.children.length > 0;
       const hasText = el.childNodes && Array.from(el.childNodes).some(n => n.nodeType === 3 && n.textContent.trim().length > 0);
-      if (!hasChildElements && !hasText && bgs.length > 1 && bgs.every(b => b.includes('linear-gradient'))) {
+      
+      const tri = (!hasChildElements && !hasText) ? convertCssTriangleToSvg(cs) : null;
+      if (tri) {
+        svgContent = tri.svg;
+        styles.backgroundColor = 'transparent';
+        styles.backgroundImage = 'none';
+        styles.borderTopWidth = '0px';
+        styles.borderBottomWidth = '0px';
+        styles.borderLeftWidth = '0px';
+        styles.borderRightWidth = '0px';
+        styles.borderTopStyle = 'none';
+        styles.borderBottomStyle = 'none';
+        styles.borderLeftStyle = 'none';
+        styles.borderRightStyle = 'none';
+      } else if (!hasChildElements && !hasText && bgs.length > 1 && bgs.every(b => b.includes('linear-gradient'))) {
         const fallbackSvg = convertMultipleBackgroundsToSvg(cs, docRect.width, docRect.height, cs.color || styles.color);
         if (fallbackSvg) {
           svgContent = fallbackSvg;
@@ -1567,8 +1850,8 @@
 
     return {
       nodeType: ELEMENT_NODE,
-      id: getNodeId('el'),
-      tag,
+      id: getNodeId(svgContent ? 'svg' : 'el'),
+      tag: svgContent ? 'SVG' : tag,
       attributes: getAttributes(el),
       styles,
       rect: docRect,

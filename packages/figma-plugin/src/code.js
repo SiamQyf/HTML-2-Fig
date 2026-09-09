@@ -471,21 +471,32 @@ async function applyFills(node, styles, assets, nodeW, nodeH) {
 }
 
 function applyStrokes(node, styles) {
-  const topW = (styles.borderTopStyle && styles.borderTopStyle !== 'none' && styles.borderTopStyle !== 'hidden') ? (parseFloat(styles.borderTopWidth) || 0) : 0;
-  const rightW = (styles.borderRightStyle && styles.borderRightStyle !== 'none' && styles.borderRightStyle !== 'hidden') ? (parseFloat(styles.borderRightWidth) || 0) : 0;
-  const bottomW = (styles.borderBottomStyle && styles.borderBottomStyle !== 'none' && styles.borderBottomStyle !== 'hidden') ? (parseFloat(styles.borderBottomWidth) || 0) : 0;
-  const leftW = (styles.borderLeftStyle && styles.borderLeftStyle !== 'none' && styles.borderLeftStyle !== 'hidden') ? (parseFloat(styles.borderLeftWidth) || 0) : 0;
+  const isColorVisible = (c) => {
+    if (!c || c === 'transparent' || c === 'none') return false;
+    const p = parseColor(c);
+    return p && p.a > 0.01;
+  };
+
+  const topColor = isColorVisible(styles.borderTopColor) ? styles.borderTopColor : (isColorVisible(styles.borderColor) ? styles.borderColor : null);
+  const rightColor = isColorVisible(styles.borderRightColor) ? styles.borderRightColor : (isColorVisible(styles.borderColor) ? styles.borderColor : null);
+  const bottomColor = isColorVisible(styles.borderBottomColor) ? styles.borderBottomColor : (isColorVisible(styles.borderColor) ? styles.borderColor : null);
+  const leftColor = isColorVisible(styles.borderLeftColor) ? styles.borderLeftColor : (isColorVisible(styles.borderColor) ? styles.borderColor : null);
+
+  const topW = (styles.borderTopStyle && styles.borderTopStyle !== 'none' && styles.borderTopStyle !== 'hidden' && topColor) ? (parseFloat(styles.borderTopWidth) || 0) : 0;
+  const rightW = (styles.borderRightStyle && styles.borderRightStyle !== 'none' && styles.borderRightStyle !== 'hidden' && rightColor) ? (parseFloat(styles.borderRightWidth) || 0) : 0;
+  const bottomW = (styles.borderBottomStyle && styles.borderBottomStyle !== 'none' && styles.borderBottomStyle !== 'hidden' && bottomColor) ? (parseFloat(styles.borderBottomWidth) || 0) : 0;
+  const leftW = (styles.borderLeftStyle && styles.borderLeftStyle !== 'none' && styles.borderLeftStyle !== 'hidden' && leftColor) ? (parseFloat(styles.borderLeftWidth) || 0) : 0;
 
   const totalBorder = topW + rightW + bottomW + leftW;
   if (totalBorder <= 0) return;
 
-  const borderColor = parseColor(
-    (topW > 0 && styles.borderTopColor) ||
-    (bottomW > 0 && styles.borderBottomColor) ||
-    (leftW > 0 && styles.borderLeftColor) ||
-    (rightW > 0 && styles.borderRightColor) ||
-    styles.borderColor
-  );
+  const activeColorStr = (topW > 0 && topColor) ||
+                         (bottomW > 0 && bottomColor) ||
+                         (leftW > 0 && leftColor) ||
+                         (rightW > 0 && rightColor) ||
+                         topColor || bottomColor || leftColor || rightColor;
+
+  const borderColor = parseColor(activeColorStr);
   if (!borderColor || borderColor.a <= 0.005) return;
 
   const strokeColor = {
@@ -696,10 +707,10 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   }
 
   const s = sNode.styles || inheritedStyles || {};
-  const x = Math.round((sNode.rect?.x || 0) - parentX);
-  const y = Math.round((sNode.rect?.y || 0) - parentY);
-  const w = Math.max(1, Math.round(sNode.rect?.width || 0));
-  const h = Math.max(1, Math.round(sNode.rect?.height || 0));
+  const x = sNode._localRect ? sNode._localRect.x : Math.round((sNode.rect?.x || 0) - parentX);
+  const y = sNode._localRect ? sNode._localRect.y : Math.round((sNode.rect?.y || 0) - parentY);
+  const w = Math.max(1, sNode._localRect ? sNode._localRect.width : Math.round(sNode.rect?.width || 0));
+  const h = Math.max(1, sNode._localRect ? sNode._localRect.height : Math.round(sNode.rect?.height || 0));
 
   // SVG Vector element
   if (sNode.content && (sNode.tag === 'SVG' || sNode.content.includes('<svg'))) {
@@ -855,42 +866,123 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   let rectW = w;
   let rectH = h;
 
-  // Apply CSS transform rotation or vertical writing mode (e.g. rotated ribbons, badges, vertical scroll text)
+  // Apply CSS transform rotation (e.g. rotated ribbons, badges, polaroid cards)
   let angleDeg = 0;
+  const isVerticalFlow = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr');
   if (s.transform && s.transform.includes('matrix')) {
     const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
     if (parts) {
       const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
       let a = vals[0], b = vals[1];
-      angleDeg = Math.atan2(b, a) * (180 / Math.PI);
+      const tAngle = Math.atan2(b, a) * (180 / Math.PI);
+      // If the container has vertical text flow, vertical-rl already defines its vertical layout box.
+      // A 180deg transform on it is the standard web pattern to invert text direction to bottom-to-top.
+      // The frame itself must remain axis-aligned; the rotation is applied to the text inside.
+      if (isVerticalFlow && Math.abs(Math.abs(tAngle) - 180) < 1) {
+        angleDeg = 0;
+      } else {
+        angleDeg = tAngle;
+      }
     }
-  } else if (s.writingMode && (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr')) {
-    angleDeg = 90;
+  } else if (!isVerticalFlow && s.rotate && s.rotate !== 'none') {
+    const r = s.rotate.trim().toLowerCase();
+    if (r.includes('deg')) angleDeg = parseFloat(r);
+    else if (r.includes('rad')) angleDeg = (parseFloat(r) * 180) / Math.PI;
+    else if (r.includes('turn')) angleDeg = parseFloat(r) * 360;
   }
 
   if (Math.abs(angleDeg) > 0.1) {
     const rotDeg = -angleDeg; // Figma rotation is negative of CSS
     const rotRad = rotDeg * (Math.PI / 180);
-    const cos = Math.cos(rotRad);
-    const sin = Math.sin(rotRad);
 
-    if (Math.abs(sin) > Math.abs(cos)) {
-      rectW = h;
-      rectH = w;
+    // Compute true unrotated dimensions (CSS transforms do not alter offsetWidth/Height)
+    let unrotatedW = sNode.rect?.offsetWidth || 0;
+    let unrotatedH = sNode.rect?.offsetHeight || 0;
+    if (unrotatedW <= 0 || unrotatedH <= 0) {
+      const rad = Math.abs(angleDeg) * (Math.PI / 180);
+      const cosA = Math.cos(rad);
+      const sinA = Math.sin(rad);
+      const det = cosA * cosA - sinA * sinA;
+      if (Math.abs(det) > 0.05 && Math.abs(angleDeg) < 45) {
+        unrotatedW = (w * cosA - h * sinA) / det;
+        unrotatedH = (h * cosA - w * sinA) / det;
+      } else if (Math.abs(Math.abs(angleDeg) - 90) < 1) {
+        unrotatedW = h;
+        unrotatedH = w;
+      } else {
+        unrotatedW = w;
+        unrotatedH = h;
+      }
     }
+    rectW = Math.max(1, Math.round(unrotatedW));
+    rectH = Math.max(1, Math.round(unrotatedH));
 
-    // Exact axis-aligned bounding box calculation relative to local origin
-    const x0 = 0, y0 = 0;
-    const x1 = rectW * cos, y1 = rectW * sin;
-    const x2 = -rectH * sin, y2 = rectH * cos;
-    const x3 = x1 + x2, y3 = y1 + y2;
+    // Element's center in parentFrame's coordinate space
+    const centerInParentX = sNode._localRect
+      ? (sNode._localRect.x + sNode._localRect.width / 2)
+      : (Math.round((sNode.rect?.x || 0) - parentX) + (sNode.rect?.width || 0) / 2);
+    const centerInParentY = sNode._localRect
+      ? (sNode._localRect.y + sNode._localRect.height / 2)
+      : (Math.round((sNode.rect?.y || 0) - parentY) + (sNode.rect?.height || 0) / 2);
 
-    const minX = Math.min(x0, x1, x2, x3);
-    const minY = Math.min(y0, y1, y2, y3);
+    // In Figma, node.rotation rotates around its top-left corner.
+    // Place frame.x and frame.y so the center of the rotated frame matches the element center:
+    const halfW = rectW / 2;
+    const halfH = rectH / 2;
+    const cosR = Math.cos(rotRad);
+    const sinR = Math.sin(rotRad);
+    const deltaX = halfW * cosR + halfH * sinR;
+    const deltaY = -halfW * sinR + halfH * cosR;
 
-    frame.x = x - minX;
-    frame.y = y - minY;
+    frame.x = Math.round(centerInParentX - deltaX);
+    frame.y = Math.round(centerInParentY - deltaY);
     frame.rotation = rotDeg;
+
+    // Map children from global screen coordinates into this frame's unrotated local coordinate system
+    const mapToLocal = (childNode) => {
+      if (!childNode || !childNode.rect) return;
+      const childGX = (childNode.rect.x || 0) + (childNode.rect.width || 0) / 2;
+      const childGY = (childNode.rect.y || 0) + (childNode.rect.height || 0) / 2;
+      const globalCenterX = (sNode.rect?.x || 0) + (sNode.rect?.width || 0) / 2;
+      const globalCenterY = (sNode.rect?.y || 0) + (sNode.rect?.height || 0) / 2;
+      const dX = childGX - globalCenterX;
+      const dY = childGY - globalCenterY;
+      const localDX = dX * cosR - dY * sinR;
+      const localDY = dX * sinR + dY * cosR;
+      const childLCX = halfW + localDX;
+      const childLCY = halfH + localDY;
+
+      let cW = childNode.rect.offsetWidth || 0;
+      let cH = childNode.rect.offsetHeight || 0;
+      if (cW <= 0 || cH <= 0) {
+        const cRad = Math.abs(angleDeg) * (Math.PI / 180);
+        const cCos = Math.cos(cRad);
+        const cSin = Math.sin(cRad);
+        const cDet = cCos * cCos - cSin * cSin;
+        if (Math.abs(cDet) > 0.05 && Math.abs(angleDeg) < 45) {
+          cW = Math.max(1, Math.round(((childNode.rect.width || 0) * cCos - (childNode.rect.height || 0) * cSin) / cDet));
+          cH = Math.max(1, Math.round(((childNode.rect.height || 0) * cCos - (childNode.rect.width || 0) * cSin) / cDet));
+        } else {
+          cW = Math.round(childNode.rect.width || 0);
+          cH = Math.round(childNode.rect.height || 0);
+        }
+      }
+
+      childNode._localRect = {
+        x: Math.round(childLCX - cW / 2),
+        y: Math.round(childLCY - cH / 2),
+        width: cW,
+        height: cH
+      };
+    };
+
+    if (sNode.pseudoElementNodes?.before) mapToLocal(sNode.pseudoElementNodes.before);
+    if (sNode.pseudoElementNodes?.after) mapToLocal(sNode.pseudoElementNodes.after);
+    if (sNode.childNodes) {
+      for (const child of sNode.childNodes) {
+        mapToLocal(child);
+      }
+    }
   }
 
   frame.resize(rectW, rectH);
@@ -928,10 +1020,17 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 }
 
 async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles) {
-  const text = (sNode.text || '').trim();
+  const s = sNode.styles || inheritedStyles || parentFrame.styles || {};
+  let text = (sNode.text || '');
+  const ws = s.whiteSpace || 'normal';
+  if (ws === 'normal' || ws === 'nowrap') {
+    text = text.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ');
+  } else if (ws === 'pre-line') {
+    text = text.replace(/[ \t\f\v]+/g, ' ');
+  }
+  text = text.trim();
   if (!text) return;
 
-  const s = sNode.styles || inheritedStyles || parentFrame.styles || {};
   const textNode = figma.createText();
 
   const fontName = await loadFont(s.fontFamily, s.fontWeight || '400', s.fontStyle === 'italic');
@@ -940,6 +1039,9 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   let finalText = text;
   if (s.textTransform === 'uppercase') finalText = text.toUpperCase();
   else if (s.textTransform === 'lowercase') finalText = text.toLowerCase();
+  // Append Unicode Variation Selector-15 (\uFE0E - text presentation) to symbol and arrow characters
+  // so text layout engines don't fall back to colorful OS emoji fonts (like Segoe UI Emoji / Apple Color Emoji)
+  finalText = finalText.replace(/([\u2190-\u21FF\u25A0-\u27BF\u2B00-\u2BFF])(?!\uFE0E)/g, '$1\uFE0E');
   textNode.characters = finalText;
 
   const fontSize = parseFloat(s.fontSize) || 16;
@@ -995,14 +1097,14 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   applyOpacity(textNode, s);
 
   parentFrame.appendChild(textNode);
-  const posX = (sNode.rect?.x || 0) - parentX;
-  const posY = (sNode.rect?.y || 0) - parentY;
+  const posX = sNode._localRect ? sNode._localRect.x : ((sNode.rect?.x || 0) - parentX);
+  const posY = sNode._localRect ? sNode._localRect.y : ((sNode.rect?.y || 0) - parentY);
 
   textNode.x = posX;
   textNode.y = posY;
 
-  const w = sNode.rect?.width || 0;
-  const h = sNode.rect?.height || 0;
+  const w = sNode._localRect ? sNode._localRect.width : (sNode.rect?.width || 0);
+  const h = sNode._localRect ? sNode._localRect.height : (sNode.rect?.height || 0);
   const textStr = finalText.trim();
 
 
@@ -1022,7 +1124,8 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     // When using WIDTH_AND_HEIGHT, Figma sizes the node exactly to its own font rendering width.
     // If this differs from the browser's bounding box `w`, center/right aligned text will be misaligned.
     // We compensate by shifting `x` so the text remains correctly aligned within the browser's original `w`.
-    if (w > 0) {
+    const isVert = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr');
+    if (w > 0 && !isVert) {
       if (s.textAlign === 'center') {
         textNode.x = posX + (w - textNode.width) / 2;
       } else if (s.textAlign === 'right' || s.textAlign === 'end') {
@@ -1033,29 +1136,43 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
 
   // Apply rotation directly to textNode if parentFrame is not already rotated
   let textAngleDeg = 0;
+  const isVerticalText = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr');
+
+  let transformAngle = 0;
   if (s.transform && s.transform.includes('matrix')) {
     const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
     if (parts) {
       const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
       let a = vals[0], b = vals[1];
-      textAngleDeg = Math.atan2(b, a) * (180 / Math.PI);
+      transformAngle = Math.atan2(b, a) * (180 / Math.PI);
     }
   } else if (s.rotate && s.rotate !== 'none') {
     const r = s.rotate.trim().toLowerCase();
-    if (r.includes('deg')) textAngleDeg = parseFloat(r);
-    else if (r.includes('rad')) textAngleDeg = (parseFloat(r) * 180) / Math.PI;
-    else if (r.includes('turn')) textAngleDeg = parseFloat(r) * 360;
-  } else if (s.writingMode && (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr')) {
-    textAngleDeg = 90;
+    if (r.includes('deg')) transformAngle = parseFloat(r);
+    else if (r.includes('rad')) transformAngle = (parseFloat(r) * 180) / Math.PI;
+    else if (r.includes('turn')) transformAngle = parseFloat(r) * 360;
+  }
+
+  if (isVerticalText) {
+    // In CSS, writing-mode: vertical-rl flows top-to-bottom.
+    // Combined with rotate(180deg), it flows bottom-to-top (reading upwards).
+    // In Figma, rotDeg = 90 makes the text read upwards from bottom to top,
+    // positioned at x = posX + height and y = posY (top of frame).
+    const is180 = Math.abs(Math.abs(transformAngle) - 180) < 1;
+    textAngleDeg = is180 ? -90 : 90;
+  } else {
+    textAngleDeg = transformAngle;
   }
 
   if (Math.abs(textAngleDeg) > 0.1 && Math.abs(parentFrame.rotation || 0) < 0.1) {
     const rotDeg = -textAngleDeg;
     textNode.rotation = rotDeg;
-    if (rotDeg === -90) {
-      textNode.y = posY + textNode.width;
-    } else if (rotDeg === 90) {
-      textNode.x = posX + textNode.height;
+    if (rotDeg === 90) {
+      textNode.x = Math.max(0, posX);
+      textNode.y = Math.max(0, posY) + textNode.width;
+    } else if (rotDeg === -90) {
+      textNode.x = Math.max(0, posX);
+      textNode.y = Math.max(0, posY) + textNode.width;
     } else {
       const rotRad = rotDeg * (Math.PI / 180);
       const cos = Math.cos(rotRad);
