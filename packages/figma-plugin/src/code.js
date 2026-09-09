@@ -851,42 +851,48 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   parentFrame.appendChild(frame);
   frame.x = x;
   frame.y = y;
-  frame.resize(w, h);
-  frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden' || s.overflow === 'clip' || s.overflowX === 'clip');
 
-  // Apply CSS transform rotation (e.g. rotated ribbons, badges)
+  let rectW = w;
+  let rectH = h;
+
+  // Apply CSS transform rotation (e.g. rotated ribbons, badges, vertical scroll text)
   if (s.transform && s.transform.includes('matrix')) {
     const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
     if (parts) {
       const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
-      let a, b;
-      if (s.transform.startsWith('matrix3d')) {
-        a = vals[0]; b = vals[1];
-      } else {
-        a = vals[0]; b = vals[1];
-      }
+      let a = vals[0], b = vals[1];
       const angleDeg = Math.atan2(b, a) * (180 / Math.PI);
       if (Math.abs(angleDeg) > 0.1) {
-        const angleRad = angleDeg * (Math.PI / 180);
-        const cosA = Math.abs(Math.cos(angleRad));
-        const sinA = Math.abs(Math.sin(angleRad));
-        
-        // CSS positions at unrotated top-left, then rotates around center.
-        // Figma's x,y = top-left of the axis-aligned bounding box after rotation.
-        // Compute the offset: center stays the same, but bbox corner shifts.
-        const bboxW = w * cosA + h * sinA;
-        const bboxH = w * sinA + h * cosA;
-        const adjustX = (w - bboxW) / 2;  // shift from unrotated TL to bbox TL
-        const adjustY = (h - bboxH) / 2;
+        const rotDeg = -angleDeg; // Figma rotation is negative of CSS
+        const rotRad = rotDeg * (Math.PI / 180);
+        const cos = Math.cos(rotRad);
+        const sin = Math.sin(rotRad);
 
-        frame.x = x + adjustX;
-        frame.y = y + adjustY;
-        frame.rotation = -angleDeg; // Figma rotation is negative of CSS
+        if (Math.abs(sin) > Math.abs(cos)) {
+          rectW = h;
+          rectH = w;
+        }
+
+        // Exact axis-aligned bounding box calculation relative to local origin
+        const x0 = 0, y0 = 0;
+        const x1 = rectW * cos, y1 = rectW * sin;
+        const x2 = -rectH * sin, y2 = rectH * cos;
+        const x3 = x1 + x2, y3 = y1 + y2;
+
+        const minX = Math.min(x0, x1, x2, x3);
+        const minY = Math.min(y0, y1, y2, y3);
+
+        frame.x = x - minX;
+        frame.y = y - minY;
+        frame.rotation = rotDeg;
       }
     }
   }
 
-  await applyFills(frame, s, assets, w, h);
+  frame.resize(rectW, rectH);
+  frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden' || s.overflow === 'clip' || s.overflowX === 'clip');
+
+  await applyFills(frame, s, assets, rectW, rectH);
   applyStrokes(frame, s);
   applyEffects(frame, s);
   applyCornerRadius(frame, s);
@@ -1012,11 +1018,20 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     // When using WIDTH_AND_HEIGHT, Figma sizes the node exactly to its own font rendering width.
     // If this differs from the browser's bounding box `w`, center/right aligned text will be misaligned.
     // We compensate by shifting `x` so the text remains correctly aligned within the browser's original `w`.
-    if (w > 0) {
+    let textW = w;
+    if (s.transform && s.transform.includes('matrix')) {
+      const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+      if (parts) {
+        const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
+        const a = vals[0], b = vals[1];
+        if (Math.abs(b) > Math.abs(a)) textW = h;
+      }
+    }
+    if (textW > 0) {
       if (s.textAlign === 'center') {
-        textNode.x = posX + (w - textNode.width) / 2;
+        textNode.x = posX + (textW - textNode.width) / 2;
       } else if (s.textAlign === 'right' || s.textAlign === 'end') {
-        textNode.x = posX + (w - textNode.width);
+        textNode.x = posX + (textW - textNode.width);
       }
     }
   }

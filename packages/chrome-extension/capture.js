@@ -1195,9 +1195,7 @@
         }
       }
 
-      const fontSize = parseFloat(parentStyles?.fontSize) || 16;
-      if (clientRects.length <= 1 && rect.height <= fontSize * 1.5) {
-
+      if (clientRects.length <= 1) {
         return {
           nodeType: TEXT_NODE,
           id: getNodeId('text'),
