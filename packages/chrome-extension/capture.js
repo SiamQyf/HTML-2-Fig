@@ -120,11 +120,62 @@
     window.scrollTo(0, 0);
     await new Promise(r => setTimeout(r, 200));
 
-    // Automatically defeat scroll-linked animations
+    // Automatically defeat scroll-linked animations and force scroll-reveal elements visible
     const animKiller = document.createElement('style');
     animKiller.id = 'h2f-animation-killer';
-    animKiller.innerHTML = `* { transition: none !important; animation: none !important; }`;
+    animKiller.innerHTML = `
+      * { transition: none !important; animation: none !important; }
+      .wow, 
+      [data-wow-delay], 
+      [data-wow-duration], 
+      [data-aos], 
+      [data-sal], 
+      .animated, 
+      .fadeInUp, .fadeIn, .fadeInLeft, .fadeInRight, .fadeInDown, .bounceIn, .bounceInRight, .zoomIn,
+      .title-anim, .text-anim, .hero-text-anim, .start-anim,
+      .title-anim *, .text-anim *, .hero-text-anim *,
+      .right-swipe, .left-swipe,
+      .split-line, .split-word, .split-char,
+      [class*="wow"], [class*="fadeIn"], [class*="-anim"] {
+        visibility: visible !important;
+        opacity: 1 !important;
+        animation: none !important;
+        transition: none !important;
+      }
+      #preloader, .preloader, .loader-wrapper, #loading, .page-loader, .site-preloader, .animation-preloader, .loader-section {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+    `;
     document.head.appendChild(animKiller);
+
+    // Unhide and reset scroll-reveal elements whose inline styles were reversed or hidden
+    try {
+      const animatedEls = document.querySelectorAll(
+        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"]'
+      );
+      for (const el of animatedEls) {
+        if (el.style.visibility === 'hidden') el.style.visibility = 'visible';
+        if (el.style.opacity === '0' || (parseFloat(el.style.opacity) || 0) < 0.05) el.style.opacity = '1';
+        if (el.style.transform && el.style.transform.includes('translate')) el.style.transform = 'none';
+        if (el.style.clipPath) el.style.clipPath = 'none';
+        
+        for (const child of el.children) {
+          if (child.style.visibility === 'hidden') child.style.visibility = 'visible';
+          if (child.style.opacity === '0' || (parseFloat(child.style.opacity) || 0) < 0.05) child.style.opacity = '1';
+        }
+      }
+    } catch {}
+
+    // Hide full-screen preloader elements
+    try {
+      const preloaders = document.querySelectorAll('#preloader, .preloader, .loader-wrapper, #loading, .page-loader, .site-preloader');
+      for (const p of preloaders) {
+        p.style.display = 'none';
+      }
+    } catch {}
   }
 
   /* ======================================================================
@@ -1364,7 +1415,23 @@
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE'].includes(tag)) return null;
 
     const styles = getElementStyles(el);
-    if (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02) return null;
+    let isHidden = (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02);
+    
+    // Exception for scroll-animated elements that might still have lingering visibility:hidden or opacity:0
+    if (isHidden && styles.display !== 'none') {
+      const cls = (el.className && typeof el.className === 'string') ? el.className : '';
+      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos/i.test(cls) ||
+        el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') ||
+        el.closest('.title-anim, .text-anim, .hero-text-anim, .wow, [data-wow-delay], [data-aos]');
+      
+      if (isAnimTarget) {
+        styles.visibility = 'visible';
+        styles.opacity = '1';
+        isHidden = false;
+      }
+    }
+
+    if (isHidden) return null;
 
     if (styles.transform && styles.transform.includes('matrix')) {
       const parts = styles.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
@@ -1627,6 +1694,8 @@
     window.__html2FigRunning = false;
     const scrollFix = document.getElementById('h2f-scroll-fix');
     if (scrollFix) scrollFix.remove();
+    const animKiller = document.getElementById('h2f-animation-killer');
+    if (animKiller) animKiller.remove();
   }
 })();
 
