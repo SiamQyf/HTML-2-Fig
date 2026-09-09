@@ -1114,6 +1114,58 @@
     }
   }
 
+  /*
+   * Computes the effective z-index of a node within its stacking context.
+   * If the node has an explicit numeric z-index, that value is used.
+   * If the node has z-index: auto and does not establish an isolated stacking
+   * context (via opacity, transform, filter, etc.), any positive or negative
+   * z-index from descendant nodes (such as inner copy or CTA buttons) bubbles up.
+   */
+  function getNodeEffectiveZIndex(node) {
+    if (!node) return 0;
+    const z = node.styles?.zIndex && node.styles.zIndex !== 'auto' ? parseInt(node.styles.zIndex, 10) : null;
+    if (z !== null && !isNaN(z)) {
+      return z;
+    }
+    const s = node.styles || {};
+    const isIsolated = (
+      (s.opacity && parseFloat(s.opacity) < 0.999) ||
+      (s.transform && s.transform !== 'none') ||
+      (s.filter && s.filter !== 'none') ||
+      (s.isolation === 'isolate') ||
+      (s.mixBlendMode && s.mixBlendMode !== 'normal')
+    );
+    if (isIsolated) return 0;
+
+    let maxZ = 0;
+    let minZ = 0;
+
+    if (node.pseudoElementNodes) {
+      if (node.pseudoElementNodes.before) {
+        const bZ = getNodeEffectiveZIndex(node.pseudoElementNodes.before);
+        if (bZ > maxZ) maxZ = bZ;
+        if (bZ < minZ) minZ = bZ;
+      }
+      if (node.pseudoElementNodes.after) {
+        const aZ = getNodeEffectiveZIndex(node.pseudoElementNodes.after);
+        if (aZ > maxZ) maxZ = aZ;
+        if (aZ < minZ) minZ = aZ;
+      }
+    }
+
+    if (node.childNodes && node.childNodes.length > 0) {
+      for (const child of node.childNodes) {
+        const childZ = getNodeEffectiveZIndex(child);
+        if (childZ > maxZ) maxZ = childZ;
+        if (childZ < minZ) minZ = childZ;
+      }
+    }
+
+    if (maxZ > 0) return maxZ;
+    if (minZ < 0) return minZ;
+    return 0;
+  }
+
   async function serializeNode(node, assets, fonts, parentStyles) {
     if (node.nodeType === TEXT_NODE) {
       const text = node.textContent || '';
@@ -1399,13 +1451,18 @@
         if (sChild) childNodes.push(sChild);
       }
 
-      // Sort child nodes according to CSS stacking context (z-index)
+      // Sort child nodes according to CSS stacking context (effective z-index)
       if (childNodes.length > 1) {
-        childNodes.sort((a, b) => {
-          const zA = a.styles?.zIndex && a.styles.zIndex !== 'auto' ? parseInt(a.styles.zIndex, 10) || 0 : 0;
-          const zB = b.styles?.zIndex && b.styles.zIndex !== 'auto' ? parseInt(b.styles.zIndex, 10) || 0 : 0;
-          return zA - zB;
-        });
+        const isRootScope = (tag === 'BODY' || tag === 'HTML');
+        for (const child of childNodes) {
+          child._effectiveZIndex = isRootScope
+            ? (child.styles?.zIndex && child.styles.zIndex !== 'auto' ? parseInt(child.styles.zIndex, 10) || 0 : 0)
+            : getNodeEffectiveZIndex(child);
+        }
+        childNodes.sort((a, b) => (a._effectiveZIndex || 0) - (b._effectiveZIndex || 0));
+        for (const child of childNodes) {
+          delete child._effectiveZIndex;
+        }
       }
     }
 
