@@ -855,38 +855,42 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   let rectW = w;
   let rectH = h;
 
-  // Apply CSS transform rotation (e.g. rotated ribbons, badges, vertical scroll text)
+  // Apply CSS transform rotation or vertical writing mode (e.g. rotated ribbons, badges, vertical scroll text)
+  let angleDeg = 0;
   if (s.transform && s.transform.includes('matrix')) {
     const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
     if (parts) {
       const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
       let a = vals[0], b = vals[1];
-      const angleDeg = Math.atan2(b, a) * (180 / Math.PI);
-      if (Math.abs(angleDeg) > 0.1) {
-        const rotDeg = -angleDeg; // Figma rotation is negative of CSS
-        const rotRad = rotDeg * (Math.PI / 180);
-        const cos = Math.cos(rotRad);
-        const sin = Math.sin(rotRad);
-
-        if (Math.abs(sin) > Math.abs(cos)) {
-          rectW = h;
-          rectH = w;
-        }
-
-        // Exact axis-aligned bounding box calculation relative to local origin
-        const x0 = 0, y0 = 0;
-        const x1 = rectW * cos, y1 = rectW * sin;
-        const x2 = -rectH * sin, y2 = rectH * cos;
-        const x3 = x1 + x2, y3 = y1 + y2;
-
-        const minX = Math.min(x0, x1, x2, x3);
-        const minY = Math.min(y0, y1, y2, y3);
-
-        frame.x = x - minX;
-        frame.y = y - minY;
-        frame.rotation = rotDeg;
-      }
+      angleDeg = Math.atan2(b, a) * (180 / Math.PI);
     }
+  } else if (s.writingMode && (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr')) {
+    angleDeg = 90;
+  }
+
+  if (Math.abs(angleDeg) > 0.1) {
+    const rotDeg = -angleDeg; // Figma rotation is negative of CSS
+    const rotRad = rotDeg * (Math.PI / 180);
+    const cos = Math.cos(rotRad);
+    const sin = Math.sin(rotRad);
+
+    if (Math.abs(sin) > Math.abs(cos)) {
+      rectW = h;
+      rectH = w;
+    }
+
+    // Exact axis-aligned bounding box calculation relative to local origin
+    const x0 = 0, y0 = 0;
+    const x1 = rectW * cos, y1 = rectW * sin;
+    const x2 = -rectH * sin, y2 = rectH * cos;
+    const x3 = x1 + x2, y3 = y1 + y2;
+
+    const minX = Math.min(x0, x1, x2, x3);
+    const minY = Math.min(y0, y1, y2, y3);
+
+    frame.x = x - minX;
+    frame.y = y - minY;
+    frame.rotation = rotDeg;
   }
 
   frame.resize(rectW, rectH);
@@ -1018,20 +1022,11 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     // When using WIDTH_AND_HEIGHT, Figma sizes the node exactly to its own font rendering width.
     // If this differs from the browser's bounding box `w`, center/right aligned text will be misaligned.
     // We compensate by shifting `x` so the text remains correctly aligned within the browser's original `w`.
-    let textW = w;
-    if (s.transform && s.transform.includes('matrix')) {
-      const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
-      if (parts) {
-        const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
-        const a = vals[0], b = vals[1];
-        if (Math.abs(b) > Math.abs(a)) textW = h;
-      }
-    }
-    if (textW > 0) {
+    if (w > 0) {
       if (s.textAlign === 'center') {
-        textNode.x = posX + (textW - textNode.width) / 2;
+        textNode.x = posX + (w - textNode.width) / 2;
       } else if (s.textAlign === 'right' || s.textAlign === 'end') {
-        textNode.x = posX + (textW - textNode.width);
+        textNode.x = posX + (w - textNode.width);
       }
     }
   }
