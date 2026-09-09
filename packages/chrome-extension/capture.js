@@ -54,7 +54,7 @@
     filter: 'none', webkitFilter: 'none', backdropFilter: 'none', webkitBackdropFilter: 'none', maskImage: 'none',
     rotate: 'none', scale: 'none', verticalAlign: 'baseline',
     visibility: 'visible', webkitTextFillColor: '', whiteSpace: 'normal',
-    width: 'auto', writingMode: 'horizontal-tb', zIndex: 'auto', clipPath: 'none'
+    width: 'auto', writingMode: 'horizontal-tb', textOrientation: 'mixed', zIndex: 'auto', clipPath: 'none'
   };
 
   /* ======================================================================

@@ -1030,6 +1030,46 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       }
     }
   }
+
+  // Apply rotation directly to textNode if parentFrame is not already rotated
+  let textAngleDeg = 0;
+  if (s.transform && s.transform.includes('matrix')) {
+    const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+    if (parts) {
+      const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
+      let a = vals[0], b = vals[1];
+      textAngleDeg = Math.atan2(b, a) * (180 / Math.PI);
+    }
+  } else if (s.rotate && s.rotate !== 'none') {
+    const r = s.rotate.trim().toLowerCase();
+    if (r.includes('deg')) textAngleDeg = parseFloat(r);
+    else if (r.includes('rad')) textAngleDeg = (parseFloat(r) * 180) / Math.PI;
+    else if (r.includes('turn')) textAngleDeg = parseFloat(r) * 360;
+  } else if (s.writingMode && (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr')) {
+    textAngleDeg = 90;
+  }
+
+  if (Math.abs(textAngleDeg) > 0.1 && Math.abs(parentFrame.rotation || 0) < 0.1) {
+    const rotDeg = -textAngleDeg;
+    textNode.rotation = rotDeg;
+    if (rotDeg === -90) {
+      textNode.y = posY + textNode.width;
+    } else if (rotDeg === 90) {
+      textNode.x = posX + textNode.height;
+    } else {
+      const rotRad = rotDeg * (Math.PI / 180);
+      const cos = Math.cos(rotRad);
+      const sin = Math.sin(rotRad);
+      const w0 = textNode.width;
+      const h0 = textNode.height;
+      const x1 = w0 * cos, y1 = w0 * sin;
+      const x2 = -h0 * sin, y2 = h0 * cos;
+      const minX = Math.min(0, x1, x2, x1 + x2);
+      const minY = Math.min(0, y1, y2, y1 + y2);
+      textNode.x = posX - minX;
+      textNode.y = posY - minY;
+    }
+  }
 }
 
 function countNodes(node) {
