@@ -48,4 +48,6 @@ brain/
 /trace*
 /write*
 /capture_*
+/scratch_*
+
 

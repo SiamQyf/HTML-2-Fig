@@ -424,6 +424,13 @@
       this.promises.set(id, rasterizeCanvas(canvas).then(blob => ({ url: id, blob })));
       return id;
     }
+    addDataUrl(dataUrl) {
+      if (!dataUrl) return;
+      const b64Data = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      const blobObj = { type: 'image/png', data: b64Data };
+      this.promises.set(dataUrl, Promise.resolve({ url: dataUrl, blob: blobObj }));
+      return dataUrl;
+    }
     addVideo(video) {
       const id = `rasterized:video:${++this.rasterizedId}`;
       this.promises.set(id, rasterizeVideo(video).then(blob => ({ url: id, blob })));
@@ -519,22 +526,16 @@
     styles.fontStyle = cs.fontStyle;
     styles.color = convertColors(cs.color);
     styles.webkitTextFillColor = convertColors(cs.webkitTextFillColor || cs.color);
+    if (cs.webkitTextStrokeWidth && cs.webkitTextStrokeWidth !== '0px') {
+      styles.webkitTextStrokeWidth = cs.webkitTextStrokeWidth;
+      styles.webkitTextStrokeColor = convertColors(cs.webkitTextStrokeColor || cs.color);
+    }
     styles.lineHeight = cs.lineHeight;
     styles.letterSpacing = cs.letterSpacing;
     styles.textAlign = cs.textAlign;
     styles.textTransform = cs.textTransform;
     styles.textDecoration = cs.textDecoration;
     styles.textDecorationLine = cs.textDecorationLine;
-
-    const isLink = el.tagName === 'A' || !!el.closest('a');
-    if (isLink) {
-      const aEl = el.tagName === 'A' ? el : el.closest('a');
-      const aCs = aEl ? window.getComputedStyle(aEl) : cs;
-      const aDec = (aCs.textDecorationLine || aCs.textDecoration || '').toLowerCase();
-      if (aDec.includes('underline')) {
-        styles.textDecorationLine = 'underline';
-      }
-    }
 
     // Capture effective CSS filter (including ancestor invert filters for SVGs)
     styles.filter = cs.filter || 'none';
@@ -970,6 +971,27 @@
           if (!isNaN(op) && op < 1) {
             cloned.setAttribute('opacity', op.toString());
           }
+
+          // Figma SVG parser ignores CSS transforms in style="transform: rotate(...); transform-origin: ...".
+          // Convert style transforms with transform-origin into native SVG transform attributes:
+          const styleAttr = cloned.getAttribute('style') || '';
+          if (styleAttr && styleAttr.includes('rotate(')) {
+            const rotMatch = styleAttr.match(/rotate\(\s*(-?[\d.]+)deg\s*\)/i);
+            const origMatch = styleAttr.match(/transform-origin:\s*([\d.]+)px\s+([\d.]+)px/i);
+            if (rotMatch) {
+              const deg = parseFloat(rotMatch[1]);
+              let nativeTransform = '';
+              if (origMatch) {
+                const ox = parseFloat(origMatch[1]);
+                const oy = parseFloat(origMatch[2]);
+                nativeTransform = `rotate(${deg} ${ox} ${oy})`;
+              } else {
+                nativeTransform = `rotate(${deg})`;
+              }
+              const existingTrans = cloned.getAttribute('transform') || '';
+              cloned.setAttribute('transform', existingTrans ? `${existingTrans} ${nativeTransform}` : nativeTransform);
+            }
+          }
         } catch {}
       }
 
@@ -1098,6 +1120,109 @@
     }
     svg += `</svg>`;
     return svg;
+  }
+
+  function renderConicGradientToDataUrl(css, w, h) {
+    if (!css || !css.includes('conic-gradient(')) return null;
+    try {
+      const start = css.indexOf('conic-gradient(');
+      let depth = 0;
+      let inner = '';
+      for (let i = start + 14; i < css.length; i++) {
+        if (css[i] === '(') depth++;
+        else if (css[i] === ')') {
+          depth--;
+          if (depth === 0) {
+            inner = css.substring(start + 15, i).trim();
+            break;
+          }
+        }
+      }
+      if (!inner) return null;
+
+      let fromAngle = 0;
+      const width = Math.max(1, Math.round(w || 100));
+      const height = Math.max(1, Math.round(h || 100));
+      let cx = width / 2;
+      let cy = height / 2;
+      let stopsStr = inner;
+
+      const headerMatch = inner.match(/^((?:from\s+[^,]+|\s*at\s+[^,]+)+)\s*,\s*(.*)$/is);
+      if (headerMatch) {
+        const header = headerMatch[1].trim();
+        stopsStr = headerMatch[2].trim();
+
+        const fromMatch = header.match(/from\s+(-?[\d.]+)(deg|rad|turn|grad)?/i);
+        if (fromMatch) {
+          const val = parseFloat(fromMatch[1]);
+          const unit = (fromMatch[2] || 'deg').toLowerCase();
+          if (unit === 'deg') fromAngle = val;
+          else if (unit === 'rad') fromAngle = (val * 180) / Math.PI;
+          else if (unit === 'turn') fromAngle = val * 360;
+          else if (unit === 'grad') fromAngle = (val * 360) / 400;
+        }
+
+        const atMatch = header.match(/at\s+([^,]+)/i);
+        if (atMatch) {
+          const atParts = atMatch[1].trim().split(/\s+/);
+          const parsePos = (str, dim) => {
+            if (!str || str === 'center') return dim / 2;
+            if (str === 'left' || str === 'top') return 0;
+            if (str === 'right' || str === 'bottom') return dim;
+            if (str.endsWith('%')) return (parseFloat(str) / 100) * dim;
+            return parseFloat(str) || dim / 2;
+          };
+          cx = parsePos(atParts[0], width);
+          cy = parsePos(atParts[1] || atParts[0], height);
+        }
+      }
+
+      const rawStops = splitByTopLevelCommas(stopsStr);
+      if (!rawStops || rawStops.length === 0) return null;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx || typeof ctx.createConicGradient !== 'function') return null;
+
+      // In CSS, conic-gradient 0deg points UP (-PI/2 in canvas coordinate system)
+      const startRad = ((fromAngle - 90) * Math.PI) / 180;
+      const grad = ctx.createConicGradient(startRad, cx, cy);
+
+      let maxPos = 0;
+      const n = rawStops.length;
+
+      for (let i = 0; i < n; i++) {
+        const raw = rawStops[i].trim();
+        const match = raw.match(/^(.*?)\s+([\d.]+)(%|deg|turn|rad|grad)?$/i);
+        let col = raw;
+        let pos = n > 1 ? (i / (n - 1)) : i;
+
+        if (match) {
+          col = match[1].trim();
+          const num = parseFloat(match[2]);
+          const unit = (match[3] || '').toLowerCase();
+          if (unit === '%') pos = num / 100;
+          else if (unit === 'deg') pos = num / 360;
+          else if (unit === 'turn') pos = num;
+          else if (unit === 'rad') pos = num / (2 * Math.PI);
+          else if (unit === 'grad') pos = num / 400;
+          else if (num > 1) pos = num / 360;
+          else pos = num;
+        }
+
+        pos = Math.max(pos, maxPos);
+        maxPos = pos;
+        grad.addColorStop(Math.min(1, Math.max(0, pos)), col);
+      }
+
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
+      return canvas.toDataURL('image/png');
+    } catch {
+      return null;
+    }
   }
 
   /* ======================================================================
@@ -1271,7 +1396,13 @@
         };
       }
 
-      if (parseFloat(cs.width) === 0 || parseFloat(cs.height) === 0) return null;
+      // Skip truly invisible pseudo-elements — but NOT ones with visible borders or background images (dotted/dashed leader lines)
+      const hasPseudoBorder = (cs.borderTopStyle && cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) > 0) ||
+                              (cs.borderBottomStyle && cs.borderBottomStyle !== 'none' && parseFloat(cs.borderBottomWidth) > 0) ||
+                              (cs.borderLeftStyle && cs.borderLeftStyle !== 'none' && parseFloat(cs.borderLeftWidth) > 0) ||
+                              (cs.borderRightStyle && cs.borderRightStyle !== 'none' && parseFloat(cs.borderRightWidth) > 0);
+      const hasPseudoBg = cs.backgroundImage && cs.backgroundImage !== 'none';
+      if (!hasPseudoBorder && !hasPseudoBg && (parseFloat(cs.width) === 0 || parseFloat(cs.height) === 0)) return null;
 
       const styles = {};
       for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
@@ -1279,6 +1410,26 @@
         if (val !== undefined && val !== defVal && val !== '') {
           styles[prop] = val;
         }
+      }
+
+      // Explicitly capture border properties (color defaults to 'rgb(0,0,0)' which may match CSS_DEFAULTS and be skipped)
+      styles.borderTopStyle = cs.borderTopStyle;
+      styles.borderBottomStyle = cs.borderBottomStyle;
+      styles.borderLeftStyle = cs.borderLeftStyle;
+      styles.borderRightStyle = cs.borderRightStyle;
+      styles.borderTopWidth = cs.borderTopWidth;
+      styles.borderBottomWidth = cs.borderBottomWidth;
+      styles.borderLeftWidth = cs.borderLeftWidth;
+      styles.borderRightWidth = cs.borderRightWidth;
+      styles.borderTopColor = cs.borderTopColor;
+      styles.borderBottomColor = cs.borderBottomColor;
+      styles.borderLeftColor = cs.borderLeftColor;
+      styles.borderRightColor = cs.borderRightColor;
+      if (cs.backgroundImage && cs.backgroundImage !== 'none') {
+        styles.backgroundImage = cs.backgroundImage;
+        styles.backgroundSize = cs.backgroundSize;
+        styles.backgroundRepeat = cs.backgroundRepeat;
+        styles.backgroundPosition = cs.backgroundPosition;
       }
 
       const pseudoMask = (cs.maskImage && cs.maskImage !== 'none') ? cs.maskImage :
@@ -1321,6 +1472,11 @@
       if (!isNaN(w) && cs.width !== 'auto') pseudoRect.width = w;
       if (!isNaN(h) && cs.height !== 'auto') pseudoRect.height = h;
 
+      if ((hasPseudoBorder || hasPseudoBg) && (isNaN(h) || pseudoRect.height <= 2)) {
+        const borderH = Math.max(parseFloat(cs.borderTopWidth) || 0, parseFloat(cs.borderBottomWidth) || 0, 1);
+        pseudoRect.height = Math.max(h || 0, borderH);
+      }
+
       if (cs.position === 'absolute') {
         const t = parseFloat(cs.top);
         const b = parseFloat(cs.bottom);
@@ -1332,6 +1488,103 @@
         
         if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = parentRect.y + t;
         else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = parentRect.y + parentRect.height - pseudoRect.height - b;
+      } else {
+        const parentCs = window.getComputedStyle(el);
+        const isFlex = parentCs.display && parentCs.display.includes('flex');
+        const isFixed = parentCs.position === 'fixed';
+        const scrollX = isFixed ? 0 : window.scrollX;
+        const scrollY = isFixed ? 0 : window.scrollY;
+
+        if (isFlex) {
+          const isRow = !parentCs.flexDirection || parentCs.flexDirection.startsWith('row');
+          const colGap = parseFloat(parentCs.columnGap || parentCs.gap) || 0;
+          const rowGap = parseFloat(parentCs.rowGap || parentCs.gap) || 0;
+
+          const items = Array.from(el.children).map((child, idx) => {
+            const cCs = window.getComputedStyle(child);
+            const cOrder = parseInt(cCs.order, 10) || 0;
+            return { isPseudo: false, order: cOrder, sourceIndex: idx, rect: child.getBoundingClientRect() };
+          });
+          const pseudoOrder = parseInt(cs.order, 10) || 0;
+          const pseudoItem = { isPseudo: true, order: pseudoOrder, sourceIndex: pseudo === '::before' ? -1 : 999999 };
+          items.push(pseudoItem);
+          items.sort((a, b) => (a.order - b.order) || (a.sourceIndex - b.sourceIndex));
+
+          const pIdx = items.indexOf(pseudoItem);
+          const prev = pIdx > 0 ? items[pIdx - 1] : null;
+          const next = pIdx < items.length - 1 ? items[pIdx + 1] : null;
+
+          if (isRow) {
+            if (prev) {
+              pseudoRect.x = prev.rect.right + colGap + scrollX;
+            } else {
+              pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+            }
+
+            if (next) {
+              const nextLeft = next.rect.left + scrollX;
+              const availableW = Math.max(0, nextLeft - colGap - pseudoRect.x);
+              pseudoRect.width = (!isNaN(w) && cs.width !== 'auto') ? w : availableW;
+            } else if (isNaN(w) || cs.width === 'auto') {
+              pseudoRect.width = Math.max(0, parentRect.x + parentRect.width - pseudoRect.x - (parseFloat(parentCs.paddingRight) || 0));
+            }
+
+            const align = cs.alignSelf !== 'auto' ? cs.alignSelf : parentCs.alignItems;
+            if (align === 'center') {
+              pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
+            } else if (align === 'flex-end') {
+              pseudoRect.y = parentRect.y + parentRect.height - pseudoRect.height - (parseFloat(parentCs.paddingBottom) || 0);
+            } else if (align === 'flex-start') {
+              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+            } else if (prev) {
+              pseudoRect.y = prev.rect.y + (prev.rect.height - pseudoRect.height) / 2 + scrollY;
+            } else {
+              pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
+            }
+          } else {
+            if (prev) {
+              pseudoRect.y = prev.rect.bottom + rowGap + scrollY;
+            } else {
+              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+            }
+            if (next) {
+              const nextTop = next.rect.top + scrollY;
+              const availableH = Math.max(0, nextTop - rowGap - pseudoRect.y);
+              pseudoRect.height = (!isNaN(h) && cs.height !== 'auto') ? h : availableH;
+            }
+            const align = cs.alignSelf !== 'auto' ? cs.alignSelf : parentCs.alignItems;
+            if (align === 'center') {
+              pseudoRect.x = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
+            } else if (align === 'flex-end') {
+              pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0);
+            } else {
+              pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+            }
+          }
+        } else {
+          if (pseudo === '::before') {
+            pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+            pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+          } else if (el.lastElementChild) {
+            const lastR = el.lastElementChild.getBoundingClientRect();
+            pseudoRect.x = lastR.right + scrollX;
+            pseudoRect.y = lastR.top + scrollY;
+          }
+        }
+      }
+
+      if (styles.backgroundImage && styles.backgroundImage.includes('conic-gradient')) {
+        const bgs = splitByTopLevelCommas(styles.backgroundImage);
+        const w = Math.max(1, Math.round(pseudoRect.width || 100));
+        const h = Math.max(1, Math.round(pseudoRect.height || 100));
+        const newBgs = bgs.map(bg => {
+          if (bg.includes('conic-gradient')) {
+            const dataUrl = renderConicGradientToDataUrl(bg, w, h);
+            if (dataUrl) return `url("${dataUrl}")`;
+          }
+          return bg;
+        });
+        styles.backgroundImage = newBgs.join(', ');
       }
 
       const bgs = splitByTopLevelCommas(cs.backgroundImage);
@@ -1644,7 +1897,24 @@
             nodeType: ELEMENT_NODE,
             id: getNodeId('text-symbol-wrap'),
             tag: 'SPAN',
-            styles: { ...parentStyles, backgroundColor: 'rgba(0, 0, 0, 0)' },
+            styles: {
+              ...parentStyles,
+              backgroundColor: 'rgba(0, 0, 0, 0)',
+              backgroundImage: 'none',
+              borderTopWidth: '0px',
+              borderRightWidth: '0px',
+              borderBottomWidth: '0px',
+              borderLeftWidth: '0px',
+              borderTopStyle: 'none',
+              borderRightStyle: 'none',
+              borderBottomStyle: 'none',
+              borderLeftStyle: 'none',
+              boxShadow: 'none',
+              outlineWidth: '0px',
+              outlineStyle: 'none',
+              textDecoration: 'none',
+              textDecorationLine: 'none'
+            },
             rect: {
               x: rect.x + (isFixed ? 0 : window.scrollX),
               y: rect.y + (isFixed ? 0 : window.scrollY),
@@ -1742,7 +2012,24 @@
           nodeType: ELEMENT_NODE,
           id: getNodeId('text-wrap'),
           tag: 'SPAN',
-          styles: { ...parentStyles, backgroundColor: 'rgba(0, 0, 0, 0)' },
+          styles: {
+            ...parentStyles,
+            backgroundColor: 'rgba(0, 0, 0, 0)',
+            backgroundImage: 'none',
+            borderTopWidth: '0px',
+            borderRightWidth: '0px',
+            borderBottomWidth: '0px',
+            borderLeftWidth: '0px',
+            borderTopStyle: 'none',
+            borderRightStyle: 'none',
+            borderBottomStyle: 'none',
+            borderLeftStyle: 'none',
+            boxShadow: 'none',
+            outlineWidth: '0px',
+            outlineStyle: 'none',
+            textDecoration: 'none',
+            textDecorationLine: 'none'
+          },
           rect: {
             x: rect.x + (isFixed ? 0 : window.scrollX),
             y: rect.y + (isFixed ? 0 : window.scrollY),
@@ -1860,6 +2147,23 @@
       docRect.offsetHeight = el.offsetHeight;
     }
 
+    if (styles.backgroundImage && styles.backgroundImage.includes('conic-gradient')) {
+      const bgs = splitByTopLevelCommas(styles.backgroundImage);
+      const w = Math.max(1, Math.round(docRect.width || el.offsetWidth || 100));
+      const h = Math.max(1, Math.round(docRect.height || el.offsetHeight || 100));
+      const newBgs = bgs.map(bg => {
+        if (bg.includes('conic-gradient')) {
+          const dataUrl = renderConicGradientToDataUrl(bg, w, h);
+          if (dataUrl) {
+            assets.addDataUrl(dataUrl);
+            return `url("${dataUrl}")`;
+          }
+        }
+        return bg;
+      });
+      styles.backgroundImage = newBgs.join(', ');
+    }
+
     let svgContent = null;
     if (tag === 'SVG' || el instanceof SVGElement) {
       svgContent = serializeSVG(el);
@@ -1888,6 +2192,94 @@
           svgContent = fallbackSvg;
           styles.backgroundImage = 'none'; // Clear bg to prevent double rendering in code.js
         }
+      } else if (!hasChildElements && !hasText && bgs.length === 1 && (bgs[0].includes('radial-gradient') || bgs[0].includes('repeating-linear-gradient'))) {
+        const bgStr = bgs[0];
+        if (bgStr.includes('radial-gradient')) {
+          // Fallback for simple repeating dotted borders drawn with radial-gradient
+          const radialMatch = bgStr.match(/radial-gradient\([^,]+,\s*(.+?)\s+([\d.]+)px,\s*(?:transparent|rgba?\([^)]+\))\s+[\d.]+px\)/i);
+          if (radialMatch) {
+            const dotColor = radialMatch[1];
+            const dotRadius = parseFloat(radialMatch[2]);
+            const bgSize = cs.backgroundSize || '';
+            const sizeMatch = bgSize.match(/([\d.]+)px\s+([\d.]+)px/);
+            
+            let tileW = dotRadius * 2 + 2;
+            let tileH = dotRadius * 2 + 2;
+            
+            if (sizeMatch) {
+              tileW = parseFloat(sizeMatch[1]);
+              tileH = parseFloat(sizeMatch[2]);
+            } else if (bgSize.includes('%') || bgSize.includes('calc')) {
+              const tempDiv = document.createElement('div');
+              tempDiv.style.width = bgSize.split(' ')[0];
+              tempDiv.style.height = bgSize.split(' ')[1] || bgSize.split(' ')[0];
+              el.appendChild(tempDiv);
+              tileW = tempDiv.getBoundingClientRect().width || (docRect.width / 30);
+              tileH = tempDiv.getBoundingClientRect().height || docRect.height;
+              tempDiv.remove();
+            }
+
+            if (tileW > 0 && tileH > 0 && dotRadius > 0) {
+              const svgW = Math.round(docRect.width);
+              const svgH = Math.round(docRect.height);
+              let circles = '';
+              for (let y = tileH / 2; y < svgH + tileH; y += tileH) {
+                for (let x = tileW / 2; x < svgW + tileW; x += tileW) {
+                  circles += `<circle cx="${x}" cy="${y}" r="${dotRadius}" fill="${dotColor}" />`;
+                }
+              }
+              svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">${circles}</svg>`;
+              styles.backgroundImage = 'none';
+              styles.backgroundColor = 'transparent';
+            }
+          }
+        } else if (bgStr.includes('repeating-linear-gradient')) {
+          // Fallback for repeating-linear-gradient (tick marks)
+          const isHorizontal = bgStr.includes('90deg') || bgStr.includes('to right') || bgStr.includes('270deg') || bgStr.includes('to left');
+          const isVertical = bgStr.includes('0deg') || bgStr.includes('to top') || bgStr.includes('180deg') || bgStr.includes('to bottom');
+          
+          if (isHorizontal || isVertical) {
+             const colorMatch = bgStr.match(/(rgba?\([^)]+\)|#[0-9a-fA-F]{3,8})/);
+             const color = colorMatch ? colorMatch[1] : (cs.color || '#ffffff');
+             
+             // Extract all dimension tokens (e.g. 0px, 1.5px, 5%)
+             const nums = [...bgStr.matchAll(/([\d.]+)(px|%)/g)];
+             if (nums.length >= 2) {
+                // Find first non-zero stop for tick thickness
+                let tickThickness = 1.5;
+                for (const m of nums) {
+                  const val = parseFloat(m[1]);
+                  if (val > 0) {
+                    tickThickness = m[2] === '%' ? (isHorizontal ? docRect.width : docRect.height) * (val / 100) : val;
+                    break;
+                  }
+                }
+                
+                // Gap is the last stop
+                const lastToken = nums[nums.length - 1];
+                const gapEndRaw = parseFloat(lastToken[1]);
+                let gapEnd = lastToken[2] === '%' ? (isHorizontal ? docRect.width : docRect.height) * (gapEndRaw / 100) : gapEndRaw;
+                
+                if (gapEnd > 0 && tickThickness > 0) {
+                  const svgW = Math.round(docRect.width);
+                  const svgH = Math.round(docRect.height);
+                  let shapes = '';
+                  if (isHorizontal) {
+                    for (let x = 0; x < svgW + gapEnd; x += gapEnd) {
+                      shapes += `<rect x="${Number(x.toFixed(2))}" y="0" width="${Number(tickThickness.toFixed(2))}" height="${svgH}" fill="${color}" />`;
+                    }
+                  } else {
+                    for (let y = 0; y < svgH + gapEnd; y += gapEnd) {
+                      shapes += `<rect x="0" y="${Number(y.toFixed(2))}" width="${svgW}" height="${Number(tickThickness.toFixed(2))}" fill="${color}" />`;
+                    }
+                  }
+                  svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">${shapes}</svg>`;
+                  styles.backgroundImage = 'none';
+                  styles.backgroundColor = 'transparent';
+                }
+             }
+          }
+        }
       }
     }
 
@@ -1896,6 +2288,20 @@
     const pseudoElementNodes = (before || after) ? { before, after } : undefined;
 
     const childNodes = [];
+    if (svgContent && pseudoElementNodes) {
+      // If an element has both SVG content (e.g. converted repeating ticks background) AND pseudo-elements (e.g. ::after indicator needle),
+      // preserve the SVG as an inner background node so pseudoElementNodes can still be rendered on the parent frame!
+      childNodes.push({
+        nodeType: ELEMENT_NODE,
+        id: getNodeId('svg-bg'),
+        tag: 'SVG',
+        content: svgContent,
+        styles: { ...styles, backgroundColor: 'transparent', backgroundImage: 'none' },
+        rect: { ...docRect }
+      });
+      svgContent = null; // Leave parent as container frame
+    }
+
     if (!svgContent) {
       const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
       for (const child of sourceNodes) {
@@ -1919,7 +2325,9 @@
     }
 
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || tag === 'INPUT' || tag === 'TEXTAREA') {
-      const val = el.value || el.placeholder || el.getAttribute('placeholder') || '';
+      const inputType = (el.getAttribute('type') || el.type || 'text').toLowerCase();
+      const isTextual = ['text', 'search', 'email', 'tel', 'url', 'password', 'number'].includes(inputType) || tag === 'TEXTAREA';
+      const val = isTextual ? (el.value || el.placeholder || el.getAttribute('placeholder') || '') : '';
       if (val && !childNodes.length) {
         const isPlaceholder = !el.value && (el.placeholder || el.getAttribute('placeholder'));
         const padLeft = parseFloat(styles.paddingLeft) || 0;

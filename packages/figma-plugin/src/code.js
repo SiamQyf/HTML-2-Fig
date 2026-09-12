@@ -313,6 +313,183 @@ function parseLinearGradient(css) {
   }
 }
 
+function parseRadialGradient(css) {
+  if (!css || !css.includes('radial-gradient(')) return null;
+  try {
+    const start = css.indexOf('radial-gradient(');
+    if (start === -1) return null;
+    let depth = 0;
+    let inner = '';
+    for (let i = start + 15; i < css.length; i++) {
+      if (css[i] === '(') depth++;
+      else if (css[i] === ')') {
+        depth--;
+        if (depth === 0) {
+          inner = css.substring(start + 16, i).trim();
+          break;
+        }
+      }
+    }
+    if (!inner) return null;
+
+    let stopsStr = inner;
+    // Check if first argument is shape / position (e.g. 'circle at center', 'ellipse at center', 'at center')
+    const firstCommaIdx = inner.indexOf(',');
+    if (firstCommaIdx !== -1) {
+      const firstArg = inner.substring(0, firstCommaIdx).trim();
+      if (firstArg.includes('at ') || firstArg.includes('circle') || firstArg.includes('ellipse') || firstArg.includes('closest-') || firstArg.includes('farthest-')) {
+        stopsStr = inner.substring(firstCommaIdx + 1).trim();
+      }
+    }
+
+    const rawStops = splitByTopLevelCommas(stopsStr);
+    if (!rawStops || rawStops.length === 0) return null;
+
+    const stops = [];
+    const n = rawStops.length;
+    let maxPos = 0;
+
+    rawStops.forEach((raw, i) => {
+      const trimmed = raw.trim();
+      const posMatch = trimmed.match(/(.*?)\s+([\d.]+)%$/);
+      let colStr = trimmed;
+      let pos = n > 1 ? (i / (n - 1)) : i;
+
+      if (posMatch) {
+        colStr = posMatch[1].trim();
+        pos = parseFloat(posMatch[2]) / 100;
+      }
+
+      pos = Math.max(pos, maxPos);
+      maxPos = pos;
+
+      const col = parseColor(colStr);
+      if (col) {
+        stops.push({
+          position: clamp01(pos),
+          color: { r: col.r, g: col.g, b: col.b, a: clamp01(col.a) }
+        });
+      }
+    });
+
+    if (stops.length === 0) return null;
+    if (stops.length === 1) {
+      stops.push({ position: 1, color: { ...stops[0].color } });
+    }
+
+    return {
+      type: 'GRADIENT_RADIAL',
+      gradientTransform: [
+        [1, 0, 0],
+        [0, 1, 0]
+      ],
+      gradientStops: stops
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseAngularGradient(css) {
+  if (!css || !css.includes('conic-gradient(')) return null;
+  try {
+    const start = css.indexOf('conic-gradient(');
+    if (start === -1) return null;
+    let depth = 0;
+    let inner = '';
+    for (let i = start + 14; i < css.length; i++) {
+      if (css[i] === '(') depth++;
+      else if (css[i] === ')') {
+        depth--;
+        if (depth === 0) {
+          inner = css.substring(start + 15, i).trim();
+          break;
+        }
+      }
+    }
+    if (!inner) return null;
+
+    let fromAngle = 0;
+    let stopsStr = inner;
+
+    const headerMatch = inner.match(/^((?:from\s+[^,]+|\s*at\s+[^,]+)+)\s*,\s*(.*)$/is);
+    if (headerMatch) {
+      const header = headerMatch[1].trim();
+      stopsStr = headerMatch[2].trim();
+
+      const fromMatch = header.match(/from\s+(-?[\d.]+)(deg|rad|turn|grad)?/i);
+      if (fromMatch) {
+        const val = parseFloat(fromMatch[1]);
+        const unit = (fromMatch[2] || 'deg').toLowerCase();
+        if (unit === 'deg') fromAngle = val;
+        else if (unit === 'rad') fromAngle = (val * 180) / Math.PI;
+        else if (unit === 'turn') fromAngle = val * 360;
+        else if (unit === 'grad') fromAngle = (val * 360) / 400;
+      }
+    }
+
+    const rawStops = splitByTopLevelCommas(stopsStr);
+    if (!rawStops || rawStops.length === 0) return null;
+
+    const stops = [];
+    const n = rawStops.length;
+    let maxPos = 0;
+
+    rawStops.forEach((raw, i) => {
+      const trimmed = raw.trim();
+      const match = trimmed.match(/^(.*?)\s+([\d.]+)(%|deg|turn|rad|grad)?$/i);
+      let colStr = trimmed;
+      let pos = n > 1 ? (i / (n - 1)) : i;
+
+      if (match) {
+        colStr = match[1].trim();
+        const num = parseFloat(match[2]);
+        const unit = (match[3] || '').toLowerCase();
+        if (unit === '%') pos = num / 100;
+        else if (unit === 'deg') pos = num / 360;
+        else if (unit === 'turn') pos = num;
+        else if (unit === 'rad') pos = num / (2 * Math.PI);
+        else if (unit === 'grad') pos = num / 400;
+        else if (num > 1) pos = num / 360;
+        else pos = num;
+      }
+
+      pos = Math.max(pos, maxPos);
+      maxPos = pos;
+
+      const col = parseColor(colStr);
+      if (col) {
+        stops.push({
+          position: clamp01(pos),
+          color: { r: col.r, g: col.g, b: col.b, a: clamp01(col.a) }
+        });
+      }
+    });
+
+    if (stops.length === 0) return null;
+    if (stops.length === 1) {
+      stops.push({ position: 1, color: { ...stops[0].color } });
+    }
+
+    // In Figma, GRADIENT_ANGULAR rotates around center (0.5, 0.5)
+    // CSS conic-gradient 0deg points UP (-PI/2)
+    const rad = ((fromAngle - 90) * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    return {
+      type: 'GRADIENT_ANGULAR',
+      gradientTransform: [
+        [cos, sin, 0.5 - 0.5 * (cos + sin)],
+        [-sin, cos, 0.5 - 0.5 * (-sin + cos)]
+      ],
+      gradientStops: stops
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseBoxShadows(css) {
   if (!css || css === 'none' || css === 'initial' || css === 'inherit') return [];
   const effects = [];
@@ -643,13 +820,17 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
             fills.push(grad);
             continue;
           }
-        }
-        // Fallback: If gradient parsing fails (e.g. radial/conic), extract the first valid color and use as solid fill
-        const firstColorMatch = bg.match(/(?:rgba?|hsla?|color)\([^)]+\)|#[0-9a-f]{3,8}|\b(?:transparent|black|white|red|green|blue)\b/i);
-        if (firstColorMatch) {
-          const fallbackBg = parseColor(firstColorMatch[0]);
-          if (fallbackBg && fallbackBg.a > 0.005) {
-            fills.push({ type: 'SOLID', color: { r: fallbackBg.r, g: fallbackBg.g, b: fallbackBg.b }, opacity: clamp01(fallbackBg.a) });
+        } else if (bg.includes('radial-gradient')) {
+          const grad = parseRadialGradient(bg);
+          if (grad) {
+            fills.push(grad);
+            continue;
+          }
+        } else if (bg.includes('conic-gradient')) {
+          const grad = parseAngularGradient(bg);
+          if (grad) {
+            fills.push(grad);
+            continue;
           }
         }
       }
@@ -667,10 +848,17 @@ function applyStrokes(node, styles) {
     return p && p.a > 0.01;
   };
 
-  const topColor = isColorVisible(styles.borderTopColor) ? styles.borderTopColor : (isColorVisible(styles.borderColor) ? styles.borderColor : null);
-  const rightColor = isColorVisible(styles.borderRightColor) ? styles.borderRightColor : (isColorVisible(styles.borderColor) ? styles.borderColor : null);
-  const bottomColor = isColorVisible(styles.borderBottomColor) ? styles.borderBottomColor : (isColorVisible(styles.borderColor) ? styles.borderColor : null);
-  const leftColor = isColorVisible(styles.borderLeftColor) ? styles.borderLeftColor : (isColorVisible(styles.borderColor) ? styles.borderColor : null);
+  const getBorderColor = (c1, c2) => {
+    if (c1 && isColorVisible(c1)) return c1;
+    if (c2 && isColorVisible(c2)) return c2;
+    if (c1 === undefined && c2 === undefined) return '#000000';
+    return null;
+  };
+
+  const topColor = getBorderColor(styles.borderTopColor, styles.borderColor);
+  const bottomColor = getBorderColor(styles.borderBottomColor, styles.borderColor);
+  const leftColor = getBorderColor(styles.borderLeftColor, styles.borderColor);
+  const rightColor = getBorderColor(styles.borderRightColor, styles.borderColor);
 
   const topW = (styles.borderTopStyle && styles.borderTopStyle !== 'none' && styles.borderTopStyle !== 'hidden' && topColor) ? (parseFloat(styles.borderTopWidth) || 0) : 0;
   const rightW = (styles.borderRightStyle && styles.borderRightStyle !== 'none' && styles.borderRightStyle !== 'hidden' && rightColor) ? (parseFloat(styles.borderRightWidth) || 0) : 0;
@@ -679,6 +867,21 @@ function applyStrokes(node, styles) {
 
   const totalBorder = topW + rightW + bottomW + leftW;
   if (totalBorder <= 0) return;
+
+  // Prevent duplicate bottom border if an ancestor frame already draws a bottom-only border
+  if (bottomW > 0 && topW === 0 && leftW === 0 && rightW === 0) {
+    let p = node.parent;
+    let d = 0;
+    while (p && p.type === 'FRAME' && d < 3) {
+      try {
+        if (p.strokes && p.strokes.length > 0 && p.strokeBottomWeight > 0 && p.strokeTopWeight === 0 && p.strokeLeftWeight === 0 && p.strokeRightWeight === 0) {
+          return;
+        }
+      } catch (e) {}
+      p = p.parent;
+      d++;
+    }
+  }
 
   const activeColorStr = (topW > 0 && topColor) ||
                          (bottomW > 0 && bottomColor) ||
@@ -695,35 +898,96 @@ function applyStrokes(node, styles) {
     opacity: clamp01(borderColor.a)
   };
 
-  node.strokes = [strokeColor];
-  node.strokeAlign = 'INSIDE';
+  const hasDashOrDot = [styles.borderTopStyle, styles.borderRightStyle, styles.borderBottomStyle, styles.borderLeftStyle, styles.borderStyle]
+    .some(s => s === 'dashed' || s === 'dotted');
 
-  if (topW === rightW && rightW === bottomW && bottomW === leftW) {
+  const isUniform = topW === rightW && rightW === bottomW && bottomW === leftW;
+
+  // If uniform, we can use native Figma dashPattern and strokes
+  if (isUniform) {
+    node.strokes = [strokeColor];
+    node.strokeAlign = 'INSIDE';
     node.strokeWeight = topW;
-  } else {
-    try {
-      node.strokeTopWeight = topW;
-      node.strokeRightWeight = rightW;
-      node.strokeBottomWeight = bottomW;
-      node.strokeLeftWeight = leftW;
-    } catch {
-      node.strokeWeight = Math.max(topW, rightW, bottomW, leftW);
+    const borderStyle = styles.borderStyle || styles.borderTopStyle || 'solid';
+    if (borderStyle === 'dashed') {
+      const weight = topW || 1;
+      node.dashPattern = [weight * 3, weight * 3];
+    } else if (borderStyle === 'dotted') {
+      const weight = topW || 1;
+      node.dashPattern = [weight, weight * 2];
+      try { node.strokeCap = 'ROUND'; } catch {}
     }
+    return;
   }
 
-  const borderStyle = (topW > 0 && styles.borderTopStyle) ||
-                      (bottomW > 0 && styles.borderBottomStyle) ||
-                      (leftW > 0 && styles.borderLeftStyle) ||
-                      (rightW > 0 && styles.borderRightStyle) ||
-                      styles.borderStyle;
+  // If non-uniform AND it has dashed/dotted, we must render absolute vector lines to bypass Figma's limitation,
+  // and we clear the native strokes to prevent overlapping lines.
+  if (node.type === 'FRAME' && hasDashOrDot) {
+    node.strokes = []; // Clear native strokes
 
-  if (borderStyle === 'dashed') {
-    const weight = Math.max(topW, rightW, bottomW, leftW) || 1;
-    node.dashPattern = [weight * 3, weight * 3];
-  } else if (borderStyle === 'dotted') {
-    const weight = Math.max(topW, rightW, bottomW, leftW) || 1;
-    node.dashPattern = [weight, weight * 2];
-    node.strokeCap = 'ROUND';
+    const w = node.width || 1;
+    const h = node.height || 1;
+
+    const drawEdge = (style, weight, colorStr, x, y, len, isVertical, cHorizontal, cVertical) => {
+      if (weight <= 0) return;
+      try {
+        const edgeBorderColor = parseColor(colorStr || activeColorStr);
+        if (!edgeBorderColor || edgeBorderColor.a <= 0.005) return;
+        const edgeStrokeColor = {
+          type: 'SOLID',
+          color: { r: edgeBorderColor.r, g: edgeBorderColor.g, b: edgeBorderColor.b },
+          opacity: clamp01(edgeBorderColor.a)
+        };
+
+        const vec = figma.createVector();
+        vec.name = style + '-border';
+        
+        if (isVertical) {
+          vec.vectorPaths = [{ windingRule: 'NONE', data: `M 0 0 L 0 ${len}` }];
+        } else {
+          vec.vectorPaths = [{ windingRule: 'NONE', data: `M 0 0 L ${len} 0` }];
+        }
+        
+        vec.strokes = [edgeStrokeColor];
+        vec.strokeWeight = weight;
+        
+        if (style === 'dotted') {
+          try { vec.dashPattern = [0.01, weight * 2.5]; } catch {}
+          try { vec.strokeCap = 'ROUND'; } catch {}
+        } else if (style === 'dashed') {
+          try { vec.dashPattern = [weight * 3, weight * 3]; } catch {}
+        }
+
+        node.appendChild(vec);
+        try { vec.layoutPositioning = 'ABSOLUTE'; } catch {}
+        
+        vec.x = x;
+        vec.y = y;
+        try { vec.constraints = { horizontal: cHorizontal, vertical: cVertical }; } catch {}
+      } catch (e) {
+        console.warn('Failed to draw dashed edge:', e);
+      }
+    };
+
+    drawEdge(styles.borderTopStyle || 'solid', topW, topColor, 0, topW / 2, w, false, 'STRETCH', 'MIN');
+    drawEdge(styles.borderBottomStyle || 'solid', bottomW, bottomColor, 0, h - bottomW / 2, w, false, 'STRETCH', 'MAX');
+    drawEdge(styles.borderLeftStyle || 'solid', leftW, leftColor, leftW / 2, 0, h, true, 'MIN', 'STRETCH');
+    drawEdge(styles.borderRightStyle || 'solid', rightW, rightColor, w - rightW / 2, 0, h, true, 'MAX', 'STRETCH');
+    
+    return;
+  }
+
+  // Otherwise, it's non-uniform but solid. Try using individual native stroke weights.
+  node.strokes = [strokeColor];
+  node.strokeAlign = 'INSIDE';
+  try {
+    node.strokeTopWeight = topW;
+    node.strokeRightWeight = rightW;
+    node.strokeBottomWeight = bottomW;
+    node.strokeLeftWeight = leftW;
+  } catch {
+    // Fallback if individual stroke weights are unsupported
+    node.strokeWeight = Math.max(topW, rightW, bottomW, leftW);
   }
 }
 
@@ -790,6 +1054,33 @@ function applyCornerRadius(node, styles) {
 function applyOpacity(node, styles) {
   const op = parseFloat(styles.opacity);
   if (!isNaN(op) && op < 1) node.opacity = clamp01(op);
+}
+
+const CSS_TO_FIGMA_BLEND_MODES = {
+  'multiply': 'MULTIPLY',
+  'screen': 'SCREEN',
+  'overlay': 'OVERLAY',
+  'darken': 'DARKEN',
+  'lighten': 'LIGHTEN',
+  'color-dodge': 'COLOR_DODGE',
+  'color-burn': 'COLOR_BURN',
+  'hard-light': 'HARD_LIGHT',
+  'soft-light': 'SOFT_LIGHT',
+  'difference': 'DIFFERENCE',
+  'exclusion': 'EXCLUSION',
+  'hue': 'HUE',
+  'saturation': 'SATURATION',
+  'color': 'COLOR',
+  'luminosity': 'LUMINOSITY'
+};
+
+function applyBlendMode(node, styles) {
+  const mode = styles.mixBlendMode || styles['mix-blend-mode'];
+  if (mode && CSS_TO_FIGMA_BLEND_MODES[mode.toLowerCase()]) {
+    try {
+      node.blendMode = CSS_TO_FIGMA_BLEND_MODES[mode.toLowerCase()];
+    } catch {}
+  }
 }
 
 /* ======================================================================
@@ -903,6 +1194,32 @@ function prepareSvgString(svgString, isInverted) {
   if (isInverted) {
     clean = invertSvgColors(clean);
   }
+  // Convert style transforms with transform-origin into native SVG transform attributes
+  clean = clean.replace(/<([a-zA-Z0-9]+)\b([^>]*?)>/g, (m, tag, attrs) => {
+    const styleMatch = attrs.match(/style\s*=\s*["']([^"']*)["']/i);
+    if (!styleMatch || !styleMatch[1].includes('rotate(')) return m;
+    const styleContent = styleMatch[1];
+    const rotMatch = styleContent.match(/rotate\(\s*(-?[\d.]+)deg\s*\)/i);
+    if (!rotMatch) return m;
+    const deg = parseFloat(rotMatch[1]);
+    const origMatch = styleContent.match(/transform-origin:\s*([\d.]+)px\s+([\d.]+)px/i);
+    let nativeTransform = '';
+    if (origMatch) {
+      const ox = parseFloat(origMatch[1]);
+      const oy = parseFloat(origMatch[2]);
+      nativeTransform = `rotate(${deg} ${ox} ${oy})`;
+    } else {
+      nativeTransform = `rotate(${deg})`;
+    }
+    let newAttrs = attrs;
+    if (/\btransform\s*=/i.test(newAttrs)) {
+      newAttrs = newAttrs.replace(/\btransform\s*=\s*["'][^"']*["']/i, `transform="${nativeTransform}"`);
+    } else {
+      newAttrs = `${newAttrs} transform="${nativeTransform}"`;
+    }
+    return `<${tag}${newAttrs}>`;
+  });
+
   return clean;
 }
 
@@ -916,6 +1233,19 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   }
 
   const s = sNode.styles || inheritedStyles || {};
+  if (sNode.id && (sNode.id.includes('text-symbol-wrap') || sNode.id.includes('text-wrap'))) {
+    s.borderTopWidth = '0px';
+    s.borderRightWidth = '0px';
+    s.borderBottomWidth = '0px';
+    s.borderLeftWidth = '0px';
+    s.borderTopStyle = 'none';
+    s.borderRightStyle = 'none';
+    s.borderBottomStyle = 'none';
+    s.borderLeftStyle = 'none';
+    s.boxShadow = 'none';
+    s.textDecoration = 'none';
+    s.textDecorationLine = 'none';
+  }
   const x = sNode._localRect ? sNode._localRect.x : Math.round((sNode.rect?.x || 0) - parentX);
   const y = sNode._localRect ? sNode._localRect.y : Math.round((sNode.rect?.y || 0) - parentY);
   const w = Math.max(1, sNode._localRect ? sNode._localRect.width : Math.round(sNode.rect?.width || 0));
@@ -1089,6 +1419,111 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     }
   }
 
+  // Detect elements that are purely horizontal/vertical dotted/dashed line separators.
+  // Common CSS pattern: height:0 (or ≤4px, or flex spacer with no children/text), border-bottom/top: 1px dotted/dashed, no left/right borders.
+  // These MUST be Figma Vector nodes (not Frames or Rectangles) so dashPattern and strokeCap work correctly without 4-sided borders.
+  if (w > 0) {
+    const bTop   = (s.borderTopStyle   && s.borderTopStyle   !== 'none' && s.borderTopStyle   !== 'hidden') ? (parseFloat(s.borderTopWidth)   || 0) : 0;
+    const bBot   = (s.borderBottomStyle && s.borderBottomStyle !== 'none' && s.borderBottomStyle !== 'hidden') ? (parseFloat(s.borderBottomWidth) || 0) : 0;
+    const bLeft  = (s.borderLeftStyle  && s.borderLeftStyle  !== 'none' && s.borderLeftStyle  !== 'hidden') ? (parseFloat(s.borderLeftWidth)  || 0) : 0;
+    const bRight = (s.borderRightStyle && s.borderRightStyle !== 'none' && s.borderRightStyle !== 'hidden') ? (parseFloat(s.borderRightWidth) || 0) : 0;
+
+    const topDotted  = bTop  > 0 && (s.borderTopStyle   === 'dotted' || s.borderTopStyle   === 'dashed');
+    const botDotted  = bBot  > 0 && (s.borderBottomStyle === 'dotted' || s.borderBottomStyle === 'dashed');
+    const leftDotted = bLeft > 0 && (s.borderLeftStyle   === 'dotted' || s.borderLeftStyle   === 'dashed');
+    const rightDotted= bRight> 0 && (s.borderRightStyle  === 'dotted' || s.borderRightStyle  === 'dashed');
+
+    const isSpacer = (!sNode.childNodes || sNode.childNodes.length === 0) &&
+                     (!sNode.text || !sNode.text.trim()) &&
+                     (!s.backgroundColor || s.backgroundColor === 'transparent' || s.backgroundColor === 'rgba(0, 0, 0, 0)') &&
+                     (!s.backgroundImage || s.backgroundImage === 'none');
+
+    const isHorizDash = (h <= 4 || isSpacer) && (topDotted || botDotted) && bLeft === 0 && bRight === 0;
+    const isVertDash  = (w <= 4 || isSpacer) && (leftDotted || rightDotted) && bTop === 0 && bBot === 0;
+
+    const isRadialDash = (h <= 6 || isSpacer) && (
+      (s.backgroundImage && (s.backgroundImage.includes('radial-gradient') || s.backgroundImage.includes('repeating-linear-gradient'))) ||
+      (s.background && (s.background.includes('radial-gradient') || s.background.includes('repeating-linear-gradient')))
+    ) && (!sNode.childNodes || sNode.childNodes.length === 0) && (!sNode.text || !sNode.text.trim());
+
+    if (isHorizDash || isVertDash || isRadialDash) {
+      try {
+        let borderW  = 1;
+        let styleStr = 'dotted';
+        let colorStr = s.color || '#000000';
+        let dashPattern = [3, 3];
+        let strokeCap = 'NONE';
+
+        if (isRadialDash) {
+          const bgStr = s.backgroundImage || s.background || '';
+          const mColor = bgStr.match(/(rgba?\([^)]+\)|hsla?\([^)]+\)|#[0-9a-fA-F]{3,8})/i);
+          if (mColor) colorStr = mColor[1];
+
+          let step = 5;
+          const bgSize = (s.backgroundSize || '').trim();
+          const sizeM = bgSize.match(/([\d.]+)px/);
+          if (sizeM) {
+            step = Math.max(2, parseFloat(sizeM[1]));
+          } else {
+            const radM = bgStr.match(/([\d.]+)px/);
+            if (radM) step = Math.max(2, parseFloat(radM[1]) * 4);
+          }
+
+          const radM2 = bgStr.match(/([\d.]+)px/);
+          const dotRadius = radM2 ? parseFloat(radM2[1]) : 1;
+          borderW = Math.max(1, Math.min(Math.round(h) || 1, Math.round(dotRadius * 2)));
+
+          dashPattern = [0.01, Math.max(2, step)];
+          styleStr = 'dotted';
+          strokeCap = 'ROUND';
+        } else {
+          borderW = isHorizDash ? Math.max(bTop, bBot) : Math.max(bLeft, bRight);
+          styleStr = isHorizDash
+            ? (topDotted ? s.borderTopStyle : s.borderBottomStyle)
+            : (leftDotted ? s.borderLeftStyle : s.borderRightStyle);
+          colorStr = isHorizDash
+            ? (topDotted ? s.borderTopColor : s.borderBottomColor)
+            : (leftDotted ? s.borderLeftColor : s.borderRightColor);
+
+          if (styleStr === 'dashed') {
+            dashPattern = [borderW * 3, borderW * 3];
+            strokeCap = 'NONE';
+          } else if (styleStr === 'dotted') {
+            dashPattern = [0.01, borderW * 2.5];
+            strokeCap = 'ROUND';
+          }
+        }
+
+        const dashColor = parseColor(colorStr || s.color || '#000000');
+        if (dashColor && dashColor.a > 0.005) {
+          const vecNode = figma.createVector();
+          vecNode.name = (sNode.attributes?.class || sNode.tag || 'div').toLowerCase() + '-' + styleStr;
+          parentFrame.appendChild(vecNode);
+
+          const lineW = Math.max(1, borderW);
+          if (isHorizDash || isRadialDash) {
+            vecNode.vectorPaths = [{ windingRule: 'NONE', data: `M 0 0 L ${Math.max(1, w)} 0` }];
+            vecNode.x = x;
+            vecNode.y = isRadialDash ? Math.round(y + h / 2) : (isSpacer && h > 4 ? y + h / 2 : y + (topDotted ? 0 : h));
+          } else {
+            vecNode.vectorPaths = [{ windingRule: 'NONE', data: `M 0 0 L 0 ${Math.max(1, h)}` }];
+            vecNode.x = isSpacer && w > 4 ? x + w / 2 : x + (leftDotted ? 0 : w);
+            vecNode.y = y;
+          }
+
+          vecNode.strokes = [{ type: 'SOLID', color: { r: dashColor.r, g: dashColor.g, b: dashColor.b }, opacity: clamp01(dashColor.a) }];
+          vecNode.strokeWeight = lineW;
+          vecNode.dashPattern = dashPattern;
+          try { vecNode.strokeCap = strokeCap; } catch {}
+
+          applyOpacity(vecNode, s);
+          reportProgress();
+          return;
+        }
+      } catch {}
+    }
+  }
+
   // Frame container
   const frame = figma.createFrame();
   frame.name = (sNode.tag || 'node').toLowerCase() + (sNode.attributes?.id ? `#${sNode.attributes.id}` : '');
@@ -1218,6 +1653,22 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     }
   }
 
+  // If this is a zero-height (or zero-width) element that has visible border strokes
+  // (a common CSS pattern for dotted/dashed leader lines: height:0 + border-bottom),
+  // expand the frame to at least the stroke weight so Figma can render the stroke.
+  if (rectH < 1) {
+    const bTop = (s.borderTopStyle && s.borderTopStyle !== 'none') ? (parseFloat(s.borderTopWidth) || 0) : 0;
+    const bBot = (s.borderBottomStyle && s.borderBottomStyle !== 'none') ? (parseFloat(s.borderBottomWidth) || 0) : 0;
+    const maxB = Math.max(bTop, bBot);
+    if (maxB > 0) rectH = Math.max(1, maxB);
+  }
+  if (rectW < 1) {
+    const bLeft = (s.borderLeftStyle && s.borderLeftStyle !== 'none') ? (parseFloat(s.borderLeftWidth) || 0) : 0;
+    const bRight = (s.borderRightStyle && s.borderRightStyle !== 'none') ? (parseFloat(s.borderRightWidth) || 0) : 0;
+    const maxB = Math.max(bLeft, bRight);
+    if (maxB > 0) rectW = Math.max(1, maxB);
+  }
+
   frame.resize(rectW, rectH);
   frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden' || s.overflow === 'clip' || s.overflowX === 'clip');
 
@@ -1227,6 +1678,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   applyEffects(frame, s);
   applyCornerRadius(frame, s);
   applyOpacity(frame, s);
+  applyBlendMode(frame, s);
 
   // If node itself has direct text (like pseudo elements with content: "Logo #3")
   if (sNode.text && sNode.text.trim()) {
@@ -1282,7 +1734,31 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   textNode.fontSize = fontSize;
 
   const dec = (s.textDecorationLine || s.textDecoration || '').toLowerCase();
-  if (dec.includes('underline')) {
+  
+  let ancestorHasBorderBottom = false;
+  let curr = parentFrame;
+  let depth = 0;
+  while (curr && curr.type !== 'PAGE' && curr.type !== 'DOCUMENT' && depth < 4) {
+    try {
+      if (curr.strokes && curr.strokes.length > 0) {
+        if (curr.strokeBottomWeight > 0 && curr.strokeTopWeight === 0 && curr.strokeLeftWeight === 0 && curr.strokeRightWeight === 0) {
+          ancestorHasBorderBottom = true;
+          break;
+        }
+      }
+    } catch (e) {}
+    if (curr.children) {
+      const borderLines = curr.children.filter(c => c.type === 'VECTOR' && c.name && c.name.endsWith('-border'));
+      if (borderLines.length === 1 && borderLines[0].y >= curr.height / 2) {
+        ancestorHasBorderBottom = true;
+        break;
+      }
+    }
+    curr = curr.parent;
+    depth++;
+  }
+
+  if (dec.includes('underline') && !ancestorHasBorderBottom) {
     try { textNode.textDecoration = 'UNDERLINE'; } catch {}
   } else if (dec.includes('line-through')) {
     try { textNode.textDecoration = 'STRIKETHROUGH'; } catch {}
@@ -1306,6 +1782,12 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   textNode.textAlignHorizontal = alignMap[s.textAlign] || 'LEFT';
 
   const isTextClip = s.backgroundClip === 'text' || s.webkitBackgroundClip === 'text';
+  // Determine if this is outline-only text (transparent fill + webkit-text-stroke)
+  const hasTextStroke = s.webkitTextStrokeWidth && parseFloat(s.webkitTextStrokeWidth) > 0;
+  const fillColorRaw = s.webkitTextFillColor || s.color || '#000000';
+  const fillColor = parseColor(fillColorRaw);
+  const fillIsTransparent = !fillColor || fillColor.a < 0.005;
+
   if (isTextClip) {
     const textFills = [];
     const bg = parseColor(s.backgroundColor);
@@ -1314,20 +1796,34 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       const grad = parseLinearGradient(s.backgroundImage);
       if (grad) textFills.push(grad);
     }
-    
+
     if (textFills.length > 0) {
       textNode.fills = textFills;
     } else {
-      const color = parseColor(s.webkitTextFillColor || s.color || '#000000');
-      if (color) textNode.fills = [{ type: 'SOLID', color: { r: color.r, g: color.g, b: color.b }, opacity: clamp01(color.a) }];
+      if (fillColor) textNode.fills = [{ type: 'SOLID', color: { r: fillColor.r, g: fillColor.g, b: fillColor.b }, opacity: clamp01(fillColor.a) }];
     }
+  } else if (hasTextStroke && fillIsTransparent) {
+    // Outline-only text: no fill, stroke only (e.g. large decorative outlined numerals)
+    textNode.fills = [];
   } else {
-    const color = parseColor(s.webkitTextFillColor || s.color || '#000000');
-    if (color) {
-      textNode.fills = [{ type: 'SOLID', color: { r: color.r, g: color.g, b: color.b }, opacity: clamp01(color.a) }];
+    if (fillColor) {
+      textNode.fills = [{ type: 'SOLID', color: { r: fillColor.r, g: fillColor.g, b: fillColor.b }, opacity: clamp01(fillColor.a) }];
     }
   }
-  
+
+  // Apply -webkit-text-stroke as a Figma stroke on the text node
+  if (hasTextStroke) {
+    const strokeW = parseFloat(s.webkitTextStrokeWidth);
+    const strokeColor = parseColor(s.webkitTextStrokeColor || s.color || '#000000');
+    if (!isNaN(strokeW) && strokeW > 0 && strokeColor) {
+      try {
+        textNode.strokes = [{ type: 'SOLID', color: { r: strokeColor.r, g: strokeColor.g, b: strokeColor.b }, opacity: clamp01(strokeColor.a) }];
+        textNode.strokeWeight = strokeW;
+        textNode.strokeAlign = 'CENTER';
+      } catch {}
+    }
+  }
+
   applyOpacity(textNode, s);
 
   parentFrame.appendChild(textNode);
