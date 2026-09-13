@@ -72,4 +72,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     return true; // Keep channel open for async response
   }
+
+  if (request.type === 'CAPTURE_VISIBLE_TAB') {
+    const windowId = sender.tab ? sender.tab.windowId : null;
+    chrome.tabs.captureVisibleTab(windowId, { format: 'png' })
+      .then(dataUrl => sendResponse({ data: dataUrl, error: null }))
+      .catch(err => sendResponse({ data: null, error: err.message }));
+    return true; // Keep channel open for async response
+  }
 });
+

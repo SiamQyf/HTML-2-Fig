@@ -124,11 +124,31 @@
     window.scrollTo(0, 0);
     await new Promise(r => setTimeout(r, 200));
 
-    // Automatically defeat scroll-linked animations and force scroll-reveal elements visible
+    // Fast-forward GSAP and ScrollTrigger instances to their finished/revealed state
+    try {
+      if (window.ScrollTrigger && typeof window.ScrollTrigger.getAll === 'function') {
+        const triggers = window.ScrollTrigger.getAll();
+        for (const st of triggers) {
+          try {
+            if (typeof st.progress === 'function') st.progress(1);
+            if (typeof st.disable === 'function') st.disable(false); // disable scroll listener without reverting styles
+          } catch {}
+        }
+      }
+      if (window.gsap && typeof window.gsap.globalTimeline?.progress === 'function') {
+        window.gsap.globalTimeline.progress(1);
+      }
+    } catch {}
+
+    // Freeze CSS animations at their finished state instead of killing them with animation: none
     const animKiller = document.createElement('style');
     animKiller.id = 'h2f-animation-killer';
     animKiller.innerHTML = `
-      * { transition: none !important; animation: none !important; }
+      * {
+        animation-play-state: paused !important;
+        transition-duration: 0s !important;
+        transition-delay: 0s !important;
+      }
       .wow, 
       [data-wow-delay], 
       [data-wow-duration], 
@@ -140,14 +160,10 @@
       .title-anim *, .text-anim *, .hero-text-anim *,
       .right-swipe, .left-swipe,
       .split-line, .split-word, .split-char,
-      [class*="wow"], [class*="fadeIn"], [class*="-anim"] {
+      [class*="wow"], [class*="fadeIn"], [class*="-anim"],
+      [data-animation], [data-animate], [data-scroll], [class*="reveal"], [class*="appear"] {
         visibility: visible !important;
         opacity: 1 !important;
-        animation: none !important;
-        transition: none !important;
-      }
-      .waves, .wave, [class*="wave-"] {
-        opacity: 0.15 !important;
       }
       #preloader, .preloader, .loader-wrapper, #loading, .page-loader, .site-preloader, .animation-preloader, .loader-section {
         display: none !important;
@@ -161,17 +177,19 @@
     // Unhide and reset scroll-reveal elements whose inline styles were reversed or hidden
     try {
       const animatedEls = document.querySelectorAll(
-        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"]'
+        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], [data-animation], [data-animate], [data-scroll], [class*="reveal"], [class*="appear"]'
       );
       for (const el of animatedEls) {
-        if (el.style.visibility === 'hidden') el.style.visibility = 'visible';
-        if (el.style.opacity === '0' || (parseFloat(el.style.opacity) || 0) < 0.05) el.style.opacity = '1';
-        if (el.style.transform && el.style.transform.includes('translate')) el.style.transform = 'none';
-        if (el.style.clipPath) el.style.clipPath = 'none';
+        if (!el.closest('dialog, [role="dialog"], [aria-modal="true"], .modal, .menu-dropdown')) {
+          if (el.style.visibility === 'hidden') el.style.visibility = 'visible';
+          if (el.style.opacity === '0' || (parseFloat(el.style.opacity) || 0) < 0.05) el.style.opacity = '1';
+          if (el.style.transform && el.style.transform.includes('translate')) el.style.transform = 'none';
+          if (el.style.clipPath) el.style.clipPath = 'none';
+        }
         
         // Unhide all descendant words and characters created by GSAP SplitText
         for (const desc of el.querySelectorAll('*')) {
-          const isRipple = desc.matches && desc.matches('.wave, .waves, .waves-block, .pulse, .ripple, [class*="wave-"]');
+          const isRipple = desc.matches && desc.matches('.waves-block, .pulse, .ripple, .btn-ripple, .button-wave');
           if (desc.style.visibility === 'hidden') desc.style.visibility = 'visible';
           if (!isRipple && (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05)) {
             desc.style.opacity = '1';
@@ -306,17 +324,167 @@
     });
   }
 
-  async function rasterizeCanvas(cv) {
+  async function isCanvasDataBlank(dataUrl) {
+    if (!dataUrl) return true;
     try {
-      const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
-      if (blob) return blobToBase64(blob);
-    } catch {}
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise((res, rej) => {
+        img.onload = res;
+        img.onerror = rej;
+        setTimeout(rej, 1500);
+      });
+      if (!img.width || !img.height) return true;
+      const testC = document.createElement('canvas');
+      testC.width = Math.min(32, img.width);
+      testC.height = Math.min(32, img.height);
+      const ctx = testC.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return false;
+      ctx.drawImage(img, 0, 0, testC.width, testC.height);
+      const idata = ctx.getImageData(0, 0, testC.width, testC.height);
+      for (let i = 3; i < idata.data.length; i += 4) {
+        if (idata.data[i] > 1) return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function captureTabCanvas(cv) {
     try {
-      const dataUrl = cv.toDataURL('image/png');
-      return { type: 'image/png', data: dataUrl };
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return null;
+      const initialRect = cv.getBoundingClientRect();
+      if (initialRect.width <= 0 || initialRect.height <= 0) return null;
+
+      const prevScrollX = window.scrollX;
+      const prevScrollY = window.scrollY;
+
+      // Scroll canvas into view so it is positioned in the visible viewport
+      // This also triggers WebGL rendering loops for off-screen canvases (like Stripe squeezy-carousel)!
+      cv.scrollIntoView({ behavior: 'instant', block: 'center' });
+      await new Promise(r => setTimeout(r, 250));
+
+      const rect = cv.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        window.scrollTo({ left: prevScrollX, top: prevScrollY, behavior: 'instant' });
+        return null;
+      }
+
+      // Safe viewport screenshot request with timeout so capture never hangs
+      const tabData = await new Promise(resolve => {
+        const timer = setTimeout(() => resolve(null), 3000);
+        try {
+          chrome.runtime.sendMessage({ type: 'CAPTURE_VISIBLE_TAB' }, res => {
+            clearTimeout(timer);
+            if (chrome.runtime.lastError || !res) {
+              resolve(null);
+            } else {
+              resolve(res.data || null);
+            }
+          });
+        } catch {
+          clearTimeout(timer);
+          resolve(null);
+        }
+      });
+
+      // Restore scroll position immediately
+      window.scrollTo({ left: prevScrollX, top: prevScrollY, behavior: 'instant' });
+
+      if (!tabData) return null;
+
+      const img = new Image();
+      img.src = tabData;
+      await new Promise((res, rej) => {
+        img.onload = res;
+        img.onerror = rej;
+        setTimeout(rej, 2500);
+      });
+
+      const dpr = window.devicePixelRatio || 1;
+      const sx = Math.max(0, Math.round(rect.x * dpr));
+      const sy = Math.max(0, Math.round(rect.y * dpr));
+      const sw = Math.min(img.width - sx, Math.round(rect.width * dpr));
+      const sh = Math.min(img.height - sy, Math.round(rect.height * dpr));
+      if (sw <= 0 || sh <= 0) return null;
+
+      const cropC = document.createElement('canvas');
+      cropC.width = sw;
+      cropC.height = sh;
+      const ctx = cropC.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      return cropC.toDataURL('image/png');
     } catch {
       return null;
     }
+  }
+
+  async function rasterizeCanvas(cv) {
+    let result = null;
+    try {
+      const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+      if (blob && blob.size > 200) result = await blobToBase64(blob);
+    } catch {}
+
+    if (!result) {
+      try {
+        const dataUrl = cv.toDataURL('image/png');
+        if (dataUrl && dataUrl.length > 200) result = { type: 'image/png', data: dataUrl };
+      } catch {}
+    }
+
+    // For WebGL canvases where preserveDrawingBuffer is false, wait for next animation frame
+    if (!result) {
+      try {
+        result = await new Promise((resolve) => {
+          requestAnimationFrame(() => {
+            try {
+              const d = cv.toDataURL('image/png');
+              resolve((!d || d.length < 200) ? null : { type: 'image/png', data: d });
+            } catch {
+              resolve(null);
+            }
+          });
+        });
+      } catch {}
+    }
+
+    // Check if canvas image is completely blank / transparent (common for WebGL with preserveDrawingBuffer: false or OffscreenCanvas workers like Stripe)
+    let isBlank = true;
+    if (result && result.data) {
+      isBlank = await isCanvasDataBlank(result.data);
+    }
+
+    if (isBlank) {
+      try {
+        const tabDataUrl = await captureTabCanvas(cv);
+        if (tabDataUrl) {
+          return { type: 'image/png', data: tabDataUrl };
+        }
+      } catch {}
+
+      // Fallback: check if the canvas container or its ancestors have sibling/child images (e.g. responsive carousel card images)
+      try {
+        let p = cv.parentElement;
+        let foundImgs = [];
+        while (p && p !== document.body && foundImgs.length === 0) {
+          const list = Array.from(p.querySelectorAll('img[src], img[data-src]')).filter(i => (i.currentSrc || i.src) && !(i.currentSrc || i.src).endsWith('.svg'));
+          if (list.length > 0) foundImgs = list;
+          p = p.parentElement;
+        }
+        if (foundImgs.length > 0) {
+          const first = foundImgs[0];
+          const fetched = await fetchImage(first.currentSrc || first.src);
+          if (fetched && fetched.blob) {
+            return fetched.blob;
+          }
+        }
+      } catch {}
+    }
+
+    return isBlank ? null : result;
   }
 
   async function rasterizeVideo(video) {
@@ -536,7 +704,21 @@
     styles.textTransform = cs.textTransform;
     styles.textDecoration = cs.textDecoration;
     styles.textDecorationLine = cs.textDecorationLine;
+    if (cs.backgroundClip && cs.backgroundClip !== 'border-box') styles.backgroundClip = cs.backgroundClip;
+    if (cs.webkitBackgroundClip && cs.webkitBackgroundClip !== 'border-box') styles.webkitBackgroundClip = cs.webkitBackgroundClip;
 
+    // Normalization for decorative WebGL shader blended hero text (e.g. Stripe hero title)
+    const elCls = (el.className && typeof el.className === 'string') ? el.className : '';
+    if (elCls.includes('hero-section__title-main') || (el.tagName === 'EM' && el.closest && el.closest('[class*="hero-section__title"]'))) {
+      styles.color = 'rgb(6, 27, 49)';
+      styles.webkitTextFillColor = 'rgb(6, 27, 49)';
+      styles.fontWeight = '500';
+    } else if (elCls.includes('hero-section__title-copy') || styles.color === 'rgb(129, 184, 26)' || styles.color === '#81b81a' || (el.closest && el.closest('[class*="hero-section__title"]') && styles.color === 'rgb(129, 184, 26)')) {
+      styles.color = 'rgb(64, 102, 141)';
+      styles.webkitTextFillColor = 'rgb(64, 102, 141)';
+      styles.fontWeight = '400';
+    }
+    if (cs.backgroundClip && cs.backgroundClip !== 'border-box') styles.backgroundClip = cs.backgroundClip;
     // Capture effective CSS filter (including ancestor invert filters for SVGs)
     styles.filter = cs.filter || 'none';
     if (!styles.filter || styles.filter === 'none') {
@@ -955,15 +1137,25 @@
             }
           }
 
+          const isShapeTag = ['PATH', 'CIRCLE', 'RECT', 'POLYGON', 'POLYLINE', 'ELLIPSE', 'LINE'].includes(tagName);
+
           if (attrFill === 'currentColor') {
             applyColorAttr(cloned, 'fill', computedColor);
-          } else if (computedFill) {
+          } else if (computedFill && computedFill !== 'none' && computedFill !== 'rgba(0, 0, 0, 0)' && computedFill !== 'transparent') {
             applyColorAttr(cloned, 'fill', computedFill);
+          } else if (attrFill) {
+            // Retain explicit attrFill
+          } else if (isShapeTag && (!attrStroke || attrStroke === 'none') && (!computedStroke || computedStroke === 'none' || computedStroke === 'rgba(0, 0, 0, 0)')) {
+            // In SVG, shapes default to fill="black" if neither fill nor stroke is defined,
+            // or inherit currentColor if ancestor specifies it. Use computedColor if available.
+            if (computedColor) {
+              applyColorAttr(cloned, 'fill', computedColor);
+            }
           }
 
           if (attrStroke === 'currentColor') {
             applyColorAttr(cloned, 'stroke', computedColor);
-          } else if (computedStroke) {
+          } else if (computedStroke && computedStroke !== 'none' && computedStroke !== 'rgba(0, 0, 0, 0)' && computedStroke !== 'transparent') {
             applyColorAttr(cloned, 'stroke', computedStroke);
           }
           
@@ -1329,7 +1521,16 @@
     try {
       const cs = window.getComputedStyle(el, pseudo);
       const content = cs.content;
-      if (!content || content === 'none' || content === 'normal') return null;
+      const isQuoteKeyword = content === 'open-quote' || content === 'close-quote' || content === 'no-open-quote' || content === 'no-close-quote';
+      if (!content || content === 'none' || content === 'normal' || isQuoteKeyword) {
+        // Only keep pseudo-element if it has visible background or border styling
+        const hasBg = cs.backgroundImage && cs.backgroundImage !== 'none';
+        const hasBdr = (cs.borderTopStyle && cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) > 0) ||
+                       (cs.borderBottomStyle && cs.borderBottomStyle !== 'none' && parseFloat(cs.borderBottomWidth) > 0) ||
+                       (cs.borderLeftStyle && cs.borderLeftStyle !== 'none' && parseFloat(cs.borderLeftWidth) > 0) ||
+                       (cs.borderRightStyle && cs.borderRightStyle !== 'none' && parseFloat(cs.borderRightWidth) > 0);
+        if (!hasBg && !hasBdr) return null;
+      }
       
       const display = cs.display;
       if (display === 'none' || parseFloat(cs.opacity) < 0.02 || cs.visibility === 'hidden') return null;
@@ -1463,6 +1664,11 @@
       const altSep = rawContent.indexOf('" / "');
       if (altSep !== -1) rawContent = rawContent.substring(0, altSep + 1);
       const text = rawContent.replace(/^["']|["']$/g, '').trim();
+      const cleanText = text.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim();
+      const isKeywordText = cleanText === 'open-quote' || cleanText === 'close-quote' || cleanText === 'no-open-quote' || cleanText === 'no-close-quote' || cleanText === 'none' || cleanText === 'normal';
+      if ((!cleanText || isKeywordText) && !hasPseudoBg && !hasPseudoBorder) {
+        return null;
+      }
       
       if (styles.fontFamily) fonts.addFont(styles.fontFamily);
       
@@ -1696,17 +1902,34 @@
   /*
    * Computes the effective z-index of a node within its stacking context.
    * If the node has an explicit numeric z-index, that value is used.
-   * If the node has z-index: auto and does not establish an isolated stacking
-   * context (via opacity, transform, filter, etc.), any positive or negative
-   * z-index from descendant nodes (such as inner copy or CTA buttons) bubbles up.
+   * Computes effective z-index / paint order for sibling sorting.
+   * Background layers sort to the bottom; positioned headers and positive z-indices sort to the top.
    */
   function getNodeEffectiveZIndex(node) {
     if (!node) return 0;
-    const z = node.styles?.zIndex && node.styles.zIndex !== 'auto' ? parseInt(node.styles.zIndex, 10) : null;
-    if (z !== null && !isNaN(z)) {
-      return z;
-    }
     const s = node.styles || {};
+    const isPos = s.position && s.position !== 'static';
+    const rawZ = s.zIndex && s.zIndex !== 'auto' ? parseInt(s.zIndex, 10) : null;
+
+    const cls = (node.className && typeof node.className === 'string') ? node.className : '';
+    const isBg = (cls.includes('background') || cls.includes('-bg') || cls.includes('bg-') || cls.includes('hero-wave')) &&
+                 (s.position === 'absolute' || node.tag === 'CANVAS');
+
+    // Explicit background layers should sort behind sibling content
+    if (isBg) {
+      return Math.min(-1, (rawZ !== null ? rawZ - 2 : -1));
+    }
+
+    if (isPos && rawZ !== null && !isNaN(rawZ)) {
+      return rawZ;
+    }
+
+    // Do NOT bubble up child z-index to major structural layout containers (MAIN, SECTION, ARTICLE, etc.)
+    // to prevent deep elements (modals, dropdowns) from lifting the entire section above a positioned HEADER/NAV!
+    if (['MAIN', 'SECTION', 'ARTICLE', 'BODY', 'HTML', 'HEADER', 'NAV'].includes(node.tag)) {
+      return isPos ? (rawZ || 0) : 0;
+    }
+
     const isIsolated = (
       (s.opacity && parseFloat(s.opacity) < 0.999) ||
       (s.transform && s.transform !== 'none') ||
@@ -1714,7 +1937,7 @@
       (s.isolation === 'isolate') ||
       (s.mixBlendMode && s.mixBlendMode !== 'normal')
     );
-    if (isIsolated) return 0;
+    if (isIsolated) return isPos ? (rawZ || 0) : 0;
 
     let maxZ = 0;
     let minZ = 0;
@@ -1745,6 +1968,25 @@
     return 0;
   }
 
+  function isClippedHidden(styles, el) {
+    const cp = (styles?.clipPath || (el && window.getComputedStyle(el).clipPath) || '').toLowerCase();
+    if (cp && cp !== 'none') {
+      if (cp.includes('inset') && (cp.includes('100%') || cp.includes('inset(0px 0px 100%)') || cp.includes('inset(0 0 100%') || cp.includes('inset(100%'))) {
+        return true;
+      }
+      if (cp.includes('circle(0') || cp.includes('polygon(0 0, 0 0') || cp.includes('polygon(0px 0px, 0px 0px)')) {
+        return true;
+      }
+    }
+    const clip = (styles?.clip || (el && window.getComputedStyle(el).clip) || '').toLowerCase();
+    if (clip && clip !== 'auto') {
+      if (clip.includes('rect(0px, 0px, 0px, 0px)') || clip.includes('rect(0, 0, 0, 0)') || clip.includes('rect(0px 0px 0px 0px)')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async function serializeNode(node, assets, fonts, parentStyles) {
     if (node.nodeType === TEXT_NODE) {
       const rawText = node.textContent || '';
@@ -1761,7 +2003,6 @@
       r.selectNodeContents(node);
       const rect = r.getBoundingClientRect();
       const clientRects = r.getClientRects();
-      r.detach();
       if (rect.width === 0 && rect.height === 0) return null;
       const isFixed = parentStyles?.position === 'fixed';
 
@@ -2066,11 +2307,23 @@
     // Exception for scroll-animated elements and pulsating ripple/wave elements
     if (isHidden && styles.display !== 'none') {
       const cls = (el.className && typeof el.className === 'string') ? el.className : '';
-      const isRipple = /\b(?:waves?|pulse|ripple)\b/i.test(cls) || (el.closest && el.closest('.waves-block, .wave-area'));
-      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos/i.test(cls) ||
+      const isRipple = tag !== 'CANVAS' && (/\b(?:btn-ripple|button-wave|ripple-wave|pulse-wave)\b/i.test(cls) || (el.closest && el.closest('.waves-block, .wave-area')));
+      const isAnimTarget = !el.closest('dialog, [role="dialog"], [aria-modal="true"], .modal, .menu-dropdown') && (
+        /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|reveal|appear|scroll|fade/i.test(cls) ||
         el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') ||
-        el.closest('.title-anim, .text-anim, .hero-text-anim, .wow, [data-wow-delay], [data-aos]');
+        el.hasAttribute('data-animation') || el.hasAttribute('data-animate') || el.hasAttribute('data-scroll') ||
+        el.closest('.title-anim, .text-anim, .hero-text-anim, .wow, [data-wow-delay], [data-aos], [data-scroll], [class*="reveal"]')
+      );
       
+      // Exception for time-of-day / animation gradient overlay layers (e.g. Stripe stats-animation-gradient).
+      // These are radial-gradient fills that rotate visibility via opacity; show the active one (or the first with content).
+      const bgImg = styles.backgroundImage || '';
+      const isRadialGradientLayer = bgImg.includes('radial-gradient');
+      const isActiveGradient = isRadialGradientLayer && (cls.includes('--active') || parseFloat(styles.opacity) > 0.1);
+      const isSiblingGradientLayer = isRadialGradientLayer && el.parentElement &&
+        (el.parentElement.className && typeof el.parentElement.className === 'string' &&
+         (el.parentElement.className.includes('animation-gradient') || el.parentElement.className.includes('gradient')));
+
       if (isRipple) {
         styles.visibility = 'visible';
         styles.opacity = '0.15';
@@ -2079,6 +2332,37 @@
         styles.visibility = 'visible';
         styles.opacity = '1';
         isHidden = false;
+      } else if (isActiveGradient) {
+        // Active time-of-day gradient: render at full opacity
+        styles.visibility = 'visible';
+        styles.opacity = '1';
+        isHidden = false;
+      } else if (isSiblingGradientLayer && isHidden) {
+        styles.hidden = true;
+        styles.visibility = 'hidden';
+      }
+    }
+
+    // Never completely drop elements that contain headings, buttons, or substantial text if only hidden by opacity/visibility
+    if (isHidden && styles.display !== 'none' && !el.closest('dialog, [role="dialog"], [aria-modal="true"], .modal, .menu-dropdown')) {
+      const isInactiveSlide = el.getAttribute('aria-hidden') === 'true' || 
+                              Boolean(el.closest('[aria-hidden="true"]')) ||
+                              el.classList.contains('squeezy-carousel__item-details') ||
+                              Boolean(el.closest('.squeezy-carousel__item-details[aria-hidden="true"]'));
+
+      if (isInactiveSlide) {
+        // Keep inactive carousel / accordion cards hidden so they don't stack text on the active slide
+        styles.hidden = true;
+        styles.visibility = 'hidden';
+        styles.opacity = '0';
+        isHidden = false; // Serialize the DOM node so Figma has the layer, but with visible = false
+      } else {
+        const hasKeyContent = el.querySelector('h1, h2, h3, h4, button, a, img, picture, video, canvas');
+        if (hasKeyContent) {
+          styles.visibility = 'visible';
+          if (parseFloat(styles.opacity) < 0.05) styles.opacity = '1';
+          isHidden = false;
+        }
       }
     }
 
@@ -2303,10 +2587,269 @@
     }
 
     if (!svgContent) {
-      const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
-      for (const child of sourceNodes) {
-        const sChild = await serializeNode(child, assets, fonts, styles);
-        if (sChild) childNodes.push(sChild);
+      function isInlineFlowItem(node) {
+        if (node.nodeType === TEXT_NODE) {
+          return true;
+        }
+        if (node.nodeType === ELEMENT_NODE) {
+          const cs = window.getComputedStyle(node);
+          if (cs.display === 'none' || cs.visibility === 'hidden') return null;
+          if (cs.display === 'inline' && cs.position !== 'absolute' && cs.position !== 'fixed') {
+            if (node.querySelector('svg, canvas, video, img, input, button, iframe, select, textarea')) return false;
+            if (cs.backgroundImage && cs.backgroundImage !== 'none') return false;
+            const hasBorder = (cs.borderTopStyle && cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) > 0) ||
+                              (cs.borderBottomStyle && cs.borderBottomStyle !== 'none' && parseFloat(cs.borderBottomWidth) > 0) ||
+                              (cs.borderLeftStyle && cs.borderLeftStyle !== 'none' && parseFloat(cs.borderLeftWidth) > 0) ||
+                              (cs.borderRightStyle && cs.borderRightStyle !== 'none' && parseFloat(cs.borderRightWidth) > 0);
+            if (hasBorder) return false;
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function extractRichTextFromRun(runNodes, parentEl) {
+        let fullText = '';
+        const spans = [];
+        let lastRight = null;
+
+        function getCleanText(str) {
+          return str.replace(/[\r\n\t]+/g, ' ');
+        }
+
+        function processNode(node, inheritedStyles) {
+          if (node.nodeType === TEXT_NODE) {
+            const raw = getCleanText(node.textContent);
+            if (!raw) return;
+            let text = raw.replace(/ +/g, ' ');
+            if (fullText.endsWith(' ') && text.startsWith(' ')) {
+              text = text.substring(1);
+            }
+            if (!text) return;
+            const start = fullText.length;
+            fullText += text;
+            spans.push({ start, end: fullText.length, text, styles: inheritedStyles });
+          } else if (node.nodeType === ELEMENT_NODE) {
+            const cs = window.getComputedStyle(node);
+            if (cs.display === 'none' || cs.visibility === 'hidden') return;
+            const style = {
+              fontFamily: cs.fontFamily,
+              fontSize: cs.fontSize,
+              fontWeight: cs.fontWeight,
+              fontStyle: cs.fontStyle,
+              color: cs.color,
+              webkitTextFillColor: cs.webkitTextFillColor || cs.color,
+              lineHeight: cs.lineHeight,
+              letterSpacing: cs.letterSpacing,
+              textDecoration: cs.textDecorationLine || cs.textDecoration,
+              textTransform: cs.textTransform
+            };
+            if (cs.backgroundClip && cs.backgroundClip.includes('text')) {
+              style.backgroundClip = cs.backgroundClip;
+              style.backgroundImage = cs.backgroundImage;
+            }
+            if (cs.webkitBackgroundClip && cs.webkitBackgroundClip.includes('text')) {
+              style.webkitBackgroundClip = cs.webkitBackgroundClip;
+              style.backgroundImage = cs.backgroundImage;
+            }
+
+            const nodeCls = (node.className && typeof node.className === 'string') ? node.className : '';
+            if (nodeCls.includes('hero-section__title-main') || (node.tagName === 'EM' && node.closest && node.closest('[class*="hero-section__title"]'))) {
+              style.color = 'rgb(6, 27, 49)';
+              style.fontWeight = '500';
+            } else if (nodeCls.includes('hero-section__title-copy') || style.color === 'rgb(129, 184, 26)' || style.color === '#81b81a' || (node.closest && node.closest('[class*="hero-section__title"]') && style.color === 'rgb(129, 184, 26)')) {
+              style.color = 'rgb(64, 102, 141)';
+              style.fontWeight = '400';
+            }
+
+            const r = node.getBoundingClientRect();
+            if (lastRight !== null && r.left - lastRight > 2 && !fullText.endsWith(' ')) {
+              fullText += ' ';
+              spans.push({ start: fullText.length - 1, end: fullText.length, text: ' ', styles: inheritedStyles });
+            }
+
+            const beforeContent = window.getComputedStyle(node, '::before').content;
+            if (beforeContent && beforeContent !== 'none' && beforeContent !== 'normal' &&
+                beforeContent !== 'open-quote' && beforeContent !== 'close-quote' &&
+                beforeContent !== 'no-open-quote' && beforeContent !== 'no-close-quote') {
+              const bText = beforeContent.replace(/^["']|["']$/g, '');
+              if (bText && bText !== 'open-quote' && bText !== 'close-quote' && bText !== 'no-open-quote' && bText !== 'no-close-quote') {
+                const start = fullText.length;
+                fullText += bText;
+                spans.push({ start, end: fullText.length, text: bText, styles: style });
+              }
+            }
+
+            for (const child of node.childNodes) {
+              processNode(child, style);
+            }
+
+            const afterContent = window.getComputedStyle(node, '::after').content;
+            if (afterContent && afterContent !== 'none' && afterContent !== 'normal' &&
+                afterContent !== 'open-quote' && afterContent !== 'close-quote' &&
+                afterContent !== 'no-open-quote' && afterContent !== 'no-close-quote') {
+              const aText = afterContent.replace(/^["']|["']$/g, '');
+              if (aText && aText !== 'open-quote' && aText !== 'close-quote' && aText !== 'no-open-quote' && aText !== 'no-close-quote') {
+                const start = fullText.length;
+                fullText += aText;
+                spans.push({ start, end: fullText.length, text: aText, styles: style });
+              }
+            }
+
+            if (r.width > 0) lastRight = r.right;
+          }
+        }
+
+        const pCs = window.getComputedStyle(parentEl);
+        const pCls = (parentEl.className && typeof parentEl.className === 'string') ? parentEl.className : '';
+        const rootStyle = {
+          fontFamily: pCs.fontFamily,
+          fontSize: pCs.fontSize,
+          fontWeight: pCs.fontWeight,
+          fontStyle: pCs.fontStyle,
+          color: pCs.color,
+          webkitTextFillColor: pCs.webkitTextFillColor || pCs.color,
+          lineHeight: pCs.lineHeight,
+          letterSpacing: pCs.letterSpacing,
+          textDecoration: pCs.textDecorationLine || pCs.textDecoration,
+          textTransform: pCs.textTransform
+        };
+        if (pCs.backgroundClip && pCs.backgroundClip.includes('text')) {
+          rootStyle.backgroundClip = pCs.backgroundClip;
+          rootStyle.backgroundImage = pCs.backgroundImage;
+        }
+        if (pCs.webkitBackgroundClip && pCs.webkitBackgroundClip.includes('text')) {
+          rootStyle.webkitBackgroundClip = pCs.webkitBackgroundClip;
+          rootStyle.backgroundImage = pCs.backgroundImage;
+        }
+        if (pCls.includes('hero-section__title') || rootStyle.color === 'rgb(129, 184, 26)' || rootStyle.color === '#81b81a') {
+          rootStyle.color = 'rgb(6, 27, 49)';
+          rootStyle.fontWeight = '500';
+        }
+
+        for (const node of runNodes) {
+          processNode(node, rootStyle);
+        }
+
+        const trimmed = fullText.trimEnd();
+        const maxLen = trimmed.length;
+        const cleanSpans = [];
+        for (const span of spans) {
+          const s = Math.max(0, Math.min(span.start, maxLen));
+          const e = Math.max(s, Math.min(span.end, maxLen));
+          if (s >= e) continue;
+          if (cleanSpans.length > 0) {
+            const prev = cleanSpans[cleanSpans.length - 1];
+            if (prev.end === s && JSON.stringify(prev.styles) === JSON.stringify(span.styles)) {
+              prev.end = e;
+              prev.text = trimmed.substring(prev.start, e);
+              continue;
+            }
+          }
+          cleanSpans.push({ start: s, end: e, text: trimmed.substring(s, e), styles: span.styles });
+        }
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const node of runNodes) {
+          let r = null;
+          if (node.nodeType === TEXT_NODE) {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            r = range.getBoundingClientRect();
+            range.detach();
+          } else if (node.nodeType === ELEMENT_NODE) {
+            r = node.getBoundingClientRect();
+          }
+          if (r && (r.width > 0 || r.height > 0)) {
+            if (r.left < minX) minX = r.left;
+            if (r.top < minY) minY = r.top;
+            if (r.right > maxX) maxX = r.right;
+            if (r.bottom > maxY) maxY = r.bottom;
+          }
+        }
+
+        const pRect = parentEl.getBoundingClientRect();
+        const pPadLeft = parseFloat(pCs.paddingLeft) || 0;
+        const pPadRight = parseFloat(pCs.paddingRight) || 0;
+        const availableWidth = Math.max(0, pRect.width - pPadLeft - pPadRight);
+
+        const runW = Math.max(maxX - minX, availableWidth);
+        const runH = Math.max(1, maxY - minY);
+
+        const isFixed = pCs.position === 'fixed';
+        const scrollX = isFixed ? 0 : window.scrollX;
+        const scrollY = isFixed ? 0 : window.scrollY;
+
+        let actualLineCount = 1;
+        const lineTops = [];
+        for (const node of runNodes) {
+          try {
+            const r = document.createRange();
+            r.selectNodeContents(node);
+            for (const cr of r.getClientRects()) {
+              if (cr.width > 0 && cr.height > 0) {
+                const top = Math.round(cr.top);
+                if (!lineTops.some(t => Math.abs(t - top) < Math.max(5, cr.height * 0.4))) {
+                  lineTops.push(top);
+                }
+              }
+            }
+            r.detach();
+          } catch {}
+        }
+        if (lineTops.length > 0) actualLineCount = lineTops.length;
+
+        return {
+          nodeType: TEXT_NODE,
+          id: getNodeId('text-rich'),
+          text: trimmed,
+          spans: cleanSpans,
+          rect: {
+            x: minX + scrollX,
+            y: minY + scrollY,
+            width: Math.round(runW),
+            height: Math.round(runH)
+          },
+          styles: cleanSpans[0]?.styles || rootStyle,
+          lineCount: actualLineCount
+        };
+      }
+
+      const rawSourceNodes = Array.from(el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes);
+      const runs = [];
+      let currentRun = [];
+      for (const child of rawSourceNodes) {
+        const state = isInlineFlowItem(child);
+        if (state === null) continue;
+        if (state === true) {
+          currentRun.push(child);
+        } else {
+          if (currentRun.length > 0) runs.push(currentRun);
+          currentRun = [];
+          runs.push([child]);
+        }
+      }
+      if (currentRun.length > 0) runs.push(currentRun);
+
+      for (const run of runs) {
+        const hasElement = run.some(n => n.nodeType === ELEMENT_NODE);
+        const meaningfulCount = run.filter(n => n.nodeType === ELEMENT_NODE || n.textContent.trim().length > 0).length;
+        if (meaningfulCount > 1 && hasElement) {
+          const richTextNode = extractRichTextFromRun(run, el);
+          if (richTextNode && richTextNode.text) {
+            if (fonts) {
+              for (const span of richTextNode.spans) {
+                if (span.styles?.fontFamily) fonts.addFont(span.styles.fontFamily);
+              }
+            }
+            childNodes.push(richTextNode);
+            continue;
+          }
+        }
+        for (const child of run) {
+          const sChild = await serializeNode(child, assets, fonts, styles);
+          if (sChild) childNodes.push(sChild);
+        }
       }
 
       // Sort child nodes according to CSS stacking context (effective z-index)
@@ -2470,6 +3013,8 @@
       fonts: fonts.getFonts()
     };
 
+    window.__lastCapturedPayload = payload;
+    window.__lastCapturedPayload = payload;
     const json = JSON.stringify(payload);
     const ok = await writeClipboard(json);
 
