@@ -1521,13 +1521,15 @@
       const content = cs.content;
       const isQuoteKeyword = content === 'open-quote' || content === 'close-quote' || content === 'no-open-quote' || content === 'no-close-quote';
       if (!content || content === 'none' || content === 'normal' || isQuoteKeyword) {
-        // Only keep pseudo-element if it has visible background or border styling
+        // Only keep pseudo-element if it has visible background, border styling, or mask
         const hasBg = cs.backgroundImage && cs.backgroundImage !== 'none';
         const hasBdr = (cs.borderTopStyle && cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) > 0) ||
                        (cs.borderBottomStyle && cs.borderBottomStyle !== 'none' && parseFloat(cs.borderBottomWidth) > 0) ||
                        (cs.borderLeftStyle && cs.borderLeftStyle !== 'none' && parseFloat(cs.borderLeftWidth) > 0) ||
                        (cs.borderRightStyle && cs.borderRightStyle !== 'none' && parseFloat(cs.borderRightWidth) > 0);
-        if (!hasBg && !hasBdr) return null;
+        const hasBgColor = cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
+        const hasMask = (cs.maskImage && cs.maskImage !== 'none') || (cs.webkitMaskImage && cs.webkitMaskImage !== 'none') || (cs.mask && cs.mask !== 'none') || (cs.webkitMask && cs.webkitMask !== 'none');
+        if (!hasBg && !hasBdr && !hasBgColor && !hasMask) return null;
       }
       
       const display = cs.display;
@@ -1595,13 +1597,15 @@
         };
       }
 
-      // Skip truly invisible pseudo-elements — but NOT ones with visible borders or background images (dotted/dashed leader lines)
+      // Skip truly invisible pseudo-elements — but NOT ones with visible borders, background images, masks, or background color
       const hasPseudoBorder = (cs.borderTopStyle && cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) > 0) ||
                               (cs.borderBottomStyle && cs.borderBottomStyle !== 'none' && parseFloat(cs.borderBottomWidth) > 0) ||
                               (cs.borderLeftStyle && cs.borderLeftStyle !== 'none' && parseFloat(cs.borderLeftWidth) > 0) ||
                               (cs.borderRightStyle && cs.borderRightStyle !== 'none' && parseFloat(cs.borderRightWidth) > 0);
       const hasPseudoBg = cs.backgroundImage && cs.backgroundImage !== 'none';
-      if (!hasPseudoBorder && !hasPseudoBg && (parseFloat(cs.width) === 0 || parseFloat(cs.height) === 0)) return null;
+      const hasPseudoBgColor = cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
+      const hasPseudoMask = (cs.maskImage && cs.maskImage !== 'none') || (cs.webkitMaskImage && cs.webkitMaskImage !== 'none') || (cs.mask && cs.mask !== 'none') || (cs.webkitMask && cs.webkitMask !== 'none');
+      if (!hasPseudoBorder && !hasPseudoBg && !hasPseudoBgColor && !hasPseudoMask && (parseFloat(cs.width) === 0 || parseFloat(cs.height) === 0)) return null;
 
       const styles = {};
       for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
@@ -1664,15 +1668,65 @@
       const text = rawContent.replace(/^["']|["']$/g, '').trim();
       const cleanText = text.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim();
       const isKeywordText = cleanText === 'open-quote' || cleanText === 'close-quote' || cleanText === 'no-open-quote' || cleanText === 'no-close-quote' || cleanText === 'none' || cleanText === 'normal';
-      if ((!cleanText || isKeywordText) && !hasPseudoBg && !hasPseudoBorder) {
+      
+      let pseudoRect = { ...parentRect };
+      const w = parseFloat(cs.width);
+      const h = parseFloat(cs.height);
+      if (!isNaN(w) && cs.width !== 'auto') pseudoRect.width = w;
+      if (!isNaN(h) && cs.height !== 'auto') pseudoRect.height = h;
+
+      // Handle content: url(...) images
+      if (text.startsWith('url(')) {
+        const urlMatch = text.match(/^url\(\s*["']?(.*?)["']?\s*\)$/i);
+        if (urlMatch && urlMatch[1]) {
+           const imageUrl = urlMatch[1].trim();
+           if (!imageUrl.startsWith('data:')) {
+             if (assets) assets.addImage(imageUrl);
+           }
+           if (isNaN(w) || cs.width === 'auto') pseudoRect.width = 24; // Fallback sizing if unconstrained
+           if (isNaN(h) || cs.height === 'auto') pseudoRect.height = 24;
+           
+           // If position is absolute, we need to calculate x/y before returning
+           if (cs.position === 'absolute') {
+             const t = parseFloat(cs.top);
+             const b = parseFloat(cs.bottom);
+             const l = parseFloat(cs.left);
+             const r = parseFloat(cs.right);
+             if (!isNaN(l) && cs.left !== 'auto') pseudoRect.x = parentRect.x + l;
+             else if (!isNaN(r) && cs.right !== 'auto') pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - r;
+             if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = parentRect.y + t;
+             else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = parentRect.y + parentRect.height - pseudoRect.height - b;
+           } else {
+             if (pseudo === '::before') {
+               const parentCs = window.getComputedStyle(el);
+               pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+               pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+             } else if (el.lastElementChild) {
+               const scrollX = window.scrollX;
+               const scrollY = window.scrollY;
+               const lastR = el.lastElementChild.getBoundingClientRect();
+               pseudoRect.x = lastR.right + scrollX;
+               pseudoRect.y = lastR.top + scrollY;
+             }
+           }
+
+           return {
+             nodeType: ELEMENT_NODE,
+             id: getNodeId('pseudo-img'),
+             tag: 'IMG',
+             attributes: { src: imageUrl, alt: pseudo },
+             styles: { ...styles, backgroundColor: 'transparent', backgroundImage: 'none' },
+             rect: pseudoRect
+           };
+        }
+      }
+
+      if ((!cleanText || isKeywordText) && !hasPseudoBg && !hasPseudoBorder && !hasPseudoBgColor && !pseudoMask) {
         return null;
       }
       
       if (styles.fontFamily) fonts.addFont(styles.fontFamily);
       
-      let pseudoRect = { ...parentRect };
-      const w = parseFloat(cs.width);
-      const h = parseFloat(cs.height);
       if (!isNaN(w) && cs.width !== 'auto') pseudoRect.width = w;
       if (!isNaN(h) && cs.height !== 'auto') pseudoRect.height = h;
 
@@ -2702,7 +2756,7 @@
                 beforeContent !== 'open-quote' && beforeContent !== 'close-quote' &&
                 beforeContent !== 'no-open-quote' && beforeContent !== 'no-close-quote') {
               const bText = beforeContent.replace(/^["']|["']$/g, '');
-              if (bText && bText !== 'open-quote' && bText !== 'close-quote' && bText !== 'no-open-quote' && bText !== 'no-close-quote') {
+              if (bText && !bText.startsWith('url(') && bText !== 'open-quote' && bText !== 'close-quote' && bText !== 'no-open-quote' && bText !== 'no-close-quote') {
                 const start = fullText.length;
                 fullText += bText;
                 spans.push({ start, end: fullText.length, text: bText, styles: style });
@@ -2718,7 +2772,7 @@
                 afterContent !== 'open-quote' && afterContent !== 'close-quote' &&
                 afterContent !== 'no-open-quote' && afterContent !== 'no-close-quote') {
               const aText = afterContent.replace(/^["']|["']$/g, '');
-              if (aText && aText !== 'open-quote' && aText !== 'close-quote' && aText !== 'no-open-quote' && aText !== 'no-close-quote') {
+              if (aText && !aText.startsWith('url(') && aText !== 'open-quote' && aText !== 'close-quote' && aText !== 'no-open-quote' && aText !== 'no-close-quote') {
                 const start = fullText.length;
                 fullText += aText;
                 spans.push({ start, end: fullText.length, text: aText, styles: style });
