@@ -1146,11 +1146,9 @@
           } else if (attrFill) {
             // Retain explicit attrFill
           } else if (isShapeTag && (!attrStroke || attrStroke === 'none') && (!computedStroke || computedStroke === 'none' || computedStroke === 'rgba(0, 0, 0, 0)')) {
-            // In SVG, shapes default to fill="black" if neither fill nor stroke is defined,
-            // or inherit currentColor if ancestor specifies it. Use computedColor if available.
-            if (computedColor) {
-              applyColorAttr(cloned, 'fill', computedColor);
-            }
+            // In SVG, shapes default to fill="black" if neither fill nor stroke is defined.
+            // They do NOT inherit CSS color unless fill="currentColor" is explicitly set.
+            applyColorAttr(cloned, 'fill', '#000000');
           }
 
           if (attrStroke === 'currentColor') {
@@ -2612,6 +2610,7 @@
         let fullText = '';
         const spans = [];
         let lastRight = null;
+        let lastBottom = null;
 
         function getCleanText(str) {
           return str.replace(/[\r\n\t]+/g, ' ');
@@ -2626,10 +2625,35 @@
               text = text.substring(1);
             }
             if (!text) return;
+            try {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const r = range.getBoundingClientRect();
+              range.detach();
+              if (lastRight !== null && (r.width > 0 || r.height > 0)) {
+                if ((r.left < lastRight - 5 || (lastBottom !== null && r.top >= lastBottom - 3)) && !fullText.endsWith('\n') && !fullText.endsWith(' ') && !text.startsWith(' ')) {
+                  fullText += '\n';
+                  spans.push({ start: fullText.length - 1, end: fullText.length, text: '\n', styles: inheritedStyles });
+                } else if (r.left - lastRight > 2 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !text.startsWith(' ')) {
+                  fullText += ' ';
+                  spans.push({ start: fullText.length - 1, end: fullText.length, text: ' ', styles: inheritedStyles });
+                }
+              }
+              if (r.width > 0 || r.height > 0) {
+                lastRight = r.right;
+                lastBottom = r.bottom;
+              }
+            } catch {}
             const start = fullText.length;
             fullText += text;
             spans.push({ start, end: fullText.length, text, styles: inheritedStyles });
           } else if (node.nodeType === ELEMENT_NODE) {
+            if (node.tagName && node.tagName.toUpperCase() === 'BR') {
+              const start = fullText.length;
+              fullText += '\n';
+              spans.push({ start, end: fullText.length, text: '\n', styles: inheritedStyles });
+              return;
+            }
             const cs = window.getComputedStyle(node);
             if (cs.display === 'none' || cs.visibility === 'hidden') return;
             const style = {
@@ -2663,9 +2687,14 @@
             }
 
             const r = node.getBoundingClientRect();
-            if (lastRight !== null && r.left - lastRight > 2 && !fullText.endsWith(' ')) {
-              fullText += ' ';
-              spans.push({ start: fullText.length - 1, end: fullText.length, text: ' ', styles: inheritedStyles });
+            if (lastRight !== null && (r.width > 0 || r.height > 0)) {
+              if ((r.left < lastRight - 5 || (lastBottom !== null && r.top >= lastBottom - 3)) && !fullText.endsWith('\n') && !fullText.endsWith(' ')) {
+                fullText += '\n';
+                spans.push({ start: fullText.length - 1, end: fullText.length, text: '\n', styles: inheritedStyles });
+              } else if (r.left - lastRight > 2 && !fullText.endsWith(' ') && !fullText.endsWith('\n')) {
+                fullText += ' ';
+                spans.push({ start: fullText.length - 1, end: fullText.length, text: ' ', styles: inheritedStyles });
+              }
             }
 
             const beforeContent = window.getComputedStyle(node, '::before').content;
@@ -2696,7 +2725,10 @@
               }
             }
 
-            if (r.width > 0) lastRight = r.right;
+            if (r.width > 0 || r.height > 0) {
+              lastRight = r.right;
+              lastBottom = r.bottom;
+            }
           }
         }
 
@@ -2773,7 +2805,10 @@
         const pPadRight = parseFloat(pCs.paddingRight) || 0;
         const availableWidth = Math.max(0, pRect.width - pPadLeft - pPadRight);
 
-        const runW = Math.max(maxX - minX, availableWidth);
+        const contentW = Math.max(1, maxX - minX);
+        const runW = availableWidth > contentW
+          ? Math.min(contentW + 24, availableWidth)
+          : contentW + 16;
         const runH = Math.max(1, maxY - minY);
 
         const isFixed = pCs.position === 'fixed';
@@ -2939,101 +2974,212 @@
     }
   }
 
-  try {
-    await initFontMap();
-    const toast = showToast('⏳ Pre-rendering full webpage…');
-
-    // 1. Scroll through page to activate lazy-loaded elements & image sources
-    await prepareAndScrollPage();
-
-    // 2. Decode all visible and lazy-loaded images
-    const images = Array.from(document.images || []);
-    images.forEach(img => {
-      if (img.decoding !== 'sync') img.decoding = 'sync';
-      if (img.loading !== 'eager') img.loading = 'eager';
+  function initSelectionMode() {
+    const overlay = document.createElement('div');
+    overlay.id = 'h2f-selection-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      pointerEvents: 'none',
+      zIndex: '2147483647',
+      border: '2px solid #0d99ff',
+      background: 'rgba(13, 153, 255, 0.15)',
+      transition: 'all 0.05s ease',
+      boxSizing: 'border-box',
+      display: 'none',
+      borderRadius: '4px'
     });
-    await Promise.allSettled(images.map(img => img.decode().catch(() => {})));
+    
+    const banner = document.createElement('div');
+    banner.id = 'h2f-selection-banner';
+    Object.assign(banner.style, {
+      position: 'fixed',
+      top: '20px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      backgroundColor: '#1e1e1e',
+      color: '#ffffff',
+      padding: '12px 24px',
+      borderRadius: '8px',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      fontSize: '14px',
+      fontWeight: '500',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+      zIndex: '2147483647',
+      pointerEvents: 'auto',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '12px'
+    });
+    banner.innerHTML = `
+      <span>Select an element to capture</span>
+      <button id="h2f-capture-full" style="background:#0d99ff;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;">Capture Full Page</button>
+      <button id="h2f-cancel" style="background:rgba(255,255,255,0.1);color:#eee;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;">Cancel (Esc)</button>
+    `;
+    
+    document.body.appendChild(overlay);
+    document.body.appendChild(banner);
 
-    const assets = new AssetCollector();
-    const fonts = new FontCollector();
+    let hoveredEl = null;
 
-    // Target document.body directly to avoid double nesting HTML + BODY frames
-    const targetElement = document.body || document.documentElement;
-    const root = await serializeNode(targetElement, assets, fonts, null);
-
-    if (targetElement === document.body && document.documentElement) {
-      const htmlStyles = window.getComputedStyle(document.documentElement);
-      if (htmlStyles.backgroundColor !== 'rgba(0, 0, 0, 0)' && (!root.styles.backgroundColor || root.styles.backgroundColor === 'rgba(0, 0, 0, 0)')) {
-        root.styles.backgroundColor = htmlStyles.backgroundColor;
+    function onMouseMove(e) {
+      let el = document.elementFromPoint(e.clientX, e.clientY);
+      if (el === banner || banner.contains(el)) {
+         overlay.style.display = 'none';
+         hoveredEl = null;
+         return;
       }
-      if (htmlStyles.backgroundImage !== 'none' && (!root.styles.backgroundImage || root.styles.backgroundImage === 'none')) {
-        root.styles.backgroundImage = htmlStyles.backgroundImage;
-        root.styles.backgroundSize = htmlStyles.backgroundSize;
-        root.styles.backgroundPositionX = htmlStyles.backgroundPositionX;
-        root.styles.backgroundPositionY = htmlStyles.backgroundPositionY;
-        root.styles.backgroundRepeat = htmlStyles.backgroundRepeat;
-        const matches = htmlStyles.backgroundImage.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
-        for (const m of matches) {
-          if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
+      if (!el || el === document.documentElement) {
+        el = document.body;
+      }
+      
+      const rect = el.getBoundingClientRect();
+      overlay.style.display = 'block';
+      overlay.style.top = rect.top + 'px';
+      overlay.style.left = rect.left + 'px';
+      overlay.style.width = rect.width + 'px';
+      overlay.style.height = rect.height + 'px';
+      hoveredEl = el;
+    }
+
+    function cleanup() {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('click', onClick, true);
+      window.removeEventListener('keydown', onKeyDown);
+      overlay.remove();
+      banner.remove();
+      window.__html2FigRunning = false;
+    }
+
+    function onClick(e) {
+      if (e.target.id === 'h2f-capture-full') {
+        e.preventDefault();
+        e.stopPropagation();
+        cleanup();
+        runCapture(document.body);
+        return;
+      }
+      if (e.target.id === 'h2f-cancel') {
+        e.preventDefault();
+        e.stopPropagation();
+        cleanup();
+        return;
+      }
+      if (!hoveredEl) return;
+      e.preventDefault();
+      e.stopPropagation();
+      cleanup();
+      runCapture(hoveredEl);
+    }
+
+    function onKeyDown(e) {
+      if (e.key === 'Escape') {
+        cleanup();
+      }
+    }
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('click', onClick, true);
+    window.addEventListener('keydown', onKeyDown);
+  }
+
+  async function runCapture(targetElement) {
+    if (window.__html2FigRunning) return;
+    window.__html2FigRunning = true;
+    
+    try {
+      await initFontMap();
+      const toast = showToast('✨ Pre-rendering webpage…');
+
+      // 1. Scroll through page to activate lazy-loaded elements & image sources
+      await prepareAndScrollPage();
+
+      // 2. Decode all visible and lazy-loaded images
+      const images = Array.from(document.images || []);
+      images.forEach(img => {
+        if (img.decoding !== 'sync') img.decoding = 'sync';
+        if (img.loading !== 'eager') img.loading = 'eager';
+      });
+      await Promise.allSettled(images.map(img => img.decode().catch(() => {})));
+
+      const assets = new AssetCollector();
+      const fonts = new FontCollector();
+
+      // Target document.body directly to avoid double nesting HTML + BODY frames
+      const root = await serializeNode(targetElement, assets, fonts, null);
+
+      if (targetElement === document.body && document.documentElement) {
+        const htmlStyles = window.getComputedStyle(document.documentElement);
+        if (htmlStyles.backgroundColor !== 'rgba(0, 0, 0, 0)' && (!root.styles.backgroundColor || root.styles.backgroundColor === 'rgba(0, 0, 0, 0)')) {
+          root.styles.backgroundColor = htmlStyles.backgroundColor;
+        }
+        if (htmlStyles.backgroundImage !== 'none' && (!root.styles.backgroundImage || root.styles.backgroundImage === 'none')) {
+          root.styles.backgroundImage = htmlStyles.backgroundImage;
+          root.styles.backgroundSize = htmlStyles.backgroundSize;
+          root.styles.backgroundPositionX = htmlStyles.backgroundPositionX;
+          root.styles.backgroundPositionY = htmlStyles.backgroundPositionY;
+          root.styles.backgroundRepeat = htmlStyles.backgroundRepeat;
+          const matches = htmlStyles.backgroundImage.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
+          for (const m of matches) {
+            if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
+          }
         }
       }
+      const assetMap = await assets.getBlobMap();
+
+      const rect = targetElement.getBoundingClientRect();
+      const docWidth = targetElement === document.body 
+        ? Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0, window.innerWidth)
+        : rect.width;
+      const docHeight = targetElement === document.body 
+        ? Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0, window.innerHeight)
+        : rect.height;
+
+      const payload = {
+        version: 2,
+        generator: 'HTML-2-Fig',
+        documentTitle: document.title || 'Web Import',
+        documentRect: {
+          x: 0,
+          y: 0,
+          width: docWidth,
+          height: docHeight
+        },
+        viewportRect: {
+          x: 0,
+          y: 0,
+          width: window.innerWidth,
+          height: window.innerHeight
+        },
+        devicePixelRatio: window.devicePixelRatio || 1,
+        root,
+        assets: assetMap,
+        fonts: fonts.getFonts()
+      };
+
+      window.__lastCapturedPayload = payload;
+      const json = JSON.stringify(payload);
+      const ok = await writeClipboard(json);
+
+      try { toast.remove(); } catch {}
+
+      if (ok) {
+        showToast('✅ Capture complete! Paste into Figma plugin (Ctrl+V)', 6000);
+      } else {
+        showToast('⚠️ Capture complete. Please allow clipboard access.', 6000);
+      }
+    } catch (err) {
+      console.error('[HTML-2-Fig] Capture error:', err);
+      showToast('❌ Capture failed: ' + (err.message || err), 8000);
+    } finally {
+      window.__html2FigRunning = false;
+      const scrollFix = document.getElementById('h2f-scroll-fix');
+      if (scrollFix) scrollFix.remove();
+      const animKiller = document.getElementById('h2f-animation-killer');
+      if (animKiller) animKiller.remove();
     }
-    const assetMap = await assets.getBlobMap();
-
-    let fullDocWidth = Math.max(
-      document.documentElement.scrollWidth,
-      document.body ? document.body.scrollWidth : 0,
-      window.innerWidth
-    );
-    const fullDocHeight = Math.max(
-      document.documentElement.scrollHeight,
-      document.body ? document.body.scrollHeight : 0,
-      window.innerHeight
-    );
-
-    const payload = {
-      version: 2,
-      generator: 'HTML-2-Fig',
-      documentTitle: document.title || 'Web Import',
-      documentRect: {
-        x: 0,
-        y: 0,
-        width: fullDocWidth,
-        height: fullDocHeight
-      },
-      viewportRect: {
-        x: 0,
-        y: 0,
-        width: window.innerWidth,
-        height: window.innerHeight
-      },
-      devicePixelRatio: window.devicePixelRatio || 1,
-      root,
-      assets: assetMap,
-      fonts: fonts.getFonts()
-    };
-
-    window.__lastCapturedPayload = payload;
-    window.__lastCapturedPayload = payload;
-    const json = JSON.stringify(payload);
-    const ok = await writeClipboard(json);
-
-    try { toast.remove(); } catch {}
-
-    if (ok) {
-      showToast('✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
-    } else {
-      showToast('⚠️ Capture complete. Please allow clipboard access.', 6000);
-    }
-  } catch (err) {
-    console.error('[HTML-2-Fig] Capture error:', err);
-    showToast('❌ Capture failed: ' + (err.message || err), 8000);
-  } finally {
-    window.__html2FigRunning = false;
-    const scrollFix = document.getElementById('h2f-scroll-fix');
-    if (scrollFix) scrollFix.remove();
-    const animKiller = document.getElementById('h2f-animation-killer');
-    if (animKiller) animKiller.remove();
   }
-})();
 
+  // Initiate selection mode instead of immediate capture
+  window.__html2FigRunning = true;
+  initSelectionMode();
+})();

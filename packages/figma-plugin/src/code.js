@@ -147,7 +147,19 @@ const FONT_WEIGHT_MAP = {
 const FONT_FAMILY_ALIASES = {
   'sohne-var': ['Söhne', 'Sohne', 'SF Pro Display', 'Inter', 'Helvetica Neue', 'Arial'],
   'sohne': ['Söhne', 'Sohne', 'SF Pro Display', 'Inter', 'Helvetica Neue', 'Arial'],
-  'circular-std': ['Circular Std', 'Circular', 'Inter', 'Helvetica Neue', 'Arial'],
+  'circular-std': ['Circular Std', 'Circular', 'Plus Jakarta Sans', 'Inter', 'Helvetica Neue', 'Arial'],
+  'circular': ['Circular', 'Plus Jakarta Sans', 'Inter'],
+  'paralucent': ['Paralucent', 'Montserrat', 'Jost', 'League Spartan', 'Inter'],
+  'proxima nova': ['Proxima Nova', 'Montserrat', 'Nunito Sans', 'Open Sans', 'Inter'],
+  'gotham': ['Gotham', 'Montserrat', 'Raleway', 'Inter'],
+  'avenir': ['Avenir', 'Nunito', 'Lato', 'Open Sans', 'Inter'],
+  'avenir next': ['Avenir Next', 'Nunito', 'Lato', 'Open Sans', 'Inter'],
+  'futura': ['Futura', 'Jost', 'Nunito', 'Inter'],
+  'din': ['DIN', 'Roboto', 'Oswald', 'Barlow'],
+  'gilroy': ['Gilroy', 'Quicksand', 'Poppins', 'Inter'],
+  'cursive': ['Caveat', 'Pacifico', 'Dancing Script', 'Comic Sans MS', 'Inter'],
+  'brush script mt': ['Caveat', 'Pacifico', 'Dancing Script', 'Inter'],
+  'comic sans ms': ['Comic Neue', 'Caveat', 'Inter'],
   'sf pro display': ['SF Pro Display', 'SF Pro Text', 'Inter', 'Helvetica Neue'],
   'sf pro text': ['SF Pro Text', 'SF Pro Display', 'Inter', 'Helvetica Neue'],
   'system-ui': ['SF Pro Display', 'Segoe UI', 'Roboto', 'Inter'],
@@ -2151,7 +2163,8 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   let text = (sNode.text || '');
   const ws = s.whiteSpace || 'normal';
   if (ws === 'normal' || ws === 'nowrap') {
-    text = text.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ');
+    // Preserve intentional newlines (\n from <br> or pre-split lines), only collapse carriage returns, tabs, and spaces
+    text = text.replace(/[\r\t]+/g, ' ').replace(/[ ]+/g, ' ');
   } else if (ws === 'pre-line') {
     text = text.replace(/[ \t\f\v]+/g, ' ');
   }
@@ -2385,17 +2398,39 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const textStr = finalText.trim();
 
 
+  const hasHardBreaks = finalText.includes('\n');
+  const isActualMultiLine = isMultiLine || hasHardBreaks;
+
   if (sNode.id && sNode.id.includes('input-text') && w > 0 && h > 0) {
     try {
       textNode.textAutoResize = 'TRUNCATE';
     } catch {
       textNode.textAutoResize = 'NONE';
     }
-    textNode.resize(Math.ceil(w), Math.ceil(h));
+    textNode.resize(Math.ceil(w + 2), Math.ceil(h));
     textNode.textAlignVertical = 'CENTER';
-  } else if ((isMultiLine || (sNode.spans && sNode.spans.length > 0)) && w > 0) {
+  } else if (isActualMultiLine && w > 0) {
     textNode.textAutoResize = 'HEIGHT';
-    textNode.resize(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
+    const widthBuffer = Math.max(16, Math.ceil((fontSize || 16) * 0.5));
+    let targetW = Math.ceil(w + widthBuffer);
+
+    // Universal boundary safeguard: never overflow parentFrame if parent has a fixed/defined width
+    if (parentFrame && parentFrame.type !== 'PAGE' && parentFrame.type !== 'DOCUMENT' && parentFrame.width > 0) {
+      const maxAvailableInParent = Math.max(w, parentFrame.width - Math.max(0, posX));
+      targetW = Math.min(targetW, maxAvailableInParent);
+    }
+
+    const effectiveBuffer = Math.max(0, targetW - Math.ceil(w));
+    textNode.resize(Math.max(1, targetW), Math.max(1, Math.ceil(h)));
+
+    const isVert = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr');
+    if (!isVert) {
+      if (s.textAlign === 'center') {
+        textNode.x = posX - effectiveBuffer / 2;
+      } else if (s.textAlign === 'right' || s.textAlign === 'end') {
+        textNode.x = posX - effectiveBuffer;
+      }
+    }
   } else {
     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
     // When using WIDTH_AND_HEIGHT, Figma sizes the node exactly to its own font rendering width.
