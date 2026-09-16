@@ -783,19 +783,39 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
             // 1. contain -> 'FIT' (proportional, whole image visible)
             // 2. cover, auto, 100%, or any standard background -> 'FILL' (proportional crop-to-fill, NEVER distort or squeeze)
             // Custom CROP matrix should ONLY be attempted for genuine CSS sprite sheets (explicit px size with negative offsets)
-            const isContain = bgSize.includes('contain');
-            const isCover = bgSize.includes('cover') || bgSize === 'auto' || bgSize === '' || bgSize.includes('100%');
-            const isSprite = !isContain && !isCover && /\d+px/.test(bgSize) && (posX.includes('-') || posY.includes('-'));
+            let isContain = bgSize.includes('contain');
+            let isCover = bgSize.includes('cover');
+            let isAuto = bgSize === 'auto' || bgSize === '';
+            // If it's a specific size like 100%, we treat it as sprite logic to calculate exact px
+            const isSprite = !isContain && !isCover && !isAuto;
 
-            if (isContain) {
-              fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FIT' });
-            } else if (!isSprite) {
-              fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
-            } else {
-              try {
-                const size = await img.getSizeAsync();
-                let imgW = size.width;
-                let imgH = size.height;
+            try {
+              const size = await img.getSizeAsync();
+              let imgW = size.width;
+              let imgH = size.height;
+              
+              if (isContain || isCover || isAuto) {
+                const imgRatio = size.width / size.height;
+                const nodeRatio = nodeW / nodeH;
+                if (isContain) {
+                  if (imgRatio > nodeRatio) {
+                    imgW = nodeW;
+                    imgH = nodeW / imgRatio;
+                  } else {
+                    imgH = nodeH;
+                    imgW = nodeH * imgRatio;
+                  }
+                } else if (isCover) {
+                  if (imgRatio > nodeRatio) {
+                    imgH = nodeH;
+                    imgW = nodeH * imgRatio;
+                  } else {
+                    imgW = nodeW;
+                    imgH = nodeW / imgRatio;
+                  }
+                }
+                // for isAuto, we just leave imgW and imgH as the original size!
+              } else if (isSprite) {
                 const parts = bgSize.split(/\s+/);
                 let wStr = parts[0];
                 let hStr = parts.length > 1 ? parts[1] : wStr;
@@ -810,26 +830,36 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
                 } else if (hStr.endsWith('px')) {
                   imgH = parseFloat(hStr);
                 }
-                
-                let ox = 0, oy = 0;
-                if (posX.endsWith('%')) ox = (nodeW - imgW) * (parseFloat(posX) / 100);
-                else if (posX.endsWith('px')) ox = parseFloat(posX);
-                
-                if (posY.endsWith('%')) oy = (nodeH - imgH) * (parseFloat(posY) / 100);
-                else if (posY.endsWith('px')) oy = parseFloat(posY);
-                
-                if (!isFinite(imgW) || !isFinite(imgH) || !isFinite(ox) || !isFinite(oy) || nodeW === 0 || nodeH === 0) {
-                  throw new Error('Invalid transform parameters');
-                }
-
-                const transform = [
-                  [imgW / nodeW, 0, ox / nodeW],
-                  [0, imgH / nodeH, oy / nodeH]
-                ];
-                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'CROP', imageTransform: transform });
-              } catch (err) {
-                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
               }
+
+              let pX = posX;
+              let pY = posY;
+              if (pX === 'center') pX = '50%';
+              if (pY === 'center') pY = '50%';
+              if (pX === 'left') pX = '0%';
+              if (pX === 'right') pX = '100%';
+              if (pY === 'top') pY = '0%';
+              if (pY === 'bottom') pY = '100%';
+
+              let ox = 0, oy = 0;
+              if (pX.endsWith('%')) ox = (nodeW - imgW) * (parseFloat(pX) / 100);
+              else if (pX.endsWith('px')) ox = parseFloat(pX);
+              
+              if (pY.endsWith('%')) oy = (nodeH - imgH) * (parseFloat(pY) / 100);
+              else if (pY.endsWith('px')) oy = parseFloat(pY);
+              
+              if (!isFinite(imgW) || !isFinite(imgH) || !isFinite(ox) || !isFinite(oy) || nodeW === 0 || nodeH === 0) {
+                throw new Error('Invalid transform parameters');
+              }
+
+              const transform = [
+                [imgW / nodeW, 0, ox / nodeW],
+                [0, imgH / nodeH, oy / nodeH]
+              ];
+              fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'CROP', imageTransform: transform });
+            } catch (err) {
+              // Fallback if sizing fails
+              fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: isContain ? 'FIT' : 'FILL' });
             }
           } catch (e) {
             figma.notify(`Failed to create image: ${e.message}`, { error: true });
