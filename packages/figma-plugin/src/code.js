@@ -848,14 +848,15 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
               if (pY.endsWith('%')) oy = (nodeH - imgH) * (parseFloat(pY) / 100);
               else if (pY.endsWith('px')) oy = parseFloat(pY);
               
-              if (!isFinite(imgW) || !isFinite(imgH) || !isFinite(ox) || !isFinite(oy) || nodeW === 0 || nodeH === 0) {
-                throw new Error('Invalid transform parameters');
+              const transform = [
+                [nodeW / imgW, 0, -ox / imgW],
+                [0, nodeH / imgH, -oy / imgH]
+              ];
+              
+              if (transform.flat().some(val => !isFinite(val))) {
+                throw new Error('Invalid transform parameters (Infinity or NaN)');
               }
 
-              const transform = [
-                [imgW / nodeW, 0, ox / nodeW],
-                [0, imgH / nodeH, oy / nodeH]
-              ];
               fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'CROP', imageTransform: transform });
             } catch (err) {
               // Fallback if sizing fails
