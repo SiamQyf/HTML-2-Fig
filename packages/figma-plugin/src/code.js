@@ -1445,7 +1445,22 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             rect.x = 0; rect.y = 0;
             rect.resize(w, h);
             const img = figma.createImage(bytes);
-            rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+            const objFit = (s.objectFit || 'fill').toLowerCase().trim();
+            let fillScaleMode = 'CROP';
+            let fillTransform = [[1, 0, 0], [0, 1, 0]];
+            if (objFit === 'cover') {
+              fillScaleMode = 'FILL';
+              fillTransform = undefined;
+            } else if (objFit === 'contain' || objFit === 'scale-down') {
+              fillScaleMode = 'FIT';
+              fillTransform = undefined;
+            } else if (objFit === 'none') {
+              fillScaleMode = 'FIT'; // fallback
+              fillTransform = undefined;
+            }
+            const fillDef = { type: 'IMAGE', imageHash: img.hash, scaleMode: fillScaleMode };
+            if (fillTransform) fillDef.imageTransform = fillTransform;
+            rect.fills = [fillDef];
             applyStrokes(imgFrame, s);
             applyEffects(imgFrame, s);
             applyCornerRadius(imgFrame, s);
@@ -1460,7 +1475,22 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           rect.x = x; rect.y = y;
           rect.resize(w, h);
           const img = figma.createImage(bytes);
-          rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+          const objFit = (s.objectFit || 'fill').toLowerCase().trim();
+          let fillScaleMode = 'CROP';
+          let fillTransform = [[1, 0, 0], [0, 1, 0]];
+          if (objFit === 'cover') {
+            fillScaleMode = 'FILL';
+            fillTransform = undefined;
+          } else if (objFit === 'contain' || objFit === 'scale-down') {
+            fillScaleMode = 'FIT';
+            fillTransform = undefined;
+          } else if (objFit === 'none') {
+            fillScaleMode = 'FIT';
+            fillTransform = undefined;
+          }
+          const fillDef = { type: 'IMAGE', imageHash: img.hash, scaleMode: fillScaleMode };
+          if (fillTransform) fillDef.imageTransform = fillTransform;
+          rect.fills = [fillDef];
           applyStrokes(rect, s);
           applyEffects(rect, s);
           applyCornerRadius(rect, s);
