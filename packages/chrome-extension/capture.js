@@ -1621,6 +1621,21 @@
         }
       }
 
+      // Handle the individual CSS `translate` property (Tailwind v3.3+ uses this for pseudo-elements
+      // instead of the compound `transform`, so cs.transform stays 'none' even with -translate-y-1/2 etc.)
+      if (cs.translate && cs.translate !== 'none') {
+        const resolveCssLen = (val, ref) => {
+          if (!val) return 0;
+          if (val.endsWith('%')) return (parseFloat(val) / 100) * ref;
+          return parseFloat(val) || 0;
+        };
+        const tParts = cs.translate.trim().split(/\s+/);
+        const tx = resolveCssLen(tParts[0], pseudoRect.width);
+        const ty = resolveCssLen(tParts[1] || '0', pseudoRect.height);
+        pseudoRect.x += tx;
+        pseudoRect.y += ty;
+      }
+
       const chars = Array.from(text);
       const isIcon = isIconElementOrFont(text, cs.fontFamily, el.className);
       if (isIcon) {

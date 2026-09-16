@@ -739,59 +739,61 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
           try {
             const img = figma.createImage(bytes);
             
-            const bgSize = ((isMask ? (styles.maskSize || styles.webkitMaskSize) : null) || styles.backgroundSize || 'auto').trim();
+            const bgSize = ((isMask ? (styles.maskSize || styles.webkitMaskSize) : null) || styles.backgroundSize || 'auto').toLowerCase().trim();
             const posX = ((isMask ? (styles.maskPositionX || styles.webkitMaskPositionX) : null) || styles.backgroundPositionX || '0%').trim();
             const posY = ((isMask ? (styles.maskPositionY || styles.webkitMaskPositionY) : null) || styles.backgroundPositionY || '0%').trim();
             
-            if (bgSize !== 'auto' || posX !== '0%' || posY !== '0%') {
-              const size = await img.getSizeAsync();
-              let imgW = size.width;
-              let imgH = size.height;
-              
-              if (bgSize === 'contain' || bgSize === 'cover') {
-                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: bgSize === 'contain' ? 'FIT' : 'FILL' });
-              } else {
-                try {
-                  const parts = bgSize.split(' ');
-                  let wStr = parts[0];
-                  let hStr = parts.length > 1 ? parts[1] : wStr;
-                  
-                  // Convert percentages to pixels based on node size
-                  if (wStr.endsWith('%')) imgW = nodeW * (parseFloat(wStr) / 100);
-                  else if (wStr.endsWith('px')) imgW = parseFloat(wStr);
-                  
-                  if (hStr === 'auto') {
-                    imgH = imgW * (size.height / size.width);
-                  } else if (hStr.endsWith('%')) {
-                    imgH = nodeH * (parseFloat(hStr) / 100);
-                  } else if (hStr.endsWith('px')) {
-                    imgH = parseFloat(hStr);
-                  }
-                  
-                  // Calculate position offsets
-                  let ox = 0, oy = 0;
-                  if (posX.endsWith('%')) ox = (nodeW - imgW) * (parseFloat(posX) / 100);
-                  else if (posX.endsWith('px')) ox = parseFloat(posX);
-                  
-                  if (posY.endsWith('%')) oy = (nodeH - imgH) * (parseFloat(posY) / 100);
-                  else if (posY.endsWith('px')) oy = parseFloat(posY);
-                  
-                  if (!isFinite(imgW) || !isFinite(imgH) || !isFinite(ox) || !isFinite(oy) || nodeW === 0 || nodeH === 0) {
-                    throw new Error('Invalid transform parameters');
-                  }
+            // In Figma, background images are almost exclusively meant to proportionally cover or fit the frame:
+            // 1. contain -> 'FIT' (proportional, whole image visible)
+            // 2. cover, auto, 100%, or any standard background -> 'FILL' (proportional crop-to-fill, NEVER distort or squeeze)
+            // Custom CROP matrix should ONLY be attempted for genuine CSS sprite sheets (explicit px size with negative offsets)
+            const isContain = bgSize.includes('contain');
+            const isCover = bgSize.includes('cover') || bgSize === 'auto' || bgSize === '' || bgSize.includes('100%');
+            const isSprite = !isContain && !isCover && /\d+px/.test(bgSize) && (posX.includes('-') || posY.includes('-'));
 
-                  const transform = [
-                    [imgW / nodeW, 0, ox / nodeW],
-                    [0, imgH / nodeH, oy / nodeH]
-                  ];
-                  fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'CROP', imageTransform: transform });
-                } catch (err) {
-                  // Fallback to FILL if transform math fails (e.g. division by zero or NaN)
-                  fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
-                }
-              }
-            } else {
+            if (isContain) {
+              fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FIT' });
+            } else if (!isSprite) {
               fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
+            } else {
+              try {
+                const size = await img.getSizeAsync();
+                let imgW = size.width;
+                let imgH = size.height;
+                const parts = bgSize.split(/\s+/);
+                let wStr = parts[0];
+                let hStr = parts.length > 1 ? parts[1] : wStr;
+                
+                if (wStr.endsWith('%')) imgW = nodeW * (parseFloat(wStr) / 100);
+                else if (wStr.endsWith('px')) imgW = parseFloat(wStr);
+                
+                if (hStr === 'auto') {
+                  imgH = imgW * (size.height / size.width);
+                } else if (hStr.endsWith('%')) {
+                  imgH = nodeH * (parseFloat(hStr) / 100);
+                } else if (hStr.endsWith('px')) {
+                  imgH = parseFloat(hStr);
+                }
+                
+                let ox = 0, oy = 0;
+                if (posX.endsWith('%')) ox = (nodeW - imgW) * (parseFloat(posX) / 100);
+                else if (posX.endsWith('px')) ox = parseFloat(posX);
+                
+                if (posY.endsWith('%')) oy = (nodeH - imgH) * (parseFloat(posY) / 100);
+                else if (posY.endsWith('px')) oy = parseFloat(posY);
+                
+                if (!isFinite(imgW) || !isFinite(imgH) || !isFinite(ox) || !isFinite(oy) || nodeW === 0 || nodeH === 0) {
+                  throw new Error('Invalid transform parameters');
+                }
+
+                const transform = [
+                  [imgW / nodeW, 0, ox / nodeW],
+                  [0, imgH / nodeH, oy / nodeH]
+                ];
+                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'CROP', imageTransform: transform });
+              } catch (err) {
+                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
+              }
             }
           } catch (e) {
             figma.notify(`Failed to create image: ${e.message}`, { error: true });
@@ -1985,3 +1987,4 @@ figma.ui.onmessage = async (msg) => {
     }
   }
 };
+
