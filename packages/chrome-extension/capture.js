@@ -158,6 +158,20 @@
     `;
     document.head.appendChild(animKiller);
 
+    // Clean up Odometer and other animated counters to prevent overlapping number ribbons
+    try {
+      const counters = document.querySelectorAll('.odometer, .counter, [data-count], [data-to]');
+      for (const el of counters) {
+        const val = el.getAttribute('data-count') || el.getAttribute('data-to') || el.getAttribute('data-val');
+        if (val) {
+          el.innerHTML = val;
+        } else if (el.classList.contains('odometer')) {
+          // If no data attribute is found but it's an odometer, just use the stripped text
+          el.innerHTML = el.innerText.replace(/\s+/g, '');
+        }
+      }
+    } catch (e) {}
+
     // Unhide and reset scroll-reveal elements whose inline styles were reversed or hidden
     try {
       const animatedEls = document.querySelectorAll(

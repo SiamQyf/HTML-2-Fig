@@ -268,13 +268,14 @@ function parseLinearGradient(css) {
 
     rawStops.forEach((raw, i) => {
       const trimmed = raw.trim();
-      const posMatch = trimmed.match(/(.*?)\s+([\d.]+)%$/);
+      const posMatch = trimmed.match(/(.*?)\s+(?:calc\([^)]+\)|-?[\d.]+(?:[a-zA-Z%]+)?|0)$/i);
       let colStr = trimmed;
       let pos = n > 1 ? (i / (n - 1)) : i;
 
       if (posMatch) {
         colStr = posMatch[1].trim();
-        pos = parseFloat(posMatch[2]) / 100;
+        const pctMatch = trimmed.match(/([\d.]+)%$/);
+        if (pctMatch) pos = parseFloat(pctMatch[1]) / 100;
       }
 
       // CSS Rule: If a color stop's position is less than the specified position 
@@ -351,13 +352,14 @@ function parseRadialGradient(css) {
 
     rawStops.forEach((raw, i) => {
       const trimmed = raw.trim();
-      const posMatch = trimmed.match(/(.*?)\s+([\d.]+)%$/);
+      const posMatch = trimmed.match(/(.*?)\s+(?:calc\([^)]+\)|-?[\d.]+(?:[a-zA-Z%]+)?|0)$/i);
       let colStr = trimmed;
       let pos = n > 1 ? (i / (n - 1)) : i;
 
       if (posMatch) {
         colStr = posMatch[1].trim();
-        pos = parseFloat(posMatch[2]) / 100;
+        const pctMatch = trimmed.match(/([\d.]+)%$/);
+        if (pctMatch) pos = parseFloat(pctMatch[1]) / 100;
       }
 
       pos = Math.max(pos, maxPos);
@@ -530,6 +532,32 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
 
   let isZeroSize = false;
   if (!isTextClip) {
+    if (styles.clipPath && styles.clipPath.includes('path(')) {
+      const match = styles.clipPath.match(/path\(['"]?(.*?)['"]?\)/);
+      if (match) {
+        const d = match[1];
+        let hexCol = '#000000';
+        let a = 1;
+        const bg = parseColor(styles.backgroundColor);
+        if (bg && bg.a > 0.005) {
+          const r = Math.round(bg.r * 255).toString(16).padStart(2, '0');
+          const g = Math.round(bg.g * 255).toString(16).padStart(2, '0');
+          const b = Math.round(bg.b * 255).toString(16).padStart(2, '0');
+          hexCol = `#${r}${g}${b}`;
+          a = clamp01(bg.a);
+        }
+        const svgStr = `<svg><path d="${d}" fill="${hexCol}" opacity="${a}"/></svg>`;
+        try {
+          const svgNode = figma.createNodeFromSvg(svgStr);
+          svgNode.name = 'clip-path-shape';
+          svgNode.x = 0;
+          svgNode.y = 0;
+          node.insertChild(0, svgNode);
+          styles.backgroundColor = 'transparent';
+        } catch (e) {}
+      }
+    }
+
     // Background color
     const bg = parseColor(styles.backgroundColor);
     if (bg && bg.a > 0.005) {
@@ -659,7 +687,15 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
               });
             } else {
               // Regular background-image SVG
-              const targetFill = fillHex || '#ffffff';
+              let textColHex = '#000000';
+              const textCol = parseColor(styles.color);
+              if (textCol && textCol.a > 0.005) {
+                const r = Math.round(textCol.r * 255).toString(16).padStart(2, '0');
+                const g = Math.round(textCol.g * 255).toString(16).padStart(2, '0');
+                const b = Math.round(textCol.b * 255).toString(16).padStart(2, '0');
+                textColHex = `#${r}${g}${b}`;
+              }
+              const targetFill = fillHex || textColHex;
               preparedSvg = preparedSvg.replace(/<(path|rect|polygon|circle|ellipse)\b([^>]*?)(\/?>)/gi, (m, tag, attrs, close) => {
                 if (!/\bfill\s*=/i.test(attrs) || /\bfill\s*=\s*["']none["']/i.test(attrs)) {
                   return `<${tag}${attrs.replace(/\bfill\s*=\s*["']none["']/gi, '')} fill="${targetFill}"${close}`;
@@ -868,6 +904,59 @@ function applyStrokes(node, styles) {
   const leftW = (styles.borderLeftStyle && styles.borderLeftStyle !== 'none' && styles.borderLeftStyle !== 'hidden' && leftColor) ? (parseFloat(styles.borderLeftWidth) || 0) : 0;
 
   const totalBorder = topW + rightW + bottomW + leftW;
+  
+  // Outline handling
+  const outlineW = parseFloat(styles.outlineWidth) || 0;
+  const outlineStyle = styles.outlineStyle;
+  if (outlineW > 0 && outlineStyle && outlineStyle !== 'none' && outlineStyle !== 'hidden' && node.type === 'FRAME') {
+    const oColor = parseColor(styles.outlineColor);
+    if (oColor && oColor.a > 0.005) {
+      const outlineRect = figma.createRectangle();
+      outlineRect.name = 'outline';
+      const offset = parseFloat(styles.outlineOffset) || 0;
+      
+      const ow = Math.max(1, (node.width || 0) + (offset * 2));
+      const oh = Math.max(1, (node.height || 0) + (offset * 2));
+      const ox = -offset;
+      const oy = -offset;
+      
+      try { outlineRect.resize(ow, oh); } catch {}
+      outlineRect.fills = [];
+      outlineRect.strokes = [{
+        type: 'SOLID',
+        color: { r: oColor.r, g: oColor.g, b: oColor.b },
+        opacity: clamp01(oColor.a)
+      }];
+      outlineRect.strokeWeight = outlineW;
+      // outline is drawn center-aligned by default, or inside if needed. Center provides best visual match for outline.
+      outlineRect.strokeAlign = 'CENTER'; 
+      
+      if (outlineStyle === 'dashed') {
+         outlineRect.dashPattern = [outlineW * 3, outlineW * 3];
+      } else if (outlineStyle === 'dotted') {
+         outlineRect.dashPattern = [outlineW, outlineW * 2];
+         try { outlineRect.strokeCap = 'ROUND'; } catch {}
+      }
+      
+      try {
+        if (typeof node.cornerRadius === 'number') {
+          outlineRect.cornerRadius = Math.max(0, node.cornerRadius + offset);
+        } else {
+          outlineRect.topLeftRadius = Math.max(0, node.topLeftRadius + offset);
+          outlineRect.topRightRadius = Math.max(0, node.topRightRadius + offset);
+          outlineRect.bottomLeftRadius = Math.max(0, node.bottomLeftRadius + offset);
+          outlineRect.bottomRightRadius = Math.max(0, node.bottomRightRadius + offset);
+        }
+      } catch {}
+      
+      node.appendChild(outlineRect);
+      try { outlineRect.layoutPositioning = 'ABSOLUTE'; } catch {}
+      outlineRect.x = ox;
+      outlineRect.y = oy;
+      try { outlineRect.constraints = { horizontal: 'STRETCH', vertical: 'STRETCH' }; } catch {}
+    }
+  }
+
   if (totalBorder <= 0) return;
 
   // Prevent duplicate bottom border if an ancestor frame already draws a bottom-only border
@@ -1050,6 +1139,12 @@ function applyCornerRadius(node, styles) {
       node.bottomRightRadius = Math.round(br);
       node.bottomLeftRadius = Math.round(bl);
     }
+  } else if (styles.clipPath && styles.clipPath !== 'none') {
+    const cp = styles.clipPath.toLowerCase();
+    if (cp.includes('circle') || cp.includes('ellipse')) {
+      node.cornerRadius = Math.round(refDim / 2);
+      try { node.clipsContent = true; } catch {}
+    }
   }
 }
 
@@ -1225,16 +1320,21 @@ function prepareSvgString(svgString, isInverted) {
   return clean;
 }
 
-async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles) {
+async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles, inheritedTextClip = null) {
   if (!sNode) return;
 
   if (sNode.nodeType === 3 /* TEXT */) {
-    await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles);
+    await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip);
     reportProgress();
     return;
   }
 
   const s = sNode.styles || inheritedStyles || {};
+  let currentTextClip = inheritedTextClip;
+  if (s.backgroundClip === 'text' || s.webkitBackgroundClip === 'text') {
+    currentTextClip = s;
+  }
+
   if (sNode.id && (sNode.id.includes('text-symbol-wrap') || sNode.id.includes('text-wrap'))) {
     s.borderTopWidth = '0px';
     s.borderRightWidth = '0px';
@@ -1687,27 +1787,40 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     await renderTextNode(sNode, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, s);
   }
 
-  // Pseudo-element ::before (rendered inside this frame)
-  if (sNode.pseudoElementNodes?.before) {
-    await renderNode(sNode.pseudoElementNodes.before, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
-  }
+  const pseudoNeg = [];
+  const pseudoPos = [];
+  const normalChildren = [];
+
+  const addPseudo = (pNode) => {
+    const z = parseInt(pNode.styles?.zIndex) || 0;
+    if (z < 0) pseudoNeg.push(pNode);
+    else pseudoPos.push(pNode);
+  };
+
+  if (sNode.pseudoElementNodes?.before) addPseudo(sNode.pseudoElementNodes.before);
+  if (sNode.pseudoElementNodes?.after) addPseudo(sNode.pseudoElementNodes.after);
 
   if (sNode.childNodes) {
-    for (const child of sNode.childNodes) {
-      // Child coordinate offset is relative to this frame
-      await renderNode(child, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
-    }
+    for (const child of sNode.childNodes) normalChildren.push(child);
   }
 
-  // Pseudo-element ::after (rendered inside this frame)
-  if (sNode.pseudoElementNodes?.after) {
-    await renderNode(sNode.pseudoElementNodes.after, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s);
+  pseudoNeg.sort((a, b) => (parseInt(a.styles?.zIndex) || 0) - (parseInt(b.styles?.zIndex) || 0));
+  pseudoPos.sort((a, b) => (parseInt(a.styles?.zIndex) || 0) - (parseInt(b.styles?.zIndex) || 0));
+
+  for (const p of pseudoNeg) {
+    await renderNode(p, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s, currentTextClip);
+  }
+  for (const c of normalChildren) {
+    await renderNode(c, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s, currentTextClip);
+  }
+  for (const p of pseudoPos) {
+    await renderNode(p, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s, currentTextClip);
   }
 
   reportProgress();
 }
 
-async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles) {
+async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip = null) {
   const s = sNode.styles || inheritedStyles || parentFrame.styles || {};
   let text = (sNode.text || '');
   const ws = s.whiteSpace || 'normal';
@@ -1783,7 +1896,13 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const alignMap = { 'left': 'LEFT', 'start': 'LEFT', 'center': 'CENTER', 'right': 'RIGHT', 'end': 'RIGHT', 'justify': 'JUSTIFIED' };
   textNode.textAlignHorizontal = alignMap[s.textAlign] || 'LEFT';
 
-  const isTextClip = s.backgroundClip === 'text' || s.webkitBackgroundClip === 'text';
+  let isTextClip = s.backgroundClip === 'text' || s.webkitBackgroundClip === 'text';
+  let clipStyle = s;
+  if (!isTextClip && inheritedTextClip) {
+    isTextClip = true;
+    clipStyle = inheritedTextClip;
+  }
+
   // Determine if this is outline-only text (transparent fill + webkit-text-stroke)
   const hasTextStroke = s.webkitTextStrokeWidth && parseFloat(s.webkitTextStrokeWidth) > 0;
   const fillColorRaw = s.webkitTextFillColor || s.color || '#000000';
@@ -1792,17 +1911,23 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
 
   if (isTextClip) {
     const textFills = [];
-    const bg = parseColor(s.backgroundColor);
+    const bg = parseColor(clipStyle.backgroundColor);
     if (bg && bg.a > 0.005) textFills.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: clamp01(bg.a) });
-    if (s.backgroundImage && s.backgroundImage.includes('gradient')) {
-      const grad = parseLinearGradient(s.backgroundImage);
+    if (clipStyle.backgroundImage && clipStyle.backgroundImage.includes('gradient')) {
+      let grad = parseLinearGradient(clipStyle.backgroundImage);
+      if (!grad) grad = parseRadialGradient(clipStyle.backgroundImage);
       if (grad) textFills.push(grad);
     }
 
     if (textFills.length > 0) {
       textNode.fills = textFills;
     } else {
-      if (fillColor) textNode.fills = [{ type: 'SOLID', color: { r: fillColor.r, g: fillColor.g, b: fillColor.b }, opacity: clamp01(fillColor.a) }];
+      if (fillColor && fillColor.a > 0.005) {
+        textNode.fills = [{ type: 'SOLID', color: { r: fillColor.r, g: fillColor.g, b: fillColor.b }, opacity: clamp01(fillColor.a) }];
+      } else {
+        // Fallback to black if background-clip text fails to parse and text-fill-color is transparent
+        textNode.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 }, opacity: 1 }];
+      }
     }
   } else if (hasTextStroke && fillIsTransparent) {
     // Outline-only text: no fill, stroke only (e.g. large decorative outlined numerals)
