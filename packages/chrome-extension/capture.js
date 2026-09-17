@@ -1991,18 +1991,27 @@
         const parts = cs.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
         if (parts) {
           const vals = parts[1].split(',').map(parseFloat);
-          let tx = 0, ty = 0;
+          let tx = 0, ty = 0, sx = 1, sy = 1;
           if (vals.length === 16) {
-            const sx = vals[0]; const sy = vals[5];
-            if (Math.abs(sx) < 0.001 || Math.abs(sy) < 0.001) return null;
+            const sxVal = vals[0]; const syVal = vals[5];
+            if (Math.abs(sxVal) < 0.001 || Math.abs(syVal) < 0.001) return null;
+            sx = sxVal; sy = syVal;
             tx = vals[12]; ty = vals[13];
           } else {
             const [a, b, c, d] = vals;
             if ((Math.abs(a) < 0.001 && Math.abs(b) < 0.001) || (Math.abs(c) < 0.001 && Math.abs(d) < 0.001)) return null;
+            sx = Math.sqrt(a * a + b * b);
+            sy = Math.sqrt(c * c + d * d);
             tx = vals[4]; ty = vals[5];
           }
           pseudoRect.x += tx;
           pseudoRect.y += ty;
+          pseudoRect.width *= Math.abs(sx);
+          pseudoRect.height *= Math.abs(sy);
+          if (Math.abs(sx) !== 1 || Math.abs(sy) !== 1) {
+            const currentFontSize = parseFloat(styles.fontSize) || 16;
+            styles.fontSize = `${currentFontSize * Math.abs(sy)}px`;
+          }
         }
       }
 
