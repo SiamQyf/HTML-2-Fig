@@ -993,14 +993,11 @@
       if (!ctx) return null;
       ctx.scale(scale, scale);
 
-      let fontStr = styles.font;
-      if (!fontStr || fontStr === 'normal') {
-        const style = styles.fontStyle || 'normal';
-        const weight = styles.fontWeight || '400';
-        const size = styles.fontSize || '16px';
-        const family = styles.fontFamily || 'sans-serif';
-        fontStr = `${style} ${weight} ${size} ${family}`;
-      }
+      const style = styles.fontStyle || 'normal';
+      const weight = styles.fontWeight || '400';
+      const size = styles.fontSize || '16px';
+      const family = styles.fontFamily || 'sans-serif';
+      const fontStr = `${style} ${weight} ${size} ${family}`;
       ctx.font = fontStr;
       ctx.fillStyle = styles.color || '#000000';
       ctx.textAlign = 'center';
@@ -2035,7 +2032,7 @@
       if (isIcon) {
         let fontData = null;
         if (chars.length === 1) {
-          fontData = await getFontSvgPath(cs.fontFamily, text, cs.fontSize, cs.fontWeight, cs.fontStyle);
+          fontData = await getFontSvgPath(cs.fontFamily, text, styles.fontSize || cs.fontSize, cs.fontWeight, cs.fontStyle);
         }
         if (fontData && fontData.svgPath) {
            const { svgPath, bbox } = fontData;
@@ -2069,9 +2066,9 @@
         }
 
         // Absolute match fallback: canvas glyph rendering
-        const iconW = Math.ceil(pseudoRect.width) || parseFloat(cs.fontSize) || 16;
-        const iconH = Math.ceil(pseudoRect.height) || parseFloat(cs.fontSize) || 16;
-        const dataUrl = renderGlyphToImage(text, cs, iconW, iconH);
+        const iconW = Math.ceil(pseudoRect.width) || parseFloat(styles.fontSize || cs.fontSize) || 16;
+        const iconH = Math.ceil(pseudoRect.height) || parseFloat(styles.fontSize || cs.fontSize) || 16;
+        const dataUrl = renderGlyphToImage(text, { ...cs, fontSize: styles.fontSize || cs.fontSize }, iconW, iconH);
         if (dataUrl) {
           return {
             nodeType: ELEMENT_NODE,
@@ -2200,9 +2197,27 @@
       const charStr = collapseWs(rawText).trim() || rawText;
       const isIcon = isIconElementOrFont(charStr, parentStyles?.fontFamily, node.parentElement?.className);
       if (isIcon) {
+        let scaledFontSize = parseFloat(parentStyles?.fontSize) || 16;
+        if (parentStyles?.transform && parentStyles.transform.includes('matrix')) {
+          const parts = parentStyles.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+          if (parts) {
+            const vals = parts[1].split(',').map(parseFloat);
+            let sy = 1;
+            if (vals.length === 16) {
+              sy = vals[5];
+            } else {
+              const c = vals[2], d = vals[3];
+              sy = Math.sqrt(c * c + d * d);
+            }
+            if (Math.abs(sy) !== 1 && Math.abs(sy) > 0.001) {
+              scaledFontSize = scaledFontSize * Math.abs(sy);
+            }
+          }
+        }
+        
         let fontData = null;
         if (Array.from(charStr).length === 1) {
-          fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, parentStyles?.fontSize, parentStyles?.fontWeight, parentStyles?.fontStyle);
+          fontData = await getFontSvgPath(parentStyles?.fontFamily, charStr, `${scaledFontSize}px`, parentStyles?.fontWeight, parentStyles?.fontStyle);
         }
         if (fontData && fontData.svgPath) {
           const { svgPath, bbox } = fontData;
@@ -2242,9 +2257,9 @@
 
         // Absolute match fallback: canvas glyph rendering
         if (isIconElementOrFont(charStr, parentStyles?.fontFamily, node.parentElement?.className)) {
-          const iconW = Math.ceil(rect.width) || parseFloat(parentStyles?.fontSize) || 16;
-          const iconH = Math.ceil(rect.height) || parseFloat(parentStyles?.fontSize) || 16;
-          const dataUrl = renderGlyphToImage(charStr, parentStyles, iconW, iconH);
+          const iconW = Math.ceil(rect.width) || scaledFontSize || 16;
+          const iconH = Math.ceil(rect.height) || scaledFontSize || 16;
+          const dataUrl = renderGlyphToImage(charStr, { ...parentStyles, fontSize: `${scaledFontSize}px` }, iconW, iconH);
           if (dataUrl) {
             return {
               nodeType: ELEMENT_NODE,
@@ -2301,10 +2316,10 @@
           lineCount: 1
         };
 
-        const iconW = Math.ceil(symbolR.width) || parseFloat(parentStyles?.fontSize) || 16;
-        const iconH = Math.ceil(symbolR.height) || parseFloat(parentStyles?.fontSize) || 16;
+        const iconW = Math.ceil(symbolR.width) || scaledFontSize || parseFloat(parentStyles?.fontSize) || 16;
+        const iconH = Math.ceil(symbolR.height) || scaledFontSize || parseFloat(parentStyles?.fontSize) || 16;
         let iconChild = null;
-        const dataUrl = renderGlyphToImage(symbolPart, parentStyles, iconW, iconH);
+        const dataUrl = renderGlyphToImage(symbolPart, { ...parentStyles, fontSize: scaledFontSize ? `${scaledFontSize}px` : parentStyles?.fontSize }, iconW, iconH);
         if (dataUrl) {
           iconChild = {
             nodeType: ELEMENT_NODE,
