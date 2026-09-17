@@ -1529,6 +1529,17 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
         try { svgNode.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
       }
       parentFrame.appendChild(svgNode);
+      let angleDeg = 0;
+      if (s.transform && s.transform.includes('matrix')) {
+        const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+        if (parts) {
+          const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
+          angleDeg = Math.atan2(vals[1], vals[0]) * (180 / Math.PI);
+        }
+      }
+      if (angleDeg !== 0) {
+        svgNode.rotation = -angleDeg;
+      }
       svgNode.x = x; svgNode.y = y;
       if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
         try { svgNode.resize(w, h); } catch {}
@@ -1713,6 +1724,19 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           applyStrokes(rect, s);
           applyEffects(rect, s);
           applyCornerRadius(rect, s);
+          
+          let angleDeg = 0;
+          if (s.transform && s.transform.includes('matrix')) {
+            const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+            if (parts) {
+              const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
+              angleDeg = Math.atan2(vals[1], vals[0]) * (180 / Math.PI);
+            }
+          }
+          if (angleDeg !== 0) {
+            rect.rotation = -angleDeg;
+          }
+          
           applyOpacity(rect, s);
           reportProgress();
           return;
