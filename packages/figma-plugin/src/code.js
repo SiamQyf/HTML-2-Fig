@@ -1525,6 +1525,9 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       const svgNode = figma.createNodeFromSvg(cleanSvg);
       svgNode.name = (sNode.tag || 'node').toLowerCase();
       hydrateSvgPatterns(svgNode, sNode.content);
+      if (s.position === 'absolute' || s.position === 'fixed') {
+        try { svgNode.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
+      }
       parentFrame.appendChild(svgNode);
       svgNode.x = x; svgNode.y = y;
       if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
@@ -1617,6 +1620,9 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             const svgNode = figma.createNodeFromSvg(cleanSvg);
             svgNode.name = sNode.attributes?.alt || 'img-svg';
             hydrateSvgPatterns(svgNode, svgString);
+            if (s.position === 'absolute' || s.position === 'fixed') {
+              try { svgNode.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
+            }
             parentFrame.appendChild(svgNode);
             svgNode.x = x; svgNode.y = y;
             if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
@@ -1648,6 +1654,9 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             await applyFills(imgFrame, s, assets, w, h, true);
             const rect = figma.createRectangle();
             rect.name = sNode.attributes?.alt || 'img';
+            if (s.position === 'absolute' || s.position === 'fixed') {
+              try { rect.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
+            }
             imgFrame.appendChild(rect);
             rect.x = 0; rect.y = 0;
             rect.resize(w, h);
@@ -1678,6 +1687,9 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
           const rect = figma.createRectangle();
           rect.name = sNode.attributes?.alt || 'img';
+          if (s.position === 'absolute' || s.position === 'fixed') {
+            try { rect.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
+          }
           parentFrame.appendChild(rect);
           rect.x = x; rect.y = y;
           rect.resize(w, h);
@@ -1874,7 +1886,13 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
   // Frame container
   const frame = figma.createFrame();
-  frame.name = (sNode.tag || 'node').toLowerCase() + (sNode.attributes?.id ? `#${sNode.attributes.id}` : '');
+  if (s.position === 'absolute' || s.position === 'fixed') {
+    try { frame.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
+  }
+  frame.name = sNode.tag ? sNode.tag.toLowerCase() : 'div';
+  if (sNode.attributes && sNode.attributes.class) {
+    frame.name += `.${sNode.attributes.class.replace(/\s+/g, '.')}`;
+  }
   parentFrame.appendChild(frame);
   frame.x = x;
   frame.y = y;
@@ -2067,6 +2085,9 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   if (!text) return;
 
   const textNode = figma.createText();
+  if (s.position === 'absolute' || s.position === 'fixed') {
+    try { textNode.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
+  }
 
   const fontName = await loadFont(s.fontFamily, s.fontWeight || '400', s.fontStyle === 'italic');
   textNode.fontName = fontName;
