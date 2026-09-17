@@ -929,10 +929,16 @@ function applyStrokes(node, styles) {
   const leftColor = getBorderColor(styles.borderLeftColor, styles.borderColor);
   const rightColor = getBorderColor(styles.borderRightColor, styles.borderColor);
 
-  const topW = (styles.borderTopStyle && styles.borderTopStyle !== 'none' && styles.borderTopStyle !== 'hidden' && topColor) ? (parseFloat(styles.borderTopWidth) || 0) : 0;
-  const rightW = (styles.borderRightStyle && styles.borderRightStyle !== 'none' && styles.borderRightStyle !== 'hidden' && rightColor) ? (parseFloat(styles.borderRightWidth) || 0) : 0;
-  const bottomW = (styles.borderBottomStyle && styles.borderBottomStyle !== 'none' && styles.borderBottomStyle !== 'hidden' && bottomColor) ? (parseFloat(styles.borderBottomWidth) || 0) : 0;
-  const leftW = (styles.borderLeftStyle && styles.borderLeftStyle !== 'none' && styles.borderLeftStyle !== 'hidden' && leftColor) ? (parseFloat(styles.borderLeftWidth) || 0) : 0;
+  let gradientStroke = null;
+  if (styles.borderImageSource && styles.borderImageSource !== 'none') {
+    const parsedGrad = parseLinearGradient(styles.borderImageSource);
+    if (parsedGrad) gradientStroke = parsedGrad;
+  }
+
+  const topW = (styles.borderTopStyle && styles.borderTopStyle !== 'none' && styles.borderTopStyle !== 'hidden' && (topColor || gradientStroke)) ? (parseFloat(styles.borderTopWidth) || 0) : 0;
+  const rightW = (styles.borderRightStyle && styles.borderRightStyle !== 'none' && styles.borderRightStyle !== 'hidden' && (rightColor || gradientStroke)) ? (parseFloat(styles.borderRightWidth) || 0) : 0;
+  const bottomW = (styles.borderBottomStyle && styles.borderBottomStyle !== 'none' && styles.borderBottomStyle !== 'hidden' && (bottomColor || gradientStroke)) ? (parseFloat(styles.borderBottomWidth) || 0) : 0;
+  const leftW = (styles.borderLeftStyle && styles.borderLeftStyle !== 'none' && styles.borderLeftStyle !== 'hidden' && (leftColor || gradientStroke)) ? (parseFloat(styles.borderLeftWidth) || 0) : 0;
 
   const totalBorder = topW + rightW + bottomW + leftW;
   
@@ -1011,14 +1017,19 @@ function applyStrokes(node, styles) {
                          (rightW > 0 && rightColor) ||
                          topColor || bottomColor || leftColor || rightColor;
 
-  const borderColor = parseColor(activeColorStr);
-  if (!borderColor || borderColor.a <= 0.005) return;
+  let strokeColor = null;
+  if (gradientStroke) {
+    strokeColor = gradientStroke;
+  } else {
+    const borderColor = parseColor(activeColorStr);
+    if (!borderColor || borderColor.a <= 0.005) return;
 
-  const strokeColor = {
-    type: 'SOLID',
-    color: { r: borderColor.r, g: borderColor.g, b: borderColor.b },
-    opacity: clamp01(borderColor.a)
-  };
+    strokeColor = {
+      type: 'SOLID',
+      color: { r: borderColor.r, g: borderColor.g, b: borderColor.b },
+      opacity: clamp01(borderColor.a)
+    };
+  }
 
   const hasDashOrDot = [styles.borderTopStyle, styles.borderRightStyle, styles.borderBottomStyle, styles.borderLeftStyle, styles.borderStyle]
     .some(s => s === 'dashed' || s === 'dotted');
@@ -1053,13 +1064,16 @@ function applyStrokes(node, styles) {
     const drawEdge = (style, weight, colorStr, x, y, len, isVertical, cHorizontal, cVertical) => {
       if (weight <= 0) return;
       try {
-        const edgeBorderColor = parseColor(colorStr || activeColorStr);
-        if (!edgeBorderColor || edgeBorderColor.a <= 0.005) return;
-        const edgeStrokeColor = {
-          type: 'SOLID',
-          color: { r: edgeBorderColor.r, g: edgeBorderColor.g, b: edgeBorderColor.b },
-          opacity: clamp01(edgeBorderColor.a)
-        };
+        let edgeStrokeColor = gradientStroke;
+        if (!edgeStrokeColor) {
+          const edgeBorderColor = parseColor(colorStr || activeColorStr);
+          if (!edgeBorderColor || edgeBorderColor.a <= 0.005) return;
+          edgeStrokeColor = {
+            type: 'SOLID',
+            color: { r: edgeBorderColor.r, g: edgeBorderColor.g, b: edgeBorderColor.b },
+            opacity: clamp01(edgeBorderColor.a)
+          };
+        }
 
         const vec = figma.createVector();
         vec.name = style + '-border';
@@ -1848,34 +1862,19 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     await renderTextNode(sNode, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, s);
   }
 
-  const pseudoNeg = [];
-  const pseudoPos = [];
-  const normalChildren = [];
+  const allChildren = [];
+  if (sNode.pseudoElementNodes?.before) allChildren.push(sNode.pseudoElementNodes.before);
+  if (sNode.childNodes) allChildren.push(...sNode.childNodes);
+  if (sNode.pseudoElementNodes?.after) allChildren.push(sNode.pseudoElementNodes.after);
 
-  const addPseudo = (pNode) => {
-    const z = parseInt(pNode.styles?.zIndex) || 0;
-    if (z < 0) pseudoNeg.push(pNode);
-    else pseudoPos.push(pNode);
-  };
+  allChildren.sort((a, b) => {
+    const zA = parseInt(a.styles?.zIndex) || 0;
+    const zB = parseInt(b.styles?.zIndex) || 0;
+    return zA - zB;
+  });
 
-  if (sNode.pseudoElementNodes?.before) addPseudo(sNode.pseudoElementNodes.before);
-  if (sNode.pseudoElementNodes?.after) addPseudo(sNode.pseudoElementNodes.after);
-
-  if (sNode.childNodes) {
-    for (const child of sNode.childNodes) normalChildren.push(child);
-  }
-
-  pseudoNeg.sort((a, b) => (parseInt(a.styles?.zIndex) || 0) - (parseInt(b.styles?.zIndex) || 0));
-  pseudoPos.sort((a, b) => (parseInt(a.styles?.zIndex) || 0) - (parseInt(b.styles?.zIndex) || 0));
-
-  for (const p of pseudoNeg) {
-    await renderNode(p, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s, currentTextClip);
-  }
-  for (const c of normalChildren) {
-    await renderNode(c, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s, currentTextClip);
-  }
-  for (const p of pseudoPos) {
-    await renderNode(p, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s, currentTextClip);
+  for (const child of allChildren) {
+    await renderNode(child, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s, currentTextClip);
   }
 
   reportProgress();
