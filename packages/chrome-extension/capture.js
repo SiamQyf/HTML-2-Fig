@@ -886,6 +886,13 @@
               return;
             }
           }
+          const resp = await fetch(url);
+          if (resp.ok) {
+            const buf = await resp.arrayBuffer();
+            const font = opentype.parse(buf);
+            resolve(font);
+            return;
+          }
           resolve(null);
         } catch (e) {
           resolve(null);
@@ -1798,6 +1805,8 @@
       if (styles.fontFamily) fonts.addFont(styles.fontFamily);
       
       let pseudoRect = { ...parentRect };
+      delete pseudoRect.offsetWidth;
+      delete pseudoRect.offsetHeight;
       const w = parseFloat(cs.width);
       const h = parseFloat(cs.height);
       if (!isNaN(w) && cs.width !== 'auto') pseudoRect.width = w;

@@ -1530,19 +1530,33 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       }
       parentFrame.appendChild(svgNode);
       let angleDeg = 0;
-      if (s.transform && s.transform.includes('matrix')) {
+      if (s.transform && s.transform.includes('matrix') && Math.abs(parentFrame.rotation || 0) < 0.1) {
         const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
         if (parts) {
           const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
           angleDeg = Math.atan2(vals[1], vals[0]) * (180 / Math.PI);
         }
       }
-      if (angleDeg !== 0) {
-        svgNode.rotation = -angleDeg;
-      }
-      svgNode.x = x; svgNode.y = y;
       if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
         try { svgNode.resize(w, h); } catch {}
+      }
+      if (Math.abs(angleDeg) > 0.1) {
+        const rotDeg = -angleDeg;
+        svgNode.rotation = rotDeg;
+        const rad = rotDeg * (Math.PI / 180);
+        const nodeW = svgNode.width;
+        const nodeH = svgNode.height;
+        const halfW = nodeW / 2;
+        const halfH = nodeH / 2;
+        const cX = x + halfW;
+        const cY = y + halfH;
+        const dx = halfW * Math.cos(rad) + halfH * Math.sin(rad);
+        const dy = -halfW * Math.sin(rad) + halfH * Math.cos(rad);
+        svgNode.x = Math.round(cX - dx);
+        svgNode.y = Math.round(cY - dy);
+      } else {
+        svgNode.x = x;
+        svgNode.y = y;
       }
       applyOpacity(svgNode, s);
       reportProgress();
@@ -1726,15 +1740,28 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           applyCornerRadius(rect, s);
           
           let angleDeg = 0;
-          if (s.transform && s.transform.includes('matrix')) {
+          if (s.transform && s.transform.includes('matrix') && Math.abs(parentFrame.rotation || 0) < 0.1) {
             const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
             if (parts) {
               const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
               angleDeg = Math.atan2(vals[1], vals[0]) * (180 / Math.PI);
             }
           }
-          if (angleDeg !== 0) {
-            rect.rotation = -angleDeg;
+          if (Math.abs(angleDeg) > 0.1) {
+            const rotDeg = -angleDeg;
+            rect.rotation = rotDeg;
+            const rad = rotDeg * (Math.PI / 180);
+            const halfW = w / 2;
+            const halfH = h / 2;
+            const cX = x + halfW;
+            const cY = y + halfH;
+            const dx = halfW * Math.cos(rad) + halfH * Math.sin(rad);
+            const dy = -halfW * Math.sin(rad) + halfH * Math.cos(rad);
+            rect.x = Math.round(cX - dx);
+            rect.y = Math.round(cY - dy);
+          } else {
+            rect.x = x;
+            rect.y = y;
           }
           
           applyOpacity(rect, s);
