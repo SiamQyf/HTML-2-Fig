@@ -274,7 +274,7 @@ function parseLinearGradient(css) {
 
       if (posMatch) {
         colStr = posMatch[1].trim();
-        const pctMatch = trimmed.match(/([\d.]+)%$/);
+        const pctMatch = trimmed.match(/(-?[\d.]+)%$/);
         if (pctMatch) pos = parseFloat(pctMatch[1]) / 100;
       }
 
@@ -295,6 +295,12 @@ function parseLinearGradient(css) {
     if (stops.length === 0) return null;
     if (stops.length === 1) {
       stops.push({ position: 1, color: { ...stops[0].color } });
+    }
+    if (stops[0].position > 0) {
+      stops.unshift({ position: 0, color: { ...stops[0].color } });
+    }
+    if (stops[stops.length - 1].position < 1) {
+      stops.push({ position: 1, color: { ...stops[stops.length - 1].color } });
     }
 
     const rad = ((angleDeg - 90) * Math.PI) / 180;
@@ -523,12 +529,19 @@ function parseBoxShadows(css) {
   return effects;
 }
 
+function isBackgroundClipText(styles) {
+  if (!styles) return false;
+  const bc = styles.backgroundClip || '';
+  const wbc = styles.webkitBackgroundClip || '';
+  return bc.includes('text') || wbc.includes('text');
+}
+
 /* ======================================================================
  *  4.  STYLE APPLIERS
  * ====================================================================== */
 async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = false) {
   let fills = [];
-  const isTextClip = styles.backgroundClip === 'text' || styles.webkitBackgroundClip === 'text';
+  const isTextClip = isBackgroundClipText(styles);
 
   let isZeroSize = false;
   if (!isTextClip) {
@@ -697,6 +710,10 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
               }
               const targetFill = fillHex || textColHex;
               preparedSvg = preparedSvg.replace(/<(path|rect|polygon|circle|ellipse)\b([^>]*?)(\/?>)/gi, (m, tag, attrs, close) => {
+                // If shape already has stroke and fill is explicitly none, keep it stroke-only (e.g. dropdown chevrons)
+                if (/\bfill\s*=\s*["']none["']/i.test(attrs) && /\bstroke\s*=/i.test(attrs) && !/\bstroke\s*=\s*["']none["']/i.test(attrs)) {
+                  return m;
+                }
                 if (!/\bfill\s*=/i.test(attrs) || /\bfill\s*=\s*["']none["']/i.test(attrs)) {
                   return `<${tag}${attrs.replace(/\bfill\s*=\s*["']none["']/gi, '')} fill="${targetFill}"${close}`;
                 }
@@ -706,28 +723,29 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
 
             const cleanSvg = preparedSvg;
             const svgNode = figma.createNodeFromSvg(cleanSvg);
+            hydrateSvgPatterns(svgNode, cleanSvg);
             svgNode.name = (isMask && hasChildren) ? 'mask-svg' : 'bg-svg';
             node.insertChild(0, svgNode);
 
-            const bgSize = ((isMask ? (styles.maskSize || styles.webkitMaskSize) : null) || styles.backgroundSize || 'auto').trim();
-            const posX = ((isMask ? (styles.maskPositionX || styles.webkitMaskPositionX) : null) || styles.backgroundPositionX || '0%').trim();
-            const posY = ((isMask ? (styles.maskPositionY || styles.webkitMaskPositionY) : null) || styles.backgroundPositionY || '0%').trim();
+            const rawBgSize = ((isMask ? (styles.maskSize || styles.webkitMaskSize) : null) || styles.backgroundSize || 'auto').split(',')[0].trim();
+            const rawPosX = ((isMask ? (styles.maskPositionX || styles.webkitMaskPositionX) : null) || styles.backgroundPositionX || '0%').split(',')[0].trim();
+            const rawPosY = ((isMask ? (styles.maskPositionY || styles.webkitMaskPositionY) : null) || styles.backgroundPositionY || '0%').split(',')[0].trim();
 
             const origW = svgNode.width || 1;
             const origH = svgNode.height || 1;
             let targetW = nodeW;
             let targetH = nodeH;
 
-            if (bgSize === 'cover') {
+            if (rawBgSize === 'cover') {
               const scale = Math.max(nodeW / origW, nodeH / origH);
               targetW = origW * scale;
               targetH = origH * scale;
-            } else if (bgSize === 'contain') {
+            } else if (rawBgSize === 'contain') {
               const scale = Math.min(nodeW / origW, nodeH / origH);
               targetW = origW * scale;
               targetH = origH * scale;
-            } else if (bgSize && bgSize !== 'auto') {
-              const parts = bgSize.split(/\s+/);
+            } else if (rawBgSize && rawBgSize !== 'auto') {
+              const parts = rawBgSize.split(/\s+/);
               let wStr = parts[0];
               let hStr = parts.length > 1 ? parts[1] : 'auto';
               if (wStr.endsWith('%')) targetW = nodeW * (parseFloat(wStr) / 100);
@@ -741,12 +759,33 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
               targetH = nodeH;
             }
 
-            let ox = 0, oy = 0;
-            if (posX.endsWith('%')) ox = (nodeW - targetW) * (parseFloat(posX) / 100);
-            else if (posX.endsWith('px')) ox = parseFloat(posX);
+            // Parse CSS backgroundPositionX/Y with support for percentages, px, and 3/4-value CSS offsets (e.g. 'right 12px')
+            function parseBgCoord(posStr, containerDim, targetDim) {
+              if (!posStr) return 0;
+              const p = posStr.trim();
+              const tokens = p.split(/\s+/);
+              if (tokens.length >= 2) {
+                const keyword = tokens[0].toLowerCase();
+                const offsetVal = parseFloat(tokens[1]) * (tokens[1].endsWith('rem') ? 16 : 1);
+                if (keyword === 'right' || keyword === 'bottom') {
+                  return containerDim - targetDim - (isNaN(offsetVal) ? 0 : offsetVal);
+                }
+                if (keyword === 'left' || keyword === 'top') {
+                  return isNaN(offsetVal) ? 0 : offsetVal;
+                }
+              }
+              if (p === 'center') return (containerDim - targetDim) / 2;
+              if (p === 'left' || p === 'top') return 0;
+              if (p === 'right' || p === 'bottom') return containerDim - targetDim;
+              if (p.endsWith('%')) return (containerDim - targetDim) * (parseFloat(p) / 100);
+              if (p.endsWith('px')) return parseFloat(p);
+              if (p.endsWith('rem')) return parseFloat(p) * 16;
+              const num = parseFloat(p);
+              return isNaN(num) ? 0 : num;
+            }
 
-            if (posY.endsWith('%')) oy = (nodeH - targetH) * (parseFloat(posY) / 100);
-            else if (posY.endsWith('px')) oy = parseFloat(posY);
+            let ox = parseBgCoord(rawPosX, nodeW, targetW);
+            let oy = parseBgCoord(rawPosY, nodeH, targetH);
 
             svgNode.x = Math.round(ox);
             svgNode.y = Math.round(oy);
@@ -1328,6 +1367,16 @@ function prepareSvgString(svgString, isInverted) {
     const hexB = Math.round(parseFloat(b)).toString(16).padStart(2, '0');
     return `#${hexR}${hexG}${hexB}`;
   });
+  // Strip pattern tags that Figma's SVG parser crashes on
+  clean = clean.replace(/<pattern[\s\S]*?<\/pattern>/gi, '');
+  // Strip direct image tags inside SVG that Figma's parser crashes on
+  clean = clean.replace(/<image[\s\S]*?\/?>/gi, '');
+  // Replace pattern url fills with fill="none" so Figma creates vector shapes cleanly
+  clean = clean.replace(/fill=["']url\(#[^"']+\)["']/gi, 'fill="none"');
+  // Remove xmlns:xlink
+  clean = clean.replace(/\s*xmlns:xlink=["'][^"']*["']/gi, '');
+  // Fix number formats without leading zero (e.g. scale(.0104167) -> scale(0.0104167))
+  clean = clean.replace(/([(\s,])-?\.(\d+)/g, '$10.$2');
   // Ensure xmlns is present on <svg>
   if (!clean.includes('xmlns=')) {
     clean = clean.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg" ');
@@ -1365,6 +1414,77 @@ function prepareSvgString(svgString, isInverted) {
   return clean;
 }
 
+function hydrateSvgPatterns(svgNode, svgString) {
+  if (!svgNode || !svgString) return;
+  const hasPattern = svgString.includes('<pattern');
+  const hasImage = svgString.includes('<image');
+  if (!hasPattern && !hasImage) return;
+
+  const patternImageMap = {};
+  const patternMatches = Array.from(svgString.matchAll(/<pattern\b[^>]*?\bid=["']([^"']+)["'][^>]*?>([\s\S]*?)<\/pattern>/gi));
+  for (const m of patternMatches) {
+    const id = m[1];
+    const content = m[2];
+    const imgMatch = content.match(/(?:xlink:)?href=["'](data:image\/[^"']+)["']/i);
+    if (imgMatch) {
+      const bytes = decodeBase64Image(imgMatch[1]);
+      if (bytes) {
+        try {
+          const img = figma.createImage(bytes);
+          patternImageMap[id] = img.hash;
+        } catch {}
+      }
+    }
+  }
+
+  // Restore fills on vector children whose fill was dropped by Figma due to url(#pattern)
+  const patternIds = Object.keys(patternImageMap);
+  if (patternIds.length > 0) {
+    const refMatches = Array.from(svgString.matchAll(/<(?:path|rect|circle|polygon|ellipse)\b[^>]*?\bfill=["']url\(#([^"')]+)\)["']/gi));
+    function traverseAndFill(node) {
+      if (node.fills && node.fills.length === 0) {
+        const refId = refMatches[0]?.[1];
+        const hash = (refId && patternImageMap[refId]) ? patternImageMap[refId] : patternImageMap[patternIds[0]];
+        if (hash) {
+          node.fills = [{ type: 'IMAGE', imageHash: hash, scaleMode: 'FILL' }];
+        }
+      }
+      if (node.children) {
+        for (const child of node.children) traverseAndFill(child);
+      }
+    }
+    traverseAndFill(svgNode);
+  }
+
+  // Handle direct <image> tags inside the SVG (which Figma's createNodeFromSvg completely drops)
+  if (hasImage && !hasPattern) {
+    const directImageMatches = Array.from(svgString.matchAll(/<image\b([^>]*?)\/?>/gi));
+    for (const m of directImageMatches) {
+      const attrs = m[1];
+      const srcMatch = attrs.match(/(?:xlink:)?href=["'](data:image\/[^"']+)["']/i);
+      if (srcMatch) {
+        const bytes = decodeBase64Image(srcMatch[1]);
+        if (bytes) {
+          try {
+            const img = figma.createImage(bytes);
+            const rect = figma.createRectangle();
+            rect.name = 'image';
+            const xVal = parseFloat(attrs.match(/\bx=["']([\d.-]+)["']/i)?.[1] || 0);
+            const yVal = parseFloat(attrs.match(/\by=["']([\d.-]+)["']/i)?.[1] || 0);
+            const wVal = parseFloat(attrs.match(/\bwidth=["']([\d.-]+)["']/i)?.[1] || svgNode.width || 40);
+            const hVal = parseFloat(attrs.match(/\bheight=["']([\d.-]+)["']/i)?.[1] || svgNode.height || 40);
+            rect.x = xVal;
+            rect.y = yVal;
+            rect.resize(Math.max(1, wVal), Math.max(1, hVal));
+            rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+            svgNode.appendChild(rect);
+          } catch {}
+        }
+      }
+    }
+  }
+}
+
 async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles, inheritedTextClip = null) {
   if (!sNode) return;
 
@@ -1376,7 +1496,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
   const s = sNode.styles || inheritedStyles || {};
   let currentTextClip = inheritedTextClip;
-  if (s.backgroundClip === 'text' || s.webkitBackgroundClip === 'text') {
+  if (isBackgroundClipText(s)) {
     currentTextClip = s;
   }
 
@@ -1404,6 +1524,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       const cleanSvg = prepareSvgString(sNode.content, hasInvertFilter(s.filter));
       const svgNode = figma.createNodeFromSvg(cleanSvg);
       svgNode.name = (sNode.tag || 'node').toLowerCase();
+      hydrateSvgPatterns(svgNode, sNode.content);
       parentFrame.appendChild(svgNode);
       svgNode.x = x; svgNode.y = y;
       if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
@@ -1412,18 +1533,35 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       applyOpacity(svgNode, s);
       reportProgress();
       return;
-    } catch {
-      // If strict vector parsing fails, fall through so it still creates a positioned frame container
+    } catch (err) {
+      console.warn('[HTML-2-Fig] Svg vector parse failed, creating fallback frame:', err);
+      const svgFrame = figma.createFrame();
+      svgFrame.name = (sNode.tag || 'svg').toLowerCase();
+      parentFrame.appendChild(svgFrame);
+      svgFrame.x = x; svgFrame.y = y;
+      svgFrame.resize(w, h);
+      reportProgress();
+      return;
     }
   }
 
   // IMG element
   if (sNode.tag === 'IMG') {
     const attrs = sNode.attributes || {};
-    const imgUrl = attrs.currentSrc || attrs.src || attrs['data-src'] || attrs['data-lazy-src'] || attrs['data-original'];
+    const hasRasterPlaceholder = sNode.placeholderUrl && !sNode.placeholderUrl.includes('image/svg+xml');
+    const imgUrl = hasRasterPlaceholder
+      ? sNode.placeholderUrl
+      : (attrs.currentSrc || attrs.src || attrs['data-src'] || attrs['data-lazy-src'] || attrs['data-original'] || '');
+    const isSvg = !hasRasterPlaceholder && (
+      (imgUrl && (imgUrl.includes('.svg') || imgUrl.startsWith('data:image/svg+xml'))) ||
+      (attrs.src && attrs.src.includes('.svg')) ||
+      (attrs.currentSrc && attrs.currentSrc.includes('.svg'))
+    );
     let blobObj;
     if (imgUrl && imgUrl.startsWith('data:')) {
       blobObj = imgUrl;
+    } else if (hasRasterPlaceholder) {
+      blobObj = sNode.placeholderUrl;
     } else {
       let assetData = null;
       if (assets) {
@@ -1437,7 +1575,19 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           const filename = imgUrl.split('/').pop()?.split('?')[0];
           if (filename) {
             for (const key of Object.keys(assets)) {
-              if (key.includes(filename)) {
+              if (key.includes(filename) || (filename.includes('wave') && key.includes('wave'))) {
+                assetData = assets[key];
+                break;
+              }
+            }
+          }
+        }
+        if (!assetData && assets) {
+          // If direct match failed, grab first wave-fallback asset if tag/class suggests hero wave
+          const isWave = (attrs.class && attrs.class.includes('wave')) || (imgUrl && imgUrl.includes('wave'));
+          if (isWave) {
+            for (const key of Object.keys(assets)) {
+              if (key.includes('wave-fallback') || key.includes('wave')) {
                 assetData = assets[key];
                 break;
               }
@@ -1451,9 +1601,9 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     if (blobObj) {
       const bytes = decodeBase64Image(blobObj);
       if (bytes) {
-        try {
-          const header = String.fromCharCode.apply(null, bytes.slice(0, 100)).toLowerCase();
-          if (header.includes('<svg') || header.includes('<?xml')) {
+        const header = String.fromCharCode.apply(null, bytes.slice(0, 100)).toLowerCase();
+        if (isSvg || header.includes('<svg') || header.includes('<?xml')) {
+          try {
             let svgString = '';
             if (typeof TextDecoder !== 'undefined') {
               svgString = new TextDecoder('utf-8').decode(bytes);
@@ -1462,9 +1612,11 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
                 svgString += String.fromCharCode(bytes[i]);
               }
             }
+
             const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter));
             const svgNode = figma.createNodeFromSvg(cleanSvg);
             svgNode.name = sNode.attributes?.alt || 'img-svg';
+            hydrateSvgPatterns(svgNode, svgString);
             parentFrame.appendChild(svgNode);
             svgNode.x = x; svgNode.y = y;
             if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
@@ -1473,7 +1625,17 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             applyOpacity(svgNode, s);
             reportProgress();
             return;
+          } catch (svgErr) {
+            console.warn('[HTML-2-Fig] SVG import failed, creating SVG frame fallback:', svgErr);
+            const svgFrame = figma.createFrame();
+            svgFrame.name = sNode.attributes?.alt || 'img-svg';
+            parentFrame.appendChild(svgFrame);
+            svgFrame.x = x; svgFrame.y = y;
+            svgFrame.resize(w, h);
+            reportProgress();
+            return;
           }
+        }
 
           const hasMask = (s.maskImage && s.maskImage !== 'none') || (s.webkitMaskImage && s.webkitMaskImage !== 'none');
           if (hasMask) {
@@ -1542,14 +1704,23 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           applyOpacity(rect, s);
           reportProgress();
           return;
-        } catch {}
+        }
       }
     }
-  }
 
   // Canvas / Video placeholder element
   if (sNode.placeholderUrl) {
-    const assetData = assets?.[sNode.placeholderUrl];
+    let assetData = assets?.[sNode.placeholderUrl];
+    if (!assetData && assets) {
+      const filename = sNode.placeholderUrl.split('/').pop()?.split('?')[0];
+      for (const key of Object.keys(assets)) {
+        if ((filename && key.includes(filename)) ||
+            (sNode.placeholderUrl.includes('developer-wave') && (key.includes('developer-wave') || key.includes('wave-wide')))) {
+          assetData = assets[key];
+          break;
+        }
+      }
+    }
     const blobObj = assetData?.blob || assetData?.base64Blob || assetData;
     if (blobObj) {
       const bytes = decodeBase64Image(blobObj);
@@ -1847,7 +2018,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   }
 
   frame.resize(rectW, rectH);
-  frame.clipsContent = (s.overflow === 'hidden' || s.overflowX === 'hidden' || s.overflow === 'clip' || s.overflowX === 'clip');
+  const clipValues = ['hidden', 'clip', 'auto', 'scroll'];
+  frame.clipsContent = (clipValues.includes(s.overflow) || clipValues.includes(s.overflowX) || clipValues.includes(s.overflowY));
 
   const hasChildren = (sNode.childNodes && sNode.childNodes.length > 0) || (sNode.pseudoElementNodes?.after != null);
   await applyFills(frame, s, assets, rectW, rectH, hasChildren);
@@ -1859,7 +2031,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
   // If node itself has direct text (like pseudo elements with content: "Logo #3")
   if (sNode.text && sNode.text.trim()) {
-    await renderTextNode(sNode, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, s);
+    await renderTextNode(sNode, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, s, currentTextClip);
   }
 
   const allChildren = [];
@@ -1867,10 +2039,12 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (sNode.childNodes) allChildren.push(...sNode.childNodes);
   if (sNode.pseudoElementNodes?.after) allChildren.push(sNode.pseudoElementNodes.after);
 
+  allChildren.forEach((child, idx) => { child._origIdx = idx; });
   allChildren.sort((a, b) => {
-    const zA = parseInt(a.styles?.zIndex) || 0;
-    const zB = parseInt(b.styles?.zIndex) || 0;
-    return zA - zB;
+    const zA = (a.styles?.zIndex && a.styles.zIndex !== 'auto') ? (parseInt(a.styles.zIndex, 10) || 0) : 0;
+    const zB = (b.styles?.zIndex && b.styles.zIndex !== 'auto') ? (parseInt(b.styles.zIndex, 10) || 0) : 0;
+    const diff = zA - zB;
+    return diff !== 0 ? diff : a._origIdx - b._origIdx;
   });
 
   for (const child of allChildren) {
@@ -1954,9 +2128,10 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   }
 
   const alignMap = { 'left': 'LEFT', 'start': 'LEFT', 'center': 'CENTER', 'right': 'RIGHT', 'end': 'RIGHT', 'justify': 'JUSTIFIED' };
-  textNode.textAlignHorizontal = alignMap[s.textAlign] || 'LEFT';
+  const isSlicedLine = !!(sNode.id && sNode.id.includes('text-line'));
+  textNode.textAlignHorizontal = isSlicedLine ? 'LEFT' : (alignMap[s.textAlign] || 'LEFT');
 
-  let isTextClip = s.backgroundClip === 'text' || s.webkitBackgroundClip === 'text';
+  let isTextClip = isBackgroundClipText(s);
   let clipStyle = s;
   if (!isTextClip && inheritedTextClip) {
     isTextClip = true;
@@ -1974,9 +2149,19 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     const bg = parseColor(clipStyle.backgroundColor);
     if (bg && bg.a > 0.005) textFills.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: clamp01(bg.a) });
     if (clipStyle.backgroundImage && clipStyle.backgroundImage.includes('gradient')) {
-      let grad = parseLinearGradient(clipStyle.backgroundImage);
-      if (!grad) grad = parseRadialGradient(clipStyle.backgroundImage);
-      if (grad) textFills.push(grad);
+      const bgs = splitByTopLevelCommas(clipStyle.backgroundImage);
+      for (const bg of bgs) {
+        if (bg.includes('linear-gradient')) {
+          const grad = parseLinearGradient(bg);
+          if (grad) textFills.push(grad);
+        } else if (bg.includes('radial-gradient')) {
+          const grad = parseRadialGradient(bg);
+          if (grad) textFills.push(grad);
+        } else if (bg.includes('conic-gradient')) {
+          const grad = parseAngularGradient(bg);
+          if (grad) textFills.push(grad);
+        }
+      }
     }
 
     if (textFills.length > 0) {
@@ -2025,7 +2210,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const textStr = finalText.trim();
 
 
-  if (sNode.id && sNode.id.includes('input-text') && w > 0 && h > 0) {
+  if (sNode.id && (sNode.id.includes('input-text') || sNode.id.includes('select-text')) && w > 0 && h > 0) {
     try {
       textNode.textAutoResize = 'TRUNCATE';
     } catch {
@@ -2038,15 +2223,33 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     textNode.resize(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
   } else {
     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
-    // When using WIDTH_AND_HEIGHT, Figma sizes the node exactly to its own font rendering width.
-    // If this differs from the browser's bounding box `w`, center/right aligned text will be misaligned.
-    // We compensate by shifting `x` so the text remains correctly aligned within the browser's original `w`.
     const isVert = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr');
     if (w > 0 && !isVert) {
-      if (s.textAlign === 'center') {
-        textNode.x = posX + (w - textNode.width) / 2;
-      } else if (s.textAlign === 'right' || s.textAlign === 'end') {
-        textNode.x = posX + (w - textNode.width);
+      // Fix text overlap for inline elements by forcing Figma's text width to match the browser's bounding box width.
+      // We only SHRINK text if Figma rendered it wider than HTML. We NEVER stretch, because stretching fills gaps
+      // that were previously trimmed spaces!
+      if (textNode.width > w + 1 && textNode.characters.length > 1) {
+        const diff = textNode.width - w;
+        // Cap the max adjustment per character to prevent extreme squishing
+        let adjust = diff / textNode.characters.length;
+        if (adjust > 1.0) adjust = 1.0; // max shrink 1px per char
+        
+        let currentLs = 0;
+        if (textNode.letterSpacing && textNode.letterSpacing.unit === 'PIXELS') {
+          currentLs = textNode.letterSpacing.value;
+        }
+        try {
+          textNode.letterSpacing = { value: currentLs - adjust, unit: 'PIXELS' };
+        } catch (e) {}
+      }
+
+      const isInlineToken = textNode.characters.endsWith(' ') || textNode.characters.startsWith(' ') || isSlicedLine || s.display === 'inline';
+      if (!isInlineToken) {
+        if (s.textAlign === 'center') {
+          textNode.x = posX + (w - textNode.width) / 2;
+        } else if (s.textAlign === 'right' || s.textAlign === 'end') {
+          textNode.x = posX + (w - textNode.width);
+        }
       }
     }
   }

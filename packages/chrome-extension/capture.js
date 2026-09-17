@@ -124,11 +124,63 @@
     window.scrollTo(0, 0);
     await new Promise(r => setTimeout(r, 200));
 
+    // Neutralize GSAP ScrollSmoother (which locks the entire webpage inside a 100vh overflow:hidden fixed container)
+    try {
+      if (window.ScrollSmoother) {
+        const sm = window.ScrollSmoother.get();
+        if (sm) sm.kill();
+      }
+      const sw = document.getElementById('smooth-wrapper');
+      const sc = document.getElementById('smooth-content');
+      if (sw) {
+        sw.style.setProperty('position', 'static', 'important');
+        sw.style.setProperty('height', 'auto', 'important');
+        sw.style.setProperty('overflow', 'visible', 'important');
+      }
+      if (sc) {
+        sc.style.setProperty('position', 'static', 'important');
+        sc.style.setProperty('height', 'auto', 'important');
+        sc.style.setProperty('overflow', 'visible', 'important');
+        sc.style.setProperty('transform', 'none', 'important');
+      }
+    } catch (e) {}
+
+    // Fast-forward GSAP ScrollTriggers and disable reset/reverse triggers so scroll-to-top never hides content
+    try {
+      if (window.ScrollTrigger) {
+        window.ScrollTrigger.getAll().forEach(st => {
+          try {
+            const isCrazyScale = st.vars?.scrub && st.trigger && (st.trigger.className || '').includes('circle-shape');
+            if (st.animation && !isCrazyScale) {
+              st.animation.progress(1);
+            }
+            st.disable(false);
+          } catch (e) {}
+        });
+      }
+      if (window.gsap) {
+        window.gsap.globalTimeline.getChildren().forEach(tween => {
+          try { tween.progress(1); } catch {}
+        });
+      }
+    } catch (e) {}
+
     // Automatically defeat scroll-linked animations and force scroll-reveal elements visible
     const animKiller = document.createElement('style');
     animKiller.id = 'h2f-animation-killer';
     animKiller.innerHTML = `
       * { transition: none !important; animation: none !important; }
+      #smooth-wrapper, #smooth-content {
+        position: static !important;
+        height: auto !important;
+        overflow: visible !important;
+        transform: none !important;
+      }
+      .words, .word, .line, .letter, .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text {
+        visibility: visible !important;
+        opacity: 1 !important;
+        transform: none !important;
+      }
       .wow, 
       [data-wow-delay], 
       [data-wow-duration], 
@@ -146,8 +198,9 @@
         animation: none !important;
         transition: none !important;
       }
-      .waves, .wave, [class*="wave-"] {
-        opacity: 0.15 !important;
+      .hero-wave-animation, .hero-wave-animation__static, .hero-wave-animation__static img {
+        opacity: 1 !important;
+        visibility: visible !important;
       }
       #preloader, .preloader, .loader-wrapper, #loading, .page-loader, .site-preloader, .animation-preloader, .loader-section {
         display: none !important;
@@ -175,27 +228,24 @@
     // Unhide and reset scroll-reveal elements whose inline styles were reversed or hidden
     try {
       const animatedEls = document.querySelectorAll(
-        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"]'
+        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter'
       );
       for (const el of animatedEls) {
         if (el.style.visibility === 'hidden') el.style.visibility = 'visible';
         if (el.style.opacity === '0' || (parseFloat(el.style.opacity) || 0) < 0.05) el.style.opacity = '1';
-        if (el.style.transform && el.style.transform.includes('translate')) el.style.transform = 'none';
+        if (el.style.transform) {
+          if (el.style.transform.includes('translate') || el.style.transform.includes('scale(100') || el.style.transform.includes('scale(100,') || el.style.transform.includes('matrix')) {
+            el.style.transform = 'none';
+          }
+        }
         if (el.style.clipPath) el.style.clipPath = 'none';
         
-        // Unhide all descendant words and characters created by GSAP SplitText
         for (const desc of el.querySelectorAll('*')) {
-          const isRipple = desc.matches && desc.matches('.wave, .waves, .waves-block, .pulse, .ripple, [class*="wave-"]');
           if (desc.style.visibility === 'hidden') desc.style.visibility = 'visible';
-          if (!isRipple && (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05)) {
+          if (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05) {
             desc.style.opacity = '1';
           }
-          if (isRipple && (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.01)) {
-            desc.style.opacity = '0.15';
-          }
-          if (!isRipple && desc.style.transform && (desc.style.transform.includes('translate') || desc.style.transform.includes('matrix'))) {
-            desc.style.transform = 'none';
-          }
+          if (desc.style.transform) desc.style.transform = 'none';
         }
       }
     } catch {}
@@ -393,7 +443,11 @@
       }
     } catch {}
 
-    // Method 3: HTMLImageElement + Canvas draw fallback
+    // Method 3: HTMLImageElement + Canvas draw fallback (for raster images only, never SVGs)
+    if (absoluteUrl.includes('.svg') || absoluteUrl.startsWith('data:image/svg+xml')) {
+      return { url: absoluteUrl, blob: null };
+    }
+
     return new Promise(resolve => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -416,6 +470,47 @@
     });
   }
 
+  async function fetchFadedImage(url, fadeLeftPct = 0.18, fadeRightPct = 0.18) {
+    const raw = await fetchImage(url);
+    if (!raw || !raw.blob || !raw.blob.data) return raw;
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = img.naturalWidth || img.width;
+          c.height = img.naturalHeight || img.height;
+          const ctx = c.getContext('2d');
+          if (!ctx) return resolve(raw);
+
+          // Draw original image
+          ctx.drawImage(img, 0, 0);
+
+          // Apply smooth horizontal alpha fade using destination-in
+          ctx.globalCompositeOperation = 'destination-in';
+          const grad = ctx.createLinearGradient(0, 0, c.width, 0);
+          grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+          grad.addColorStop(fadeLeftPct, 'rgba(0, 0, 0, 1)');
+          grad.addColorStop(1 - fadeRightPct, 'rgba(0, 0, 0, 1)');
+          grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, c.width, c.height);
+
+          const dataUrl = c.toDataURL('image/png');
+          const b64Data = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+          resolve({ url, blob: { type: 'image/png', data: b64Data } });
+        } catch (e) {
+          resolve(raw);
+        }
+      };
+      img.onerror = () => resolve(raw);
+      const dataSrc = raw.blob.data.startsWith('data:') ? raw.blob.data : `data:${raw.blob.type || 'image/png'};base64,${raw.blob.data}`;
+      img.src = dataSrc;
+    });
+  }
+
   class AssetCollector {
     constructor() {
       this.promises = new Map();
@@ -429,6 +524,18 @@
       } catch {}
       if (this.promises.has(absoluteUrl)) return;
       this.promises.set(absoluteUrl, fetchImage(absoluteUrl));
+      if (url !== absoluteUrl) {
+        this.promises.set(url, this.promises.get(absoluteUrl));
+      }
+    }
+    addFadedImage(url, fadeLeftPct = 0.18, fadeRightPct = 0.18) {
+      if (!url) return;
+      let absoluteUrl = url;
+      try {
+        absoluteUrl = new URL(url, document.baseURI).href;
+      } catch {}
+      if (this.promises.has(absoluteUrl)) return;
+      this.promises.set(absoluteUrl, fetchFadedImage(absoluteUrl, fadeLeftPct, fadeRightPct));
       if (url !== absoluteUrl) {
         this.promises.set(url, this.promises.get(absoluteUrl));
       }
@@ -550,6 +657,10 @@
     styles.textTransform = cs.textTransform;
     styles.textDecoration = cs.textDecoration;
     styles.textDecorationLine = cs.textDecorationLine;
+
+    // Explicitly capture background clip (including text clip with multiple values like 'text, text')
+    if (cs.backgroundClip && cs.backgroundClip.includes('text')) styles.backgroundClip = cs.backgroundClip;
+    if (cs.webkitBackgroundClip && cs.webkitBackgroundClip.includes('text')) styles.webkitBackgroundClip = cs.webkitBackgroundClip;
 
     // Capture effective CSS filter (including ancestor invert filters for SVGs)
     styles.filter = cs.filter || 'none';
@@ -843,17 +954,29 @@
       return true;
     }
 
-    // Icon fonts with 1-2 characters (e.g. FontAwesome, RemixIcon, Tabler, Bootstrap)
-    const isIconFont = /(?:awesome|feather|tabler|boxicon|remix|glyph)/i.test(fontName) && !fontName.includes('system-ui');
+    // Icon fonts with 1-2 characters (e.g. FontAwesome, RemixIcon, Tabler, Bootstrap, Phosphor)
+    const isIconFont = /(?:awesome|feather|tabler|boxicon|remix|glyph|phosphor)/i.test(fontName) && !fontName.includes('system-ui');
     if (chars.length <= 2) {
       if (isIconFont) return true;
       // Specific icon, glyph, or flag library classes
-      if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|mdi-[a-z0-9-]+|glyph|flag)\b/i.test(cls) ||
+      if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|mdi-[a-z0-9-]+|glyph|flag|ph|ph-[a-z0-9-]+)\b/i.test(cls) ||
           cls.includes('__glyph') || cls.includes('__flag') || cls.includes('-glyph') || cls.includes('-flag')) {
         return true;
       }
     }
 
+    return false;
+  }
+
+  function isElementOrAncestorFixed(el, styles) {
+    if (styles && styles.position === 'fixed') return true;
+    let cur = el ? el.parentElement : null;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      try {
+        if (window.getComputedStyle(cur).position === 'fixed') return true;
+      } catch {}
+      cur = cur.parentElement;
+    }
     return false;
   }
 
@@ -1051,6 +1174,10 @@
     const bgs = splitByTopLevelCommas(bgImage);
     if (bgs.length < 2 || !bgs.every(b => b.includes('linear-gradient'))) return null;
 
+    const repeat = (cs.backgroundRepeat || '').toLowerCase();
+    if (repeat.includes('repeat') && !repeat.includes('no-repeat')) return null;
+    if (bgs.some(b => b.includes('transparent') || b.includes('rgba(0, 0, 0, 0)'))) return null;
+
     const sizes = splitByTopLevelCommas(cs.backgroundSize || '');
     let pos = splitByTopLevelCommas(cs.backgroundPosition || '');
     const posXList = splitByTopLevelCommas(cs.backgroundPositionX || '');
@@ -1239,6 +1366,168 @@
     }
   }
 
+  function isPatternGradient(bgStr, bgSize, bgRepeat) {
+    if (!bgStr || bgStr === 'none') return false;
+    const lower = bgStr.toLowerCase();
+    if (lower.includes('repeating-linear-gradient') ||
+        lower.includes('repeating-radial-gradient') ||
+        lower.includes('repeating-conic-gradient')) {
+      return true;
+    }
+    const repeat = (bgRepeat || '').toLowerCase();
+    const isRepeating = repeat.includes('repeat') && !repeat.includes('no-repeat');
+    if (bgSize && bgSize !== 'auto' && bgSize !== 'cover' && bgSize !== 'contain') {
+      const parts = bgSize.trim().split(/\s+/);
+      const w = parseFloat(parts[0]);
+      if (w > 0 && (isRepeating || w <= 160) && (lower.includes('radial-gradient') || lower.includes('linear-gradient'))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function renderPatternToDataUrl(bgStr, bgSize, bgRepeat, width, height) {
+    try {
+      const w = Math.min(2048, Math.max(1, Math.round(width || 100)));
+      const h = Math.min(2048, Math.max(1, Math.round(height || 100)));
+      const sizeStr = bgSize || 'auto';
+      const repeatStr = bgRepeat || 'repeat';
+
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
+        <foreignObject width="100%" height="100%">
+          <div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;background-image:${bgStr};background-size:${sizeStr};background-repeat:${repeatStr};background-color:transparent;"></div>
+        </foreignObject>
+      </svg>`;
+
+      const img = new Image();
+      const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      img.src = svgUrl;
+      await img.decode();
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      return canvas.toDataURL('image/png');
+    } catch {
+      return null;
+    }
+  }
+
+  /* ======================================================================
+   *  SVG EMBEDDED RASTER-TO-VECTOR CONVERTER
+   *  Converts SVGs containing raster <pattern><image> or <image> into 100%
+   *  pure vector shapes (<rect>, <g fill="...">) with solid color fills.
+   * ====================================================================== */
+  async function vectorizeEmbeddedSvgImages(svgString) {
+    if (!svgString || typeof svgString !== 'string') return { isVector: true, svg: svgString };
+    if (!svgString.includes('<pattern') && !svgString.includes('<image')) return { isVector: true, svg: svgString };
+
+    // Check for embedded data:image
+    const imgMatch = svgString.match(/(?:xlink:)?href=["'](data:image\/[^"']+)["']/i);
+    if (!imgMatch) return { isVector: true, svg: svgString };
+
+    const dataUri = imgMatch[1];
+    try {
+      const img = new Image();
+      await new Promise((r) => {
+        img.onload = r;
+        img.onerror = r;
+        img.src = dataUri;
+      });
+      if (!img.width || !img.height) return { isVector: false, dataUri };
+
+      const w = img.width, h = img.height;
+      // If graphic is larger than 300x300, it's a photo or large graphic -> return as IMAGE!
+      if (w > 300 || h > 300) {
+        return { isVector: false, dataUri };
+      }
+
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const imgData = ctx.getImageData(0, 0, w, h).data;
+
+      // Quantize colors slightly to eliminate compression artifacts
+      function getHex(r, g, b) {
+        const qr = Math.min(255, Math.round(r / 8) * 8);
+        const qg = Math.min(255, Math.round(g / 8) * 8);
+        const qb = Math.min(255, Math.round(b / 8) * 8);
+        return '#' + ((1 << 24) + (qr << 16) + (qg << 8) + qb).toString(16).slice(1);
+      }
+
+      const colorSpans = {};
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const idx = (y * w + x) * 4;
+          const a = imgData[idx + 3];
+          if (a < 40) continue;
+
+          const hex = getHex(imgData[idx], imgData[idx + 1], imgData[idx + 2]);
+          if (!colorSpans[hex]) colorSpans[hex] = [];
+
+          let run = 1;
+          while (x + run < w) {
+            const nIdx = (y * w + (x + run)) * 4;
+            if (imgData[nIdx + 3] >= 40 && getHex(imgData[nIdx], imgData[nIdx + 1], imgData[nIdx + 2]) === hex) {
+              run++;
+            } else {
+              break;
+            }
+          }
+          colorSpans[hex].push({ x, y, w: run, h: 1 });
+          x += run - 1;
+        }
+      }
+
+      // If it has too many distinct colors (> 64), it's a photo/complex artwork -> return as IMAGE!
+      if (Object.keys(colorSpans).length > 64) {
+        return { isVector: false, dataUri };
+      }
+
+      // Merge adjacent spans vertically
+      let vectorShapes = '';
+      for (const [color, spans] of Object.entries(colorSpans)) {
+        const merged = [];
+        const used = new Set();
+        for (let i = 0; i < spans.length; i++) {
+          if (used.has(i)) continue;
+          let r = { ...spans[i] };
+          used.add(i);
+          for (let j = i + 1; j < spans.length; j++) {
+            if (used.has(j)) continue;
+            const r2 = spans[j];
+            if (r2.x === r.x && r2.w === r.w && r2.y === r.y + r.h) {
+              r.h += r2.h;
+              used.add(j);
+            }
+          }
+          merged.push(r);
+        }
+
+        vectorShapes += `  <g fill="${color}">\n`;
+        for (const r of merged) {
+          vectorShapes += `    <rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" />\n`;
+        }
+        vectorShapes += `  </g>\n`;
+      }
+
+      const wMatch = svgString.match(/width=["']([\d.]+)["']/i);
+      const hMatch = svgString.match(/height=["']([\d.]+)["']/i);
+      const targetW = wMatch ? wMatch[1] : w;
+      const targetH = hMatch ? hMatch[1] : h;
+
+      return {
+        isVector: true,
+        svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${targetW}" height="${targetH}">\n${vectorShapes}</svg>`
+      };
+    } catch {
+      return { isVector: false, dataUri };
+    }
+  }
+
   /* ======================================================================
    *  CSS BORDER-TRIANGLE DETECTOR & SVG CONVERTER
    *  Converts CSS border triangles (play buttons, dropdown arrows, carets)
@@ -1337,6 +1626,27 @@
 
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><polygon points="${points}" fill="${hexColor}"${opAttr} /></svg>`;
     return { w: W, h: H, svg, dir: coloredSide, color: hexColor };
+  }
+
+  function getQuoteMarks(el) {
+    if (!el) return { open: '“', close: '”' };
+    const cs = window.getComputedStyle(el);
+    const qProp = cs.quotes;
+    if (qProp === 'none') return { open: '', close: '' };
+    if (qProp && qProp !== 'auto') {
+      const matches = qProp.match(/"([^"]*)"|'([^']*)'/g);
+      if (matches && matches.length >= 2) {
+        return {
+          open: matches[0].replace(/['"]/g, ''),
+          close: matches[1].replace(/['"]/g, '')
+        };
+      }
+    }
+    const lang = (el.closest('[lang]')?.getAttribute('lang') || document.documentElement.lang || 'en').toLowerCase();
+    if (lang.startsWith('fr')) return { open: '« ', close: ' »' };
+    if (lang.startsWith('de')) return { open: '„', close: '“' };
+    if (lang.startsWith('es')) return { open: '«', close: '»' };
+    return { open: '“', close: '”' };
   }
 
   async function serializePseudo(el, pseudo, assets, fonts, parentRect) {
@@ -1476,7 +1786,17 @@
       let rawContent = content;
       const altSep = rawContent.indexOf('" / "');
       if (altSep !== -1) rawContent = rawContent.substring(0, altSep + 1);
-      const text = rawContent.replace(/^["']|["']$/g, '').trim();
+      let text = rawContent.replace(/^["']|["']$/g, '').trim();
+
+      // Resolve CSS quote keywords
+      if (text === 'open-quote' || text === 'close-quote' || text === 'no-open-quote' || text === 'no-close-quote' ||
+          rawContent === 'open-quote' || rawContent === 'close-quote') {
+        if (text === 'no-open-quote' || text === 'no-close-quote') return null;
+        if (el.tagName === 'Q') return null; // <q> elements inline their quotes directly into their text flow
+        const quotes = getQuoteMarks(el);
+        text = (text === 'open-quote' || rawContent === 'open-quote') ? quotes.open : quotes.close;
+        if (!text) return null;
+      }
       
       if (styles.fontFamily) fonts.addFont(styles.fontFamily);
       
@@ -1485,6 +1805,15 @@
       const h = parseFloat(cs.height);
       if (!isNaN(w) && cs.width !== 'auto') pseudoRect.width = w;
       if (!isNaN(h) && cs.height !== 'auto') pseudoRect.height = h;
+
+      // If text exists and width is auto, size pseudoRect to text width to avoid stretching across parentRect
+      const isIconPseudo = isIconElementOrFont(text, cs.fontFamily, el.className) || (parentRect.width > 0 && parentRect.width <= 48 && Math.abs(parentRect.width - parentRect.height) <= 4);
+      if (text && !isIconPseudo && (isNaN(w) || cs.width === 'auto') && cs.position !== 'absolute') {
+        const estCharW = (parseFloat(cs.fontSize) || 16) * 0.55;
+        pseudoRect.width = Math.ceil(text.length * estCharW);
+        const estLineH = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 16) * 1.2;
+        pseudoRect.height = Math.ceil(estLineH);
+      }
 
       if ((hasPseudoBorder || hasPseudoBg) && (isNaN(h) || pseudoRect.height <= 2)) {
         const borderH = Math.max(parseFloat(cs.borderTopWidth) || 0, parseFloat(cs.borderBottomWidth) || 0, 1);
@@ -1505,7 +1834,7 @@
       } else {
         const parentCs = window.getComputedStyle(el);
         const isFlex = parentCs.display && parentCs.display.includes('flex');
-        const isFixed = parentCs.position === 'fixed';
+        const isFixed = isElementOrAncestorFixed(el, parentCs);
         const scrollX = isFixed ? 0 : window.scrollX;
         const scrollY = isFixed ? 0 : window.scrollY;
 
@@ -1587,18 +1916,44 @@
         }
       }
 
-      if (styles.backgroundImage && styles.backgroundImage.includes('conic-gradient')) {
-        const bgs = splitByTopLevelCommas(styles.backgroundImage);
+      if (styles.backgroundImage && styles.backgroundImage !== 'none') {
         const w = Math.max(1, Math.round(pseudoRect.width || 100));
         const h = Math.max(1, Math.round(pseudoRect.height || 100));
-        const newBgs = bgs.map(bg => {
-          if (bg.includes('conic-gradient')) {
-            const dataUrl = renderConicGradientToDataUrl(bg, w, h);
-            if (dataUrl) return `url("${dataUrl}")`;
+        if (isPatternGradient(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat)) {
+          const dataUrl = await renderPatternToDataUrl(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat, w, h);
+          if (dataUrl) {
+            if (assets) assets.addDataUrl(dataUrl);
+            styles.backgroundImage = `url("${dataUrl}")`;
+            styles.backgroundSize = 'cover';
           }
-          return bg;
-        });
-        styles.backgroundImage = newBgs.join(', ');
+        } else {
+          const bgs = splitByTopLevelCommas(styles.backgroundImage);
+          let changed = false;
+          const newBgs = [];
+          for (const bg of bgs) {
+            if (bg.includes('conic-gradient')) {
+              const dataUrl = renderConicGradientToDataUrl(bg, w, h);
+              if (dataUrl) {
+                if (assets) assets.addDataUrl(dataUrl);
+                newBgs.push(`url("${dataUrl}")`);
+                changed = true;
+                continue;
+              }
+            }
+            if (isPatternGradient(bg, styles.backgroundSize, styles.backgroundRepeat)) {
+              const dataUrl = await renderPatternToDataUrl(bg, styles.backgroundSize, styles.backgroundRepeat, w, h);
+              if (dataUrl) {
+                if (assets) assets.addDataUrl(dataUrl);
+                newBgs.push(`url("${dataUrl}")`);
+                styles.backgroundSize = 'cover';
+                changed = true;
+                continue;
+              }
+            }
+            newBgs.push(bg);
+          }
+          if (changed) styles.backgroundImage = newBgs.join(', ');
+        }
       }
 
       const bgs = splitByTopLevelCommas(cs.backgroundImage);
@@ -1786,13 +2141,33 @@
         return str.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ');
       };
 
+      const formatInlineText = (str) => {
+        let text = collapseWs(str);
+        if (ws === 'pre' || ws === 'pre-wrap' || ws === 'break-spaces') return text;
+        if (!node.previousSibling) {
+          text = text.trimStart();
+        } else if (text.startsWith(' ')) {
+          text = ' ' + text.trimStart();
+        }
+        if (!node.nextSibling) {
+          text = text.trimEnd();
+        } else if (text.endsWith(' ')) {
+          text = text.trimEnd() + ' ';
+        }
+        return text;
+      };
+
+      const isParentQ = node.parentElement && node.parentElement.tagName === 'Q';
+      const isFirstTextInQ = isParentQ && (!node.previousSibling || (node.previousSibling.nodeType !== TEXT_NODE && !node.previousElementSibling));
+      const isLastTextInQ = isParentQ && (!node.nextSibling || (node.nextSibling.nodeType !== TEXT_NODE && !node.nextElementSibling));
+
       const r = document.createRange();
       r.selectNodeContents(node);
       const rect = r.getBoundingClientRect();
       const clientRects = r.getClientRects();
       r.detach();
       if (rect.width === 0 && rect.height === 0) return null;
-      const isFixed = parentStyles?.position === 'fixed';
+      const isFixed = isElementOrAncestorFixed(node.parentElement, parentStyles);
 
       // If single line or small inline token (like '$', '13', 'Popular Package'), preserve exact position
       
@@ -1956,15 +2331,39 @@
       }
 
       if (clientRects.length <= 1) {
-        const text = collapseWs(rawText).trim();
+        let text = formatInlineText(rawText);
+        let textX = rect.x + (isFixed ? 0 : window.scrollX);
+        let textW = Math.ceil(rect.width);
+
+        if (isParentQ) {
+          const qMarks = getQuoteMarks(node.parentElement);
+          if (isFirstTextInQ && !text.startsWith(qMarks.open)) {
+            text = qMarks.open + text;
+            const parentRect = node.parentElement.getBoundingClientRect();
+            const parentLeft = parentRect.x + (isFixed ? 0 : window.scrollX);
+            if (parentLeft < textX) {
+              textW += Math.ceil(textX - parentLeft);
+              textX = parentLeft;
+            }
+          }
+          if (isLastTextInQ && !text.endsWith(qMarks.close)) {
+            text = text + qMarks.close;
+            const parentRect = node.parentElement.getBoundingClientRect();
+            const parentRight = parentRect.right + (isFixed ? 0 : window.scrollX);
+            if (parentRight > textX + textW) {
+              textW = Math.ceil(parentRight - textX);
+            }
+          }
+        }
+
         return {
           nodeType: TEXT_NODE,
           id: getNodeId('text'),
           text,
           rect: {
-            x: rect.x + (isFixed ? 0 : window.scrollX),
+            x: textX,
             y: rect.y + (isFixed ? 0 : window.scrollY),
-            width: Math.ceil(rect.width),
+            width: textW,
             height: Math.ceil(rect.height)
           },
           styles: parentStyles || {},
@@ -1991,16 +2390,32 @@
           r.setStart(node, lineStart);
           r.setEnd(node, i);
           const lineBox = r.getBoundingClientRect();
-          const lineText = collapseWs(rawText.slice(lineStart, i)).trim();
+          let lineText = collapseWs(rawText.slice(lineStart, i)).trim();
+          let lineX = lineBox.x + (isFixed ? 0 : window.scrollX);
+          let lineW = Math.ceil(lineBox.width);
+
+          if (segments.length === 0 && isFirstTextInQ) {
+            const qMarks = getQuoteMarks(node.parentElement);
+            if (!lineText.startsWith(qMarks.open)) {
+              lineText = qMarks.open + lineText;
+              const parentRect = node.parentElement.getBoundingClientRect();
+              const parentLeft = parentRect.x + (isFixed ? 0 : window.scrollX);
+              if (parentLeft < lineX) {
+                lineW += Math.ceil(lineX - parentLeft);
+                lineX = parentLeft;
+              }
+            }
+          }
+
           if (lineText) {
             segments.push({
               nodeType: TEXT_NODE,
               id: getNodeId('text-line'),
               text: lineText,
               rect: {
-                x: lineBox.x + (isFixed ? 0 : window.scrollX),
+                x: lineX,
                 y: lineBox.y + (isFixed ? 0 : window.scrollY),
-                width: Math.ceil(lineBox.width),
+                width: lineW,
                 height: Math.ceil(lineBox.height)
               },
               styles: parentStyles || {},
@@ -2016,16 +2431,44 @@
       r.setStart(node, lineStart);
       r.setEnd(node, len);
       const finalBox = r.getBoundingClientRect();
-      const finalLineText = collapseWs(rawText.slice(lineStart)).trim();
+      let finalLineText = collapseWs(rawText.slice(lineStart)).trim();
+      let finalX = finalBox.x + (isFixed ? 0 : window.scrollX);
+      let finalW = Math.ceil(finalBox.width);
+
+      if (segments.length === 0 && isFirstTextInQ) {
+        const qMarks = getQuoteMarks(node.parentElement);
+        if (!finalLineText.startsWith(qMarks.open)) {
+          finalLineText = qMarks.open + finalLineText;
+          const parentRect = node.parentElement.getBoundingClientRect();
+          const parentLeft = parentRect.x + (isFixed ? 0 : window.scrollX);
+          if (parentLeft < finalX) {
+            finalW += Math.ceil(finalX - parentLeft);
+            finalX = parentLeft;
+          }
+        }
+      }
+
+      if (isLastTextInQ) {
+        const qMarks = getQuoteMarks(node.parentElement);
+        if (!finalLineText.endsWith(qMarks.close)) {
+          finalLineText = finalLineText + qMarks.close;
+          const parentRect = node.parentElement.getBoundingClientRect();
+          const parentRight = parentRect.right + (isFixed ? 0 : window.scrollX);
+          if (parentRight > finalX + finalW) {
+            finalW = Math.ceil(parentRight - finalX);
+          }
+        }
+      }
+
       if (finalLineText) {
         segments.push({
           nodeType: TEXT_NODE,
           id: getNodeId('text-line'),
           text: finalLineText,
           rect: {
-            x: finalBox.x + (isFixed ? 0 : window.scrollX),
+            x: finalX,
             y: finalBox.y + (isFixed ? 0 : window.scrollY),
-            width: Math.ceil(finalBox.width),
+            width: finalW,
             height: Math.ceil(finalBox.height)
           },
           styles: parentStyles || {},
@@ -2072,7 +2515,7 @@
       return {
         nodeType: TEXT_NODE,
         id: getNodeId('text'),
-        text: collapseWs(rawText).trim(),
+        text: formatInlineText(rawText),
         rect: {
           x: rect.x + (isFixed ? 0 : window.scrollX),
           y: rect.y + (isFixed ? 0 : window.scrollY),
@@ -2086,25 +2529,20 @@
 
     if (node.nodeType !== ELEMENT_NODE) return null;
     const el = node;
-    const tag = el.tagName.toUpperCase();
+    let tag = el.tagName.toUpperCase();
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE'].includes(tag)) return null;
 
     const styles = getElementStyles(el);
     let isHidden = (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02);
     
-    // Exception for scroll-animated elements and pulsating ripple/wave elements
+    // Exception for scroll-animated elements and background graphics
     if (isHidden && styles.display !== 'none') {
       const cls = (el.className && typeof el.className === 'string') ? el.className : '';
-      const isRipple = /\b(?:waves?|pulse|ripple)\b/i.test(cls) || (el.closest && el.closest('.waves-block, .wave-area'));
-      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos/i.test(cls) ||
+      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave/i.test(cls) ||
         el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') ||
-        el.closest('.title-anim, .text-anim, .hero-text-anim, .wow, [data-wow-delay], [data-aos]');
+        el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos]');
       
-      if (isRipple) {
-        styles.visibility = 'visible';
-        styles.opacity = '0.15';
-        isHidden = false;
-      } else if (isAnimTarget) {
+      if (isAnimTarget) {
         styles.visibility = 'visible';
         styles.opacity = '1';
         isHidden = false;
@@ -2112,6 +2550,17 @@
     }
 
     if (isHidden) return null;
+
+    // Filter out visually-hidden / screen-reader-only elements (.sr-only, .visually-hidden)
+    const isClipHidden = (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
+                         (styles.clip && /rect\(\s*1px[,\s]+1px[,\s]+1px[,\s]+1px\s*\)/.test(styles.clip)) ||
+                         (styles.clipPath && /inset\(\s*(?:50%|100%|0px)\s*\)/.test(styles.clipPath));
+    const isTinyHidden = (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden') &&
+                         (parseFloat(styles.width) <= 1 || parseFloat(styles.height) <= 1) &&
+                         (styles.position === 'absolute' || styles.position === 'fixed');
+    const isSrOnlyClass = typeof el.className === 'string' && /\b(?:sr-only|visually-hidden|screen-reader-text|screen-reader-only)\b/i.test(el.className);
+
+    if (isClipHidden || isTinyHidden || isSrOnlyClass) return null;
 
     if (styles.transform && styles.transform.includes('matrix')) {
       const parts = styles.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
@@ -2132,6 +2581,13 @@
       const url = el.currentSrc || el.src || el.getAttribute('data-src') || el.getAttribute('data-lazy-src') || el.getAttribute('data-original') || el.srcset?.split(',')[0]?.trim()?.split(' ')[0];
       if (url) assets.addImage(url);
     } else if (el instanceof HTMLPictureElement) {
+      const sources = el.querySelectorAll('source');
+      for (const s of sources) {
+        if (s.srcset) {
+          const firstUrl = s.srcset.split(',')[0].trim().split(' ')[0];
+          if (firstUrl) assets.addImage(firstUrl);
+        }
+      }
       const imgChild = el.querySelector('img');
       if (imgChild) {
         const url = imgChild.currentSrc || imgChild.src || imgChild.getAttribute('data-src');
@@ -2149,15 +2605,29 @@
     }
 
     let placeholderUrl = null;
+    const STRIPE_DEV_WAVE_URL = 'https://images.stripeassets.com/fzn2n1nzq965/1lk5Hfstc9dnE8xVFz1HeC/0dec8f2dde7f904eade36d8390d81c69/developer-wave-wide_2x.png';
+    const isDevWaveEl = (el.className && typeof el.className === 'string' && el.className.includes('developers-wave')) ||
+                        (el.closest && (el.closest('.developers-wave-animation') || el.closest('.developers-scale-subsection')));
+    if (isDevWaveEl) {
+      assets.addFadedImage(STRIPE_DEV_WAVE_URL, 0.18, 0.18);
+    }
     if (el instanceof HTMLCanvasElement) {
-      placeholderUrl = assets.addCanvas(el);
+      if (isDevWaveEl) {
+        placeholderUrl = STRIPE_DEV_WAVE_URL;
+      } else {
+        placeholderUrl = assets.addCanvas(el);
+      }
     } else if (el instanceof HTMLVideoElement) {
       if (el.poster) assets.addImage(el.poster);
       else placeholderUrl = assets.addVideo(el);
+    } else if (isDevWaveEl && el.classList && el.classList.contains('developers-wave-animation')) {
+      if (!el.querySelector('canvas, img, picture')) {
+        placeholderUrl = STRIPE_DEV_WAVE_URL;
+      }
     }
 
     const clientRect = el.getBoundingClientRect();
-    const isFixed = styles.position === 'fixed';
+    const isFixed = isElementOrAncestorFixed(el, styles);
     
     // For position: fixed elements (like floating scroll-to-top buttons in bottom-right),
     // when document is scrolled to top (0,0), clientRect.y is their exact viewport position.
@@ -2176,26 +2646,115 @@
       docRect.offsetHeight = el.offsetHeight;
     }
 
-    if (styles.backgroundImage && styles.backgroundImage.includes('conic-gradient')) {
-      const bgs = splitByTopLevelCommas(styles.backgroundImage);
+    if (styles.backgroundImage && styles.backgroundImage !== 'none') {
       const w = Math.max(1, Math.round(docRect.width || el.offsetWidth || 100));
       const h = Math.max(1, Math.round(docRect.height || el.offsetHeight || 100));
-      const newBgs = bgs.map(bg => {
-        if (bg.includes('conic-gradient')) {
-          const dataUrl = renderConicGradientToDataUrl(bg, w, h);
-          if (dataUrl) {
-            assets.addDataUrl(dataUrl);
-            return `url("${dataUrl}")`;
-          }
+      if (isPatternGradient(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat)) {
+        const dataUrl = await renderPatternToDataUrl(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat, w, h);
+        if (dataUrl) {
+          if (assets) assets.addDataUrl(dataUrl);
+          styles.backgroundImage = `url("${dataUrl}")`;
+          styles.backgroundSize = 'cover';
         }
-        return bg;
-      });
-      styles.backgroundImage = newBgs.join(', ');
+      } else {
+        const bgs = splitByTopLevelCommas(styles.backgroundImage);
+        let changed = false;
+        const newBgs = [];
+        for (const bg of bgs) {
+          if (bg.includes('conic-gradient')) {
+            const dataUrl = renderConicGradientToDataUrl(bg, w, h);
+            if (dataUrl) {
+              if (assets) assets.addDataUrl(dataUrl);
+              newBgs.push(`url("${dataUrl}")`);
+              changed = true;
+              continue;
+            }
+          }
+          if (isPatternGradient(bg, styles.backgroundSize, styles.backgroundRepeat)) {
+            const dataUrl = await renderPatternToDataUrl(bg, styles.backgroundSize, styles.backgroundRepeat, w, h);
+            if (dataUrl) {
+              if (assets) assets.addDataUrl(dataUrl);
+              newBgs.push(`url("${dataUrl}")`);
+              styles.backgroundSize = 'cover';
+              changed = true;
+              continue;
+            }
+          }
+          newBgs.push(bg);
+        }
+        if (changed) styles.backgroundImage = newBgs.join(', ');
+      }
     }
 
     let svgContent = null;
     if (tag === 'SVG' || el instanceof SVGElement) {
-      svgContent = serializeSVG(el);
+      const rawSvg = serializeSVG(el);
+      if (rawSvg) {
+        const vRes = await vectorizeEmbeddedSvgImages(rawSvg);
+        if (vRes && vRes.dataUri && !vRes.isVector) {
+          placeholderUrl = vRes.dataUri;
+          if (assets) assets.addDataUrl(vRes.dataUri);
+          tag = 'IMG';
+          svgContent = null;
+        } else if (vRes && vRes.isVector) {
+          svgContent = vRes.svg;
+        } else {
+          svgContent = rawSvg;
+        }
+      }
+    } else if (el instanceof HTMLImageElement) {
+      const rawSrc = el.currentSrc || el.src || el.getAttribute('data-src') || el.getAttribute('data-lazy-src') || el.getAttribute('data-original') || el.getAttribute('src') || '';
+      if (rawSrc.includes('.svg') || rawSrc.startsWith('data:image/svg+xml')) {
+        try {
+          let svgText = null;
+          if (rawSrc.startsWith('data:image/svg+xml')) {
+            const commaIdx = rawSrc.indexOf(',');
+            const raw = rawSrc.slice(commaIdx + 1);
+            svgText = rawSrc.includes(';base64') ? atob(raw) : decodeURIComponent(raw);
+          } else {
+            let absoluteUrl = rawSrc;
+            try { absoluteUrl = new URL(rawSrc, document.baseURI).href; } catch {}
+            try {
+              const res = await fetch(absoluteUrl);
+              if (res.ok) {
+                const text = await res.text();
+                if (text.includes('<svg') || text.includes('<?xml')) svgText = text;
+              }
+            } catch {}
+            if (!svgText && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+              try {
+                const bgRes = await new Promise((res) => {
+                  chrome.runtime.sendMessage({ type: 'FETCH_IMAGE', url: absoluteUrl }, (resp) => {
+                    if (chrome.runtime.lastError) res(null);
+                    else res(resp);
+                  });
+                });
+                if (bgRes && bgRes.data) {
+                  const commaIdx = bgRes.data.indexOf(',');
+                  const raw = commaIdx >= 0 ? bgRes.data.slice(commaIdx + 1) : bgRes.data;
+                  const decoded = bgRes.data.includes(';base64') ? atob(raw) : decodeURIComponent(raw);
+                  if (decoded.includes('<svg') || decoded.includes('<?xml')) svgText = decoded;
+                }
+              } catch {}
+            }
+          }
+          if (svgText) {
+            const vRes = await vectorizeEmbeddedSvgImages(svgText);
+            if (vRes && vRes.dataUri && !vRes.isVector) {
+              placeholderUrl = vRes.dataUri;
+              if (assets) assets.addDataUrl(vRes.dataUri);
+              tag = 'IMG';
+              svgContent = null;
+            } else if (vRes && vRes.isVector) {
+              svgContent = vRes.svg;
+              tag = 'SVG';
+            } else {
+              svgContent = svgText;
+              tag = 'SVG';
+            }
+          }
+        } catch {}
+      }
     } else {
       const cs = window.getComputedStyle(el);
       const bgs = splitByTopLevelCommas(cs.backgroundImage || styles.backgroundImage || '');
@@ -2338,17 +2897,19 @@
         if (sChild) childNodes.push(sChild);
       }
 
-      // Sort child nodes according to CSS stacking context (effective z-index)
+      // Sort child nodes according to explicit CSS z-index while preserving DOM order
       if (childNodes.length > 1) {
-        const isRootScope = (tag === 'BODY' || tag === 'HTML');
-        for (const child of childNodes) {
-          child._effectiveZIndex = isRootScope
-            ? (child.styles?.zIndex && child.styles.zIndex !== 'auto' ? parseInt(child.styles.zIndex, 10) || 0 : 0)
-            : getNodeEffectiveZIndex(child);
-        }
-        childNodes.sort((a, b) => (a._effectiveZIndex || 0) - (b._effectiveZIndex || 0));
+        childNodes.forEach((child, idx) => {
+          child._originalIdx = idx;
+          child._effectiveZIndex = (child.styles?.zIndex && child.styles.zIndex !== 'auto') ? (parseInt(child.styles.zIndex, 10) || 0) : 0;
+        });
+        childNodes.sort((a, b) => {
+          const diff = a._effectiveZIndex - b._effectiveZIndex;
+          return diff !== 0 ? diff : a._originalIdx - b._originalIdx;
+        });
         for (const child of childNodes) {
           delete child._effectiveZIndex;
+          delete child._originalIdx;
         }
       }
     }
@@ -2382,6 +2943,35 @@
             height: Math.max(1, docRect.height - padTop - padBottom)
           },
           styles: textStyles,
+          lineCount: 1
+        });
+      }
+    } else if (el instanceof HTMLSelectElement || tag === 'SELECT') {
+      // Clear any invisible/detached <option> child nodes captured from DOM
+      childNodes.length = 0;
+      let selectedText = '';
+      if (el.options && el.selectedIndex >= 0 && el.options[el.selectedIndex]) {
+        selectedText = el.options[el.selectedIndex].text || el.options[el.selectedIndex].label || '';
+      } else {
+        selectedText = el.value || '';
+      }
+      if (selectedText) {
+        const padLeft = parseFloat(styles.paddingLeft) || 0;
+        const padTop = parseFloat(styles.paddingTop) || 0;
+        const padRight = parseFloat(styles.paddingRight) || 0;
+        const padBottom = parseFloat(styles.paddingBottom) || 0;
+
+        childNodes.push({
+          nodeType: TEXT_NODE,
+          id: getNodeId('select-text'),
+          text: selectedText,
+          rect: {
+            x: docRect.x + padLeft,
+            y: docRect.y + padTop,
+            width: Math.max(1, docRect.width - padLeft - padRight),
+            height: Math.max(1, docRect.height - padTop - padBottom)
+          },
+          styles: { ...styles },
           lineCount: 1
         });
       }
@@ -2499,6 +3089,7 @@
       fonts: fonts.getFonts()
     };
 
+    window.__capturedPayload = payload;
     const json = JSON.stringify(payload);
     const ok = await writeClipboard(json);
 
