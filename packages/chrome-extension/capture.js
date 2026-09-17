@@ -1861,7 +1861,15 @@
             if (prev) {
               pseudoRect.x = prev.rect.right + colGap + scrollX;
             } else {
-              pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+              let startX = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+              if (items.length === 1 && !isNaN(pseudoRect.width)) {
+                if (parentCs.justifyContent === 'center') {
+                  startX = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
+                } else if (parentCs.justifyContent === 'flex-end' || parentCs.justifyContent === 'right') {
+                  startX = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0);
+                }
+              }
+              pseudoRect.x = startX;
             }
 
             if (next) {
@@ -1888,7 +1896,15 @@
             if (prev) {
               pseudoRect.y = prev.rect.bottom + rowGap + scrollY;
             } else {
-              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+              let startY = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+              if (items.length === 1 && !isNaN(pseudoRect.height)) {
+                if (parentCs.justifyContent === 'center') {
+                  startY = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
+                } else if (parentCs.justifyContent === 'flex-end' || parentCs.justifyContent === 'bottom') {
+                  startY = parentRect.y + parentRect.height - pseudoRect.height - (parseFloat(parentCs.paddingBottom) || 0);
+                }
+              }
+              pseudoRect.y = startY;
             }
             if (next) {
               const nextTop = next.rect.top + scrollY;
