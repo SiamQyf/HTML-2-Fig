@@ -1720,8 +1720,9 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           rect.resize(w, h);
           const img = figma.createImage(bytes);
           const objFit = (s.objectFit || 'fill').toLowerCase().trim();
-          let fillScaleMode = 'CROP';
-          let fillTransform = [[1, 0, 0], [0, 1, 0]];
+          const isIconImg = (sNode.id && sNode.id.includes('icon')) || sNode.attributes?.alt === 'icon';
+          let fillScaleMode = isIconImg ? 'FIT' : 'CROP';
+          let fillTransform = isIconImg ? undefined : [[1, 0, 0], [0, 1, 0]];
           if (objFit === 'cover') {
             fillScaleMode = 'FILL';
             fillTransform = undefined;
@@ -2034,24 +2035,22 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       const dY = childGY - globalCenterY;
       const localDX = dX * cosR - dY * sinR;
       const localDY = dX * sinR + dY * cosR;
-      const childLCX = halfW + localDX;
-      const childLCY = halfH + localDY;
 
-      let cW = childNode.rect.offsetWidth || 0;
-      let cH = childNode.rect.offsetHeight || 0;
-      if (cW <= 0 || cH <= 0) {
-        const cRad = Math.abs(angleDeg) * (Math.PI / 180);
-        const cCos = Math.cos(cRad);
-        const cSin = Math.sin(cRad);
-        const cDet = cCos * cCos - cSin * cSin;
-        if (Math.abs(cDet) > 0.05 && Math.abs(angleDeg) < 45) {
-          cW = Math.max(1, Math.round(((childNode.rect.width || 0) * cCos - (childNode.rect.height || 0) * cSin) / cDet));
-          cH = Math.max(1, Math.round(((childNode.rect.height || 0) * cCos - (childNode.rect.width || 0) * cSin) / cDet));
-        } else {
-          cW = Math.round(childNode.rect.width || 0);
-          cH = Math.round(childNode.rect.height || 0);
-        }
+      // If parent is a flex container centering its items or has single child/pseudo, check if child is centered in parent
+      const pDisplay = (sNode.styles?.display || '');
+      const pAlign = (sNode.styles?.alignItems || '');
+      const pJustify = (sNode.styles?.justifyContent || '');
+      const isCenteredParent = pDisplay.includes('flex') && (pAlign === 'center' || pAlign === '') && (pJustify === 'center' || pJustify === '');
+      
+      let childLCX = halfW + localDX;
+      let childLCY = halfH + localDY;
+      if (isCenteredParent && (!sNode.childNodes || sNode.childNodes.length === 0)) {
+        childLCX = halfW;
+        childLCY = halfH;
       }
+
+      let cW = Math.round(childNode.rect.width || 0);
+      let cH = Math.round(childNode.rect.height || 0);
 
       childNode._localRect = {
         x: Math.round(childLCX - cW / 2),
