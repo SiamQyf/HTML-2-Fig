@@ -144,7 +144,7 @@
       <div class="progress-bar" id="progressBar"></div>
     </div>
     <div class="progress-info">
-      <span id="progressLabel">Rendering...</span>
+      <span id="progressLabel">Painting...</span>
       <span id="progressPercent">0%</span>
     </div>
   </div>
@@ -200,7 +200,7 @@
       log(`Payload loaded: ${(text.length / 1024).toFixed(1)} KB (${data.documentTitle || 'Untitled'})`);
       btnImport.disabled = true;
       pasteInput.disabled = true;
-      setStatus('Rendering to canvas...', 'info');
+      setStatus('Painting to canvas...', 'info');
       updateProgress(0, 'Initializing layer graph...');
       parent.postMessage({ pluginMessage: { type: 'import', data } }, '*');
     } catch (e) {

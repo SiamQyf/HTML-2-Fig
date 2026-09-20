@@ -1189,6 +1189,12 @@ function applyEffects(node, styles) {
   if (effects.length > 0) node.effects = effects;
 }
 
+function isBackdropNode(node) {
+  const styles = node?.styles || {};
+  const backdrop = styles.backdropFilter || styles.webkitBackdropFilter || '';
+  return backdrop !== 'none' && backdrop.includes('blur');
+}
+
 function parseRadiusValue(raw, refDim) {
   if (!raw) return 0;
   const str = String(raw).trim();
@@ -1274,7 +1280,7 @@ function reportProgress(label) {
   renderedNodes++;
   const pct = totalNodes > 0 ? Math.round((renderedNodes / totalNodes) * 100) : 0;
   if (renderedNodes % 15 === 0 || renderedNodes === totalNodes) {
-    figma.ui.postMessage({ type: 'progress', percent: pct, label: label || `Rendering... ${renderedNodes}/${totalNodes}` });
+    figma.ui.postMessage({ type: 'progress', percent: pct, label: label || `Painting... ${renderedNodes}/${totalNodes}` });
   }
 }
 
@@ -2097,26 +2103,28 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   applyOpacity(frame, s);
   applyBlendMode(frame, s);
 
-  // If node itself has direct text (like pseudo elements with content: "Logo #3")
-  if (sNode.text && sNode.text.trim()) {
-    await renderTextNode(sNode, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, s, currentTextClip);
-  }
-
   const allChildren = [];
   if (sNode.pseudoElementNodes?.before) allChildren.push(sNode.pseudoElementNodes.before);
   if (sNode.childNodes) allChildren.push(...sNode.childNodes);
   if (sNode.pseudoElementNodes?.after) allChildren.push(sNode.pseudoElementNodes.after);
 
-  allChildren.forEach((child, idx) => { child._origIdx = idx; });
-  allChildren.sort((a, b) => {
-    const zA = (a.styles?.zIndex && a.styles.zIndex !== 'auto') ? (parseInt(a.styles.zIndex, 10) || 0) : 0;
-    const zB = (b.styles?.zIndex && b.styles.zIndex !== 'auto') ? (parseInt(b.styles.zIndex, 10) || 0) : 0;
-    const diff = zA - zB;
-    return diff !== 0 ? diff : a._origIdx - b._origIdx;
-  });
+  const hasBackdropChild = allChildren.some(isBackdropNode);
+  if (!hasBackdropChild) {
+    allChildren.forEach((child, idx) => { child._origIdx = idx; });
+    allChildren.sort((a, b) => {
+      const zA = (a.styles?.zIndex && a.styles.zIndex !== 'auto') ? (parseInt(a.styles.zIndex, 10) || 0) : 0;
+      const zB = (b.styles?.zIndex && b.styles.zIndex !== 'auto') ? (parseInt(b.styles.zIndex, 10) || 0) : 0;
+      const diff = zA - zB;
+      return diff !== 0 ? diff : a._origIdx - b._origIdx;
+    });
+  }
 
   for (const child of allChildren) {
     await renderNode(child, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s, currentTextClip);
+  }
+
+  if (sNode.text && sNode.text.trim()) {
+    await renderTextNode(sNode, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, s, currentTextClip);
   }
 
   reportProgress();

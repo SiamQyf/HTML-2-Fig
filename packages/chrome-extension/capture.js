@@ -2947,7 +2947,11 @@
       }
 
       // Sort child nodes according to explicit CSS z-index while preserving DOM order
-      if (childNodes.length > 1) {
+      const hasBackdropChild = childNodes.some(child => {
+        const backdrop = child.styles?.backdropFilter || child.styles?.webkitBackdropFilter || '';
+        return backdrop !== 'none' && backdrop.includes('blur');
+      });
+      if (childNodes.length > 1 && !hasBackdropChild) {
         childNodes.forEach((child, idx) => {
           child._originalIdx = idx;
           child._effectiveZIndex = (child.styles?.zIndex && child.styles.zIndex !== 'auto') ? (parseInt(child.styles.zIndex, 10) || 0) : 0;
@@ -2966,7 +2970,10 @@
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || tag === 'INPUT' || tag === 'TEXTAREA') {
       const inputType = (el.getAttribute('type') || el.type || 'text').toLowerCase();
       const isTextual = ['text', 'search', 'email', 'tel', 'url', 'password', 'number'].includes(inputType) || tag === 'TEXTAREA';
-      const val = isTextual ? (el.value || el.placeholder || el.getAttribute('placeholder') || '') : '';
+      const isButtonInput = ['button', 'submit', 'reset'].includes(inputType);
+      const val = isButtonInput
+        ? (el.value || el.getAttribute('value') || '')
+        : (isTextual ? (el.value || el.placeholder || el.getAttribute('placeholder') || '') : '');
       if (val && !childNodes.length) {
         const isPlaceholder = !el.value && (el.placeholder || el.getAttribute('placeholder'));
         const padLeft = parseFloat(styles.paddingLeft) || 0;
