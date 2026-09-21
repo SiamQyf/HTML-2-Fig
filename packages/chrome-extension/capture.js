@@ -1108,6 +1108,20 @@
             applyColorAttr(cloned, 'stroke', computedStroke);
           }
           
+          if (cloned.getAttribute('stroke') && cloned.getAttribute('stroke') !== 'none') {
+            const sw = origCs.strokeWidth;
+            if (sw && parseFloat(sw) >= 0) cloned.setAttribute('stroke-width', sw);
+            
+            const lc = origCs.strokeLinecap;
+            if (lc && lc !== 'butt') cloned.setAttribute('stroke-linecap', lc);
+            
+            const lj = origCs.strokeLinejoin;
+            if (lj && lj !== 'miter') cloned.setAttribute('stroke-linejoin', lj);
+            
+            const da = origCs.strokeDasharray;
+            if (da && da !== 'none') cloned.setAttribute('stroke-dasharray', da);
+          }
+          
           const op = parseFloat(origCs.opacity);
           if (!isNaN(op) && op < 1) {
             cloned.setAttribute('opacity', op.toString());
@@ -1930,10 +1944,33 @@
           if (pseudo === '::before') {
             pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
             pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
-          } else if (el.lastElementChild) {
-            const lastR = el.lastElementChild.getBoundingClientRect();
-            pseudoRect.x = lastR.right + scrollX;
-            pseudoRect.y = lastR.top + scrollY;
+          } else if (pseudo === '::after') {
+            if (el.lastChild) {
+              const r = document.createRange();
+              try {
+                r.selectNodeContents(el.lastChild);
+                const lastR = r.getBoundingClientRect();
+                if (lastR.width > 0 || lastR.height > 0) {
+                  pseudoRect.x = lastR.right + scrollX + (parseFloat(cs.marginLeft) || 0);
+                  pseudoRect.y = lastR.top + scrollY + (lastR.height - pseudoRect.height) / 2;
+                } else if (el.lastElementChild) {
+                  const lastR = el.lastElementChild.getBoundingClientRect();
+                  pseudoRect.x = lastR.right + scrollX + (parseFloat(cs.marginLeft) || 0);
+                  pseudoRect.y = lastR.top + scrollY + (lastR.height - pseudoRect.height) / 2;
+                } else {
+                  pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0);
+                }
+              } catch (e) {
+                if (el.lastElementChild) {
+                  const lastR = el.lastElementChild.getBoundingClientRect();
+                  pseudoRect.x = lastR.right + scrollX + (parseFloat(cs.marginLeft) || 0);
+                  pseudoRect.y = lastR.top + scrollY + (lastR.height - pseudoRect.height) / 2;
+                }
+              }
+            } else {
+              pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0);
+              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+            }
           }
         }
       }

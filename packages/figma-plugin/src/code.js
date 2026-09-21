@@ -1741,7 +1741,14 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           }
           const fillDef = { type: 'IMAGE', imageHash: img.hash, scaleMode: fillScaleMode };
           if (fillTransform) fillDef.imageTransform = fillTransform;
-          rect.fills = [fillDef];
+          rect.fills = [];
+          await applyFills(rect, s, assets, w, h, true);
+          let currentFills = [];
+          if (rect.fills && Array.isArray(rect.fills)) {
+            currentFills = [...rect.fills];
+          }
+          currentFills.push(fillDef);
+          rect.fills = currentFills;
           applyStrokes(rect, s);
           applyEffects(rect, s);
           applyCornerRadius(rect, s);
@@ -2192,13 +2199,14 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     try { textNode.textDecoration = 'STRIKETHROUGH'; } catch {}
   }
 
-  // Only apply lineHeight for multi-line text. For single-line text, the browser's
-  // Range.getBoundingClientRect() gives tight glyph coordinates; adding lineHeight
-  // in Figma would push glyphs down via half-leading, misaligning with adjacent icons.
   const isMultiLine = sNode.lineCount && sNode.lineCount > 1;
-  if (isMultiLine && s.lineHeight && s.lineHeight !== 'normal') {
+  let figmaLineHeight = null;
+  if (s.lineHeight && s.lineHeight !== 'normal') {
     const lh = parseFloat(s.lineHeight);
-    if (!isNaN(lh)) textNode.lineHeight = { value: lh, unit: 'PIXELS' };
+    if (!isNaN(lh)) {
+      textNode.lineHeight = { value: lh, unit: 'PIXELS' };
+      figmaLineHeight = lh;
+    }
   }
 
   if (s.letterSpacing && s.letterSpacing !== 'normal' && s.letterSpacing !== '0px') {
@@ -2279,13 +2287,19 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
 
   parentFrame.appendChild(textNode);
   const posX = sNode._localRect ? sNode._localRect.x : ((sNode.rect?.x || 0) - parentX);
-  const posY = sNode._localRect ? sNode._localRect.y : ((sNode.rect?.y || 0) - parentY);
-
-  textNode.x = posX;
-  textNode.y = posY;
+  let posY = sNode._localRect ? sNode._localRect.y : ((sNode.rect?.y || 0) - parentY);
 
   const w = sNode._localRect ? sNode._localRect.width : (sNode.rect?.width || 0);
   const h = sNode._localRect ? sNode._localRect.height : (sNode.rect?.height || 0);
+
+  // Compensate for Figma's top half-leading on single-line text so it aligns with adjacent icons
+  if (!isMultiLine && h > 0) {
+    const effectiveLh = figmaLineHeight || (fontSize * 1.2);
+    posY -= (effectiveLh - h) / 2;
+  }
+
+  textNode.x = posX;
+  textNode.y = posY;
   const textStr = finalText.trim();
 
 
