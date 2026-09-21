@@ -2053,7 +2053,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       const pDisplay = (sNode.styles?.display || '');
       const pAlign = (sNode.styles?.alignItems || '');
       const pJustify = (sNode.styles?.justifyContent || '');
-      const isCenteredParent = pDisplay.includes('flex') && (pAlign === 'center' || pAlign === '') && (pJustify === 'center' || pJustify === '');
+      const isCenteredParent = (pDisplay.includes('flex') && (pAlign === 'center' || pAlign === '') && (pJustify === 'center' || pJustify === '')) ||
+                               (sNode.styles?.textAlign === 'center');
       
       let childLCX = halfW + localDX;
       let childLCY = halfH + localDY;
@@ -2078,6 +2079,34 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     if (sNode.childNodes) {
       for (const child of sNode.childNodes) {
         mapToLocal(child);
+      }
+    }
+  } else {
+    // Unrotated container: center single child or pseudo if parent is an icon container or centers alignment
+    const isIconContainer = (rectW <= 64 && rectH <= 64 && Math.abs(rectW - rectH) <= 6 && (parseFloat(s.borderRadius) >= 4 || s.borderRadius === '50%' || s.borderRadius === '500px')) ||
+                            (sNode.name && sNode.name.includes('icon')) ||
+                            (sNode.id && sNode.id.includes('icon'));
+    const isCentered = isIconContainer || s.textAlign === 'center' ||
+                       (s.display && s.display.includes('flex') && s.alignItems === 'center' && (s.justifyContent === 'center' || s.justifyContent === 'normal'));
+
+    const directChildren = [];
+    if (sNode.pseudoElementNodes?.before) directChildren.push(sNode.pseudoElementNodes.before);
+    if (sNode.childNodes) directChildren.push(...sNode.childNodes);
+    if (sNode.pseudoElementNodes?.after) directChildren.push(sNode.pseudoElementNodes.after);
+
+    if (isCentered && directChildren.length === 1) {
+      const onlyChild = directChildren[0];
+      const cW = Math.max(1, Math.round(onlyChild.rect?.width || 0));
+      const cH = Math.max(1, Math.round(onlyChild.rect?.height || 0));
+      const isChildIcon = (onlyChild.tag === 'I' || onlyChild.tag === 'SVG' || (onlyChild.id && onlyChild.id.includes('icon')) || (onlyChild.attributes?.alt === 'icon'));
+
+      if (isIconContainer || isChildIcon) {
+        onlyChild._localRect = {
+          x: Math.round((rectW - cW) / 2),
+          y: Math.round((rectH - cH) / 2),
+          width: cW,
+          height: cH
+        };
       }
     }
   }

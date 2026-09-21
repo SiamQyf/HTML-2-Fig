@@ -991,8 +991,10 @@
     try {
       if (!char) return null;
       const scale = 4;
-      const w = Math.max(1, Math.round((width || 16) * scale));
-      const h = Math.max(1, Math.round((height || 16) * scale));
+      const drawW = width || 16;
+      const drawH = height || 16;
+      const w = Math.max(1, Math.round(drawW * scale));
+      const h = Math.max(1, Math.round(drawH * scale));
       const canvas = document.createElement('canvas');
       canvas.width = w;
       canvas.height = h;
@@ -1007,17 +1009,41 @@
       const fontStr = `${style} ${weight} ${size} ${family}`;
       ctx.font = fontStr;
       ctx.fillStyle = styles.color || '#000000';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
 
-      const drawW = width || 16;
-      const drawH = height || 16;
-      ctx.fillText(char, drawW / 2, drawH / 2);
+      ctx.fillText(char, 0, 0);
 
       const imgData = ctx.getImageData(0, 0, w, h).data;
+      let minX = w, minY = h, maxX = -1, maxY = -1;
+
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const alpha = imgData[(y * w + x) * 4 + 3];
+          if (alpha > 10) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      if (maxX === -1 || maxY === -1) return null;
+
+      ctx.clearRect(0, 0, drawW, drawH);
+
+      const glyphLogicW = (maxX - minX + 1) / scale;
+      const glyphLogicH = (maxY - minY + 1) / scale;
+      const offsetX = (drawW - glyphLogicW) / 2 - (minX / scale);
+      const offsetY = (drawH - glyphLogicH) / 2 - (minY / scale);
+
+      ctx.fillText(char, offsetX, offsetY);
+
+      const finalImgData = ctx.getImageData(0, 0, w, h).data;
       let hasPixels = false;
-      for (let i = 3; i < imgData.length; i += 4) {
-        if (imgData[i] > 10) {
+      for (let i = 3; i < finalImgData.length; i += 4) {
+        if (finalImgData[i] > 10) {
           hasPixels = true;
           break;
         }
@@ -1941,9 +1967,24 @@
             }
           }
         } else {
+          const isCenteredText = parentCs.textAlign === 'center' || cs.textAlign === 'center';
+          const isIconContainer = isIconPseudo || (parentRect.width > 0 && parentRect.width <= 64 && Math.abs(parentRect.width - parentRect.height) <= 6);
+          
           if (pseudo === '::before') {
-            pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
-            pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+            if (isCenteredText || (isIconContainer && !el.childNodes?.length)) {
+              pseudoRect.x = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
+            } else {
+              pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+            }
+
+            const parentLineH = parseFloat(parentCs.lineHeight);
+            const isMiddleAlign = parentCs.verticalAlign === 'middle' || cs.verticalAlign === 'middle' ||
+                                  (!isNaN(parentLineH) && parentLineH >= parentRect.height * 0.8 && parentRect.height > 0);
+            if (isMiddleAlign || (isIconContainer && !el.childNodes?.length)) {
+              pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
+            } else {
+              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+            }
           } else if (pseudo === '::after') {
             if (el.lastChild) {
               const r = document.createRange();
