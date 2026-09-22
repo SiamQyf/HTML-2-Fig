@@ -2275,7 +2275,10 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
   frame.resize(rectW, rectH);
   const clipValues = ['hidden', 'clip', 'auto', 'scroll'];
-  frame.clipsContent = (clipValues.includes(s.overflow) || clipValues.includes(s.overflowX) || clipValues.includes(s.overflowY));
+  const isPageLevelWrapper = sNode.attributes?.id === 'smooth-wrapper' ||
+                             sNode.attributes?.id === 'smooth-content' ||
+                             (sNode.attributes?.class && /dialog-off-canvas|my-app|page-wrapper|main-wrapper|site-wrapper|root-wrapper/i.test(sNode.attributes.class));
+  frame.clipsContent = !isPageLevelWrapper && (clipValues.includes(s.overflow) || clipValues.includes(s.overflowX) || clipValues.includes(s.overflowY));
 
   const hasChildren = (sNode.childNodes && sNode.childNodes.length > 0) || (sNode.pseudoElementNodes?.after != null);
   await applyFills(frame, s, assets, rectW, rectH, hasChildren);

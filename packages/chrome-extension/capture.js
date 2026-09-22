@@ -103,32 +103,6 @@
     document.head.appendChild(style);
     cleanupTasks.push(() => { try { style.remove(); } catch {} });
 
-    let scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-    const MAX_SCROLL_HEIGHT = 50000;
-    const MAX_SCROLL_TIME = 15000;
-    const step = 32;
-    const delay = 16;
-    const scrollStart = performance.now();
-
-    for (let y = 0; y < scrollHeight; y += step) {
-      if (captureTimedOut) break;
-      window.scrollTo(0, y);
-      await new Promise(r => setTimeout(r, delay));
-      const newHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-      scrollHeight = Math.min(newHeight, MAX_SCROLL_HEIGHT);
-      if (performance.now() - scrollStart > MAX_SCROLL_TIME) break;
-    }
-    
-    window.scrollTo(0, scrollHeight);
-    await new Promise(r => setTimeout(r, 600));
-    
-    for (let y = scrollHeight; y > 0; y -= (step * 8)) {
-      window.scrollTo(0, y);
-      await new Promise(r => setTimeout(r, 16));
-    }
-
-    window.scrollTo(0, 0);
-    await new Promise(r => setTimeout(r, 200));
 
     // Neutralize GSAP ScrollSmoother — save state for restoration
     try {
@@ -142,11 +116,43 @@
       const sw = document.getElementById('smooth-wrapper');
       const sc = document.getElementById('smooth-content');
       if (sw) {
-        const saved = { position: sw.style.position, height: sw.style.height, overflow: sw.style.overflow };
+        const saved = { position: sw.style.position, height: sw.style.height, overflow: sw.style.overflow, maxHeight: sw.style.maxHeight };
         sw.style.setProperty('position', 'static', 'important');
         sw.style.setProperty('height', 'auto', 'important');
+        sw.style.setProperty('max-height', 'none', 'important');
         sw.style.setProperty('overflow', 'visible', 'important');
-        cleanupTasks.push(() => { sw.style.position = saved.position; sw.style.height = saved.height; sw.style.overflow = saved.overflow; });
+        cleanupTasks.push(() => {
+          sw.style.position = saved.position;
+          sw.style.height = saved.height;
+          sw.style.maxHeight = saved.maxHeight;
+          sw.style.overflow = saved.overflow;
+        });
+
+        // Unconstrain all ancestors of smooth-wrapper (e.g. .my-app, .dialog-off-canvas-main-canvas)
+        let cur = sw.parentElement;
+        while (cur && cur !== document.documentElement) {
+          const el = cur;
+          const s = {
+            height: el.style.height,
+            maxHeight: el.style.maxHeight,
+            overflow: el.style.overflow,
+            overflowX: el.style.overflowX,
+            overflowY: el.style.overflowY
+          };
+          el.style.setProperty('height', 'auto', 'important');
+          el.style.setProperty('max-height', 'none', 'important');
+          el.style.setProperty('overflow', 'visible', 'important');
+          el.style.setProperty('overflow-x', 'visible', 'important');
+          el.style.setProperty('overflow-y', 'visible', 'important');
+          cleanupTasks.push(() => {
+            el.style.height = s.height;
+            el.style.maxHeight = s.maxHeight;
+            el.style.overflow = s.overflow;
+            el.style.overflowX = s.overflowX;
+            el.style.overflowY = s.overflowY;
+          });
+          cur = cur.parentElement;
+        }
       }
       if (sc) {
         const saved = { position: sc.style.position, height: sc.style.height, overflow: sc.style.overflow, transform: sc.style.transform };
@@ -168,6 +174,9 @@
             const isCrazyScale = st.vars?.scrub && st.trigger && (st.trigger.className || '').includes('circle-shape');
             if (st.animation && !isCrazyScale) {
               st.animation.progress(1);
+            }
+            if (typeof st.vars?.onEnter === 'function') {
+              try { st.vars.onEnter(); } catch (e) {}
             }
             st.disable(false);
             savedTriggers.push({ st, savedProgress, isCrazyScale });
@@ -294,6 +303,35 @@
         cleanupTasks.push(() => { p.style.display = savedDisplay; });
       }
     } catch {}
+
+
+    // Now that virtual smooth scroll wrappers and scroll-linked animations are neutralized, scroll natively to trigger lazy images
+    let scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+    const MAX_SCROLL_HEIGHT = 50000;
+    const MAX_SCROLL_TIME = 15000;
+    const step = 32;
+    const delay = 16;
+    const scrollStart = performance.now();
+
+    for (let y = 0; y < scrollHeight; y += step) {
+      if (captureTimedOut) break;
+      window.scrollTo(0, y);
+      await new Promise(r => setTimeout(r, delay));
+      const newHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+      scrollHeight = Math.min(newHeight, MAX_SCROLL_HEIGHT);
+      if (performance.now() - scrollStart > MAX_SCROLL_TIME) break;
+    }
+    
+    window.scrollTo(0, scrollHeight);
+    await new Promise(r => setTimeout(r, 600));
+    
+    for (let y = scrollHeight; y > 0; y -= (step * 8)) {
+      window.scrollTo(0, y);
+      await new Promise(r => setTimeout(r, 16));
+    }
+
+    window.scrollTo(0, 0);
+    await new Promise(r => setTimeout(r, 200));
 
     return function cleanup() {
       for (let i = cleanupTasks.length - 1; i >= 0; i--) { try { cleanupTasks[i](); } catch {} }
