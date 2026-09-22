@@ -1379,6 +1379,16 @@ function prepareSvgString(svgString, isInverted) {
   clean = clean.replace(/<image[\s\S]*?\/?>/gi, '');
   // Replace pattern url fills with fill="none" so Figma creates vector shapes cleanly
   clean = clean.replace(/fill=["']url\(#[^"']+\)["']/gi, 'fill="none"');
+  // If SVG has textPath or text elements that are extracted and rendered via Figma text nodes,
+  // strip <defs>, <text>, and <use> so Figma's parser doesn't crash or render guide circles
+  if (/<textPath\b/i.test(clean)) {
+    clean = clean.replace(/<defs[\s\S]*?<\/defs>/gi, '');
+    clean = clean.replace(/<text[\s\S]*?<\/text>/gi, '');
+    clean = clean.replace(/<use\b[^>]*>(?:<\/use>)?|<use\b[^>]*\/>/gi, '');
+  } else {
+    // Strip <use ... fill="none"> or guide paths safely
+    clean = clean.replace(/<use\b[^>]*?\bfill=["']none["'][^>]*>(?:<\/use>)?|<use\b[^>]*?\bfill=["']none["'][^>]*\/>/gi, '');
+  }
   // Remove xmlns:xlink
   clean = clean.replace(/\s*xmlns:xlink=["'][^"']*["']/gi, '');
   // Fix number formats without leading zero (e.g. scale(.0104167) -> scale(0.0104167))
@@ -1491,6 +1501,72 @@ function hydrateSvgPatterns(svgNode, svgString) {
   }
 }
 
+async function renderSvgTexts(svgNode, sNode) {
+  if (!svgNode || !sNode || !Array.isArray(sNode.svgTexts) || !sNode.svgTexts.length) return;
+  try {
+    const vbMatch = (sNode.content || '').match(/viewBox=["']\s*([\d.-]+)[\s,]+([\d.-]+)[\s,]+([\d.-]+)[\s,]+([\d.-]+)\s*["']/i);
+    const vbW = vbMatch ? parseFloat(vbMatch[3]) : (svgNode.width || 300);
+    const vbH = vbMatch ? parseFloat(vbMatch[4]) : (svgNode.height || 300);
+    const targetW = sNode._localRect ? sNode._localRect.width : (sNode.rect?.width || svgNode.width || 300);
+    const targetH = sNode._localRect ? sNode._localRect.height : (sNode.rect?.height || svgNode.height || 300);
+    const scaleX = vbW > 0 ? targetW / vbW : 1;
+    const scaleY = vbH > 0 ? targetH / vbH : 1;
+
+    for (const item of sNode.svgTexts) {
+      const char = item.char;
+      if (!char || !char.trim()) continue;
+
+      const fontName = await loadFont(item.fontFamily, item.fontWeight || '400', item.fontStyle === 'italic');
+      const textNode = figma.createText();
+      textNode.fontName = fontName;
+      textNode.characters = char;
+
+      const fSize = Math.max(1, (item.fontSize || 16) * scaleY);
+      textNode.fontSize = fSize;
+
+      const fillColor = parseColor(item.fill || '#000000');
+      if (fillColor && fillColor.a > 0.005) {
+        textNode.fills = [{ type: 'SOLID', color: { r: fillColor.r, g: fillColor.g, b: fillColor.b }, opacity: clamp01(fillColor.a * (item.opacity ?? 1)) }];
+      } else {
+        textNode.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 }, opacity: 1 }];
+      }
+
+      textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
+      svgNode.appendChild(textNode);
+
+      const fAdvance = (item.advance || fSize * 0.6) * scaleX;
+      const svgRad = (item.rot || 0) * (Math.PI / 180);
+
+      const sx = item.x * scaleX;
+      const sy = item.y * scaleY;
+      const cx_local = fAdvance / 2;
+      const cy_local = -fSize * 0.35;
+
+      const cX = sx + cx_local * Math.cos(svgRad) - cy_local * Math.sin(svgRad);
+      const cY = sy + cx_local * Math.sin(svgRad) + cy_local * Math.cos(svgRad);
+
+      const rotDeg = -item.rot;
+      if (Math.abs(rotDeg) > 0.1) {
+        textNode.rotation = rotDeg;
+        const rotRad = rotDeg * (Math.PI / 180);
+        const charW = textNode.width || fAdvance;
+        const charH = textNode.height || fSize;
+        const halfCharW = charW / 2;
+        const halfCharH = charH / 2;
+        const deltaX = halfCharW * Math.cos(rotRad) + halfCharH * Math.sin(rotRad);
+        const deltaY = -halfCharW * Math.sin(rotRad) + halfCharH * Math.cos(rotRad);
+        textNode.x = Math.round(cX - deltaX);
+        textNode.y = Math.round(cY - deltaY);
+      } else {
+        textNode.x = Math.round(cX - (textNode.width || fAdvance) / 2);
+        textNode.y = Math.round(cY - (textNode.height || fSize) / 2);
+      }
+    }
+  } catch (err) {
+    console.warn('[HTML-2-Fig] Failed to render SVG texts:', err);
+  }
+}
+
 async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles, inheritedTextClip = null) {
   if (!sNode) return;
 
@@ -1531,10 +1607,18 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       const svgNode = figma.createNodeFromSvg(cleanSvg);
       svgNode.name = (sNode.tag || 'node').toLowerCase();
       hydrateSvgPatterns(svgNode, sNode.content);
+      if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
+        try { svgNode.resize(w, h); } catch {}
+      }
       if (s.position === 'absolute' || s.position === 'fixed') {
         try { svgNode.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
       }
       parentFrame.appendChild(svgNode);
+      try {
+        await renderSvgTexts(svgNode, sNode);
+      } catch (e) {
+        console.warn('[HTML-2-Fig] SVG text rendering error:', e);
+      }
       let angleDeg = 0;
       if (s.transform && s.transform.includes('matrix') && Math.abs(parentFrame.rotation || 0) < 0.1) {
         const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
@@ -1542,9 +1626,6 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
           angleDeg = Math.atan2(vals[1], vals[0]) * (180 / Math.PI);
         }
-      }
-      if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
-        try { svgNode.resize(w, h); } catch {}
       }
       if (Math.abs(angleDeg) > 0.1) {
         const rotDeg = -angleDeg;
@@ -1565,6 +1646,38 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
         svgNode.y = y;
       }
       applyOpacity(svgNode, s);
+
+      const hasBg = (s.backgroundColor && s.backgroundColor !== 'transparent' && s.backgroundColor !== 'rgba(0, 0, 0, 0)') ||
+                    (s.backgroundImage && s.backgroundImage !== 'none');
+      const hasBorder = (s.borderTopWidth && parseFloat(s.borderTopWidth) > 0 && s.borderTopStyle !== 'none') ||
+                        (s.borderRightWidth && parseFloat(s.borderRightWidth) > 0 && s.borderRightStyle !== 'none') ||
+                        (s.borderBottomWidth && parseFloat(s.borderBottomWidth) > 0 && s.borderBottomStyle !== 'none') ||
+                        (s.borderLeftWidth && parseFloat(s.borderLeftWidth) > 0 && s.borderLeftStyle !== 'none');
+      const hasRadius = (s.borderRadius && s.borderRadius !== '0px' && s.borderRadius !== '0');
+
+      if (hasBg || hasBorder || hasRadius) {
+        const bgFrame = figma.createFrame();
+        bgFrame.name = (sNode.tag || 'svg-wrap').toLowerCase();
+        if (s.position === 'absolute' || s.position === 'fixed') {
+          try { bgFrame.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
+        }
+        parentFrame.appendChild(bgFrame);
+        bgFrame.x = svgNode.x;
+        bgFrame.y = svgNode.y;
+        bgFrame.resize(Math.max(1, w), Math.max(1, h));
+        bgFrame.clipsContent = true;
+        await applyFills(bgFrame, s, assets, w, h, true);
+        applyStrokes(bgFrame, s);
+        applyEffects(bgFrame, s);
+        applyCornerRadius(bgFrame, s);
+        applyOpacity(bgFrame, s);
+        
+        // Move svgNode inside the bgFrame centered
+        bgFrame.appendChild(svgNode);
+        svgNode.x = Math.round((w - svgNode.width) / 2);
+        svgNode.y = Math.round((h - svgNode.height) / 2);
+      }
+
       reportProgress();
       return;
     } catch (err) {
@@ -1660,6 +1773,38 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
               try { svgNode.resize(w, h); } catch {}
             }
             applyOpacity(svgNode, s);
+
+            const hasBg = (s.backgroundColor && s.backgroundColor !== 'transparent' && s.backgroundColor !== 'rgba(0, 0, 0, 0)') ||
+                          (s.backgroundImage && s.backgroundImage !== 'none');
+            const hasBorder = (s.borderTopWidth && parseFloat(s.borderTopWidth) > 0 && s.borderTopStyle !== 'none') ||
+                              (s.borderRightWidth && parseFloat(s.borderRightWidth) > 0 && s.borderRightStyle !== 'none') ||
+                              (s.borderBottomWidth && parseFloat(s.borderBottomWidth) > 0 && s.borderBottomStyle !== 'none') ||
+                              (s.borderLeftWidth && parseFloat(s.borderLeftWidth) > 0 && s.borderLeftStyle !== 'none');
+            const hasRadius = (s.borderRadius && s.borderRadius !== '0px' && s.borderRadius !== '0');
+
+            if (hasBg || hasBorder || hasRadius) {
+              const bgFrame = figma.createFrame();
+              bgFrame.name = (sNode.attributes?.alt || 'img-svg-wrap').toLowerCase();
+              if (s.position === 'absolute' || s.position === 'fixed') {
+                try { bgFrame.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
+              }
+              parentFrame.appendChild(bgFrame);
+              bgFrame.x = svgNode.x;
+              bgFrame.y = svgNode.y;
+              bgFrame.resize(Math.max(1, w), Math.max(1, h));
+              bgFrame.clipsContent = true;
+              await applyFills(bgFrame, s, assets, w, h, true);
+              applyStrokes(bgFrame, s);
+              applyEffects(bgFrame, s);
+              applyCornerRadius(bgFrame, s);
+              applyOpacity(bgFrame, s);
+
+              // Move svgNode inside bgFrame centered
+              bgFrame.appendChild(svgNode);
+              svgNode.x = Math.round((w - svgNode.width) / 2);
+              svgNode.y = Math.round((h - svgNode.height) / 2);
+            }
+
             reportProgress();
             return;
           } catch (svgErr) {
@@ -1816,11 +1961,12 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter));
             const svgNode = figma.createNodeFromSvg(cleanSvg);
             svgNode.name = (sNode.tag || 'node').toLowerCase();
-            parentFrame.appendChild(svgNode);
-            svgNode.x = x; svgNode.y = y;
             if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
               try { svgNode.resize(w, h); } catch {}
             }
+            await renderSvgTexts(svgNode, sNode);
+            parentFrame.appendChild(svgNode);
+            svgNode.x = x; svgNode.y = y;
             applyOpacity(svgNode, s);
             reportProgress();
             return;
@@ -2145,11 +2291,46 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (sNode.pseudoElementNodes?.after) allChildren.push(sNode.pseudoElementNodes.after);
 
   const hasBackdropChild = allChildren.some(isBackdropNode);
+  function getEffectiveZIndex(node) {
+    if (!node) return 0;
+    const z = node.styles?.zIndex && node.styles.zIndex !== 'auto' ? parseInt(node.styles.zIndex, 10) : null;
+    if (z !== null && !isNaN(z)) return z;
+    const s = node.styles || {};
+    const isIsolated = (
+      (s.opacity && parseFloat(s.opacity) < 0.999) ||
+      (s.transform && s.transform !== 'none') ||
+      (s.filter && s.filter !== 'none') ||
+      (s.isolation === 'isolate') ||
+      (s.mixBlendMode && s.mixBlendMode !== 'normal')
+    );
+    if (isIsolated) return 0;
+    let maxZ = 0;
+    let minZ = 0;
+    if (node.pseudoElementNodes?.before) {
+      const bZ = getEffectiveZIndex(node.pseudoElementNodes.before);
+      if (bZ > maxZ) maxZ = bZ;
+      if (bZ < minZ) minZ = bZ;
+    }
+    if (node.pseudoElementNodes?.after) {
+      const aZ = getEffectiveZIndex(node.pseudoElementNodes.after);
+      if (aZ > maxZ) maxZ = aZ;
+      if (aZ < minZ) minZ = aZ;
+    }
+    if (node.childNodes && node.childNodes.length > 0) {
+      for (const child of node.childNodes) {
+        const cZ = getEffectiveZIndex(child);
+        if (cZ > maxZ) maxZ = cZ;
+        if (cZ < minZ) minZ = cZ;
+      }
+    }
+    return maxZ !== 0 ? maxZ : minZ;
+  }
+
   if (!hasBackdropChild) {
     allChildren.forEach((child, idx) => { child._origIdx = idx; });
     allChildren.sort((a, b) => {
-      const zA = (a.styles?.zIndex && a.styles.zIndex !== 'auto') ? (parseInt(a.styles.zIndex, 10) || 0) : 0;
-      const zB = (b.styles?.zIndex && b.styles.zIndex !== 'auto') ? (parseInt(b.styles.zIndex, 10) || 0) : 0;
+      const zA = getEffectiveZIndex(a);
+      const zB = getEffectiveZIndex(b);
       const diff = zA - zB;
       return diff !== 0 ? diff : a._origIdx - b._origIdx;
     });

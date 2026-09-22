@@ -12,6 +12,7 @@
   const FETCH_TIMEOUT = 15000;
   const ELEMENT_NODE = 1;
   const TEXT_NODE = 3;
+  let captureTimedOut = false;
 
   /* ======================================================================
    *  1.  CSS DEFAULTS MAP
@@ -94,74 +95,97 @@
    *  3.  PAGE PRE-SCROLLER (Triggers lazy-loaded images & animations)
    * ====================================================================== */
   async function prepareAndScrollPage() {
+    const cleanupTasks = [];
+
     const style = document.createElement('style');
     style.id = 'h2f-scroll-fix';
     style.innerHTML = 'html, body { scroll-behavior: auto !important; }';
     document.head.appendChild(style);
+    cleanupTasks.push(() => { try { style.remove(); } catch {} });
 
     let scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-    
-    // Smooth scroll (approx ~2000px per second)
-    const step = 32; // 32px per step
-    const delay = 16; // ~60fps
+    const MAX_SCROLL_HEIGHT = 50000;
+    const MAX_SCROLL_TIME = 15000;
+    const step = 32;
+    const delay = 16;
+    const scrollStart = performance.now();
 
     for (let y = 0; y < scrollHeight; y += step) {
+      if (captureTimedOut) break;
       window.scrollTo(0, y);
       await new Promise(r => setTimeout(r, delay));
-      scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+      const newHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+      scrollHeight = Math.min(newHeight, MAX_SCROLL_HEIGHT);
+      if (performance.now() - scrollStart > MAX_SCROLL_TIME) break;
     }
     
     window.scrollTo(0, scrollHeight);
     await new Promise(r => setTimeout(r, 600));
     
-    // Smoothly return to top at a moderate speed
     for (let y = scrollHeight; y > 0; y -= (step * 8)) {
       window.scrollTo(0, y);
       await new Promise(r => setTimeout(r, 16));
     }
 
-    // Always restore exactly to top (0, 0) for DOM serialization
     window.scrollTo(0, 0);
     await new Promise(r => setTimeout(r, 200));
 
-    // Neutralize GSAP ScrollSmoother (which locks the entire webpage inside a 100vh overflow:hidden fixed container)
+    // Neutralize GSAP ScrollSmoother — save state for restoration
     try {
       if (window.ScrollSmoother) {
         const sm = window.ScrollSmoother.get();
-        if (sm) sm.kill();
+        if (sm) {
+          sm.paused(true);
+          cleanupTasks.push(() => { try { sm.paused(false); } catch {} });
+        }
       }
       const sw = document.getElementById('smooth-wrapper');
       const sc = document.getElementById('smooth-content');
       if (sw) {
+        const saved = { position: sw.style.position, height: sw.style.height, overflow: sw.style.overflow };
         sw.style.setProperty('position', 'static', 'important');
         sw.style.setProperty('height', 'auto', 'important');
         sw.style.setProperty('overflow', 'visible', 'important');
+        cleanupTasks.push(() => { sw.style.position = saved.position; sw.style.height = saved.height; sw.style.overflow = saved.overflow; });
       }
       if (sc) {
+        const saved = { position: sc.style.position, height: sc.style.height, overflow: sc.style.overflow, transform: sc.style.transform };
         sc.style.setProperty('position', 'static', 'important');
         sc.style.setProperty('height', 'auto', 'important');
         sc.style.setProperty('overflow', 'visible', 'important');
         sc.style.setProperty('transform', 'none', 'important');
+        cleanupTasks.push(() => { sc.style.position = saved.position; sc.style.height = saved.height; sc.style.overflow = saved.overflow; sc.style.transform = saved.transform; });
       }
     } catch (e) {}
 
-    // Fast-forward GSAP ScrollTriggers and disable reset/reverse triggers so scroll-to-top never hides content
+    // Fast-forward GSAP ScrollTriggers — save state for restoration
     try {
       if (window.ScrollTrigger) {
+        const savedTriggers = [];
         window.ScrollTrigger.getAll().forEach(st => {
           try {
+            const savedProgress = st.animation ? st.animation.progress() : null;
             const isCrazyScale = st.vars?.scrub && st.trigger && (st.trigger.className || '').includes('circle-shape');
             if (st.animation && !isCrazyScale) {
               st.animation.progress(1);
             }
             st.disable(false);
+            savedTriggers.push({ st, savedProgress, isCrazyScale });
           } catch (e) {}
+        });
+        cleanupTasks.push(() => {
+          for (const { st, savedProgress, isCrazyScale } of savedTriggers) {
+            try { st.enable(); if (st.animation && savedProgress !== null && !isCrazyScale) st.animation.progress(savedProgress); } catch {}
+          }
+          try { window.ScrollTrigger.refresh(); } catch {}
         });
       }
       if (window.gsap) {
+        const savedTweens = [];
         window.gsap.globalTimeline.getChildren().forEach(tween => {
-          try { tween.progress(1); } catch {}
+          try { savedTweens.push({ tween, progress: tween.progress() }); tween.progress(1); } catch {}
         });
+        cleanupTasks.push(() => { for (const { tween, progress } of savedTweens) { try { tween.progress(progress); } catch {} } });
       }
     } catch (e) {}
 
@@ -210,6 +234,7 @@
       }
     `;
     document.head.appendChild(animKiller);
+    cleanupTasks.push(() => { try { animKiller.remove(); } catch {} });
 
     // Clean up Odometer and other animated counters to prevent overlapping number ribbons
     try {
@@ -225,12 +250,15 @@
       }
     } catch (e) {}
 
-    // Unhide and reset scroll-reveal elements whose inline styles were reversed or hidden
+    // Save and modify inline styles on animated elements
+    const savedInlineStyles = [];
     try {
       const animatedEls = document.querySelectorAll(
         '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter'
       );
       for (const el of animatedEls) {
+        const saved = { el, v: el.style.visibility, o: el.style.opacity, t: el.style.transform, c: el.style.clipPath };
+        savedInlineStyles.push(saved);
         if (el.style.visibility === 'hidden') el.style.visibility = 'visible';
         if (el.style.opacity === '0' || (parseFloat(el.style.opacity) || 0) < 0.05) el.style.opacity = '1';
         if (el.style.transform) {
@@ -241,6 +269,7 @@
         if (el.style.clipPath) el.style.clipPath = 'none';
         
         for (const desc of el.querySelectorAll('*')) {
+          savedInlineStyles.push({ el: desc, v: desc.style.visibility, o: desc.style.opacity, t: desc.style.transform });
           if (desc.style.visibility === 'hidden') desc.style.visibility = 'visible';
           if (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05) {
             desc.style.opacity = '1';
@@ -250,13 +279,25 @@
       }
     } catch {}
 
-    // Hide full-screen preloader elements
+    cleanupTasks.push(() => {
+      for (const s of savedInlineStyles) {
+        try { s.el.style.visibility = s.v; s.el.style.opacity = s.o; s.el.style.transform = s.t; if (s.c !== undefined) s.el.style.clipPath = s.c; } catch {}
+      }
+    });
+
+    // Hide preloaders — save state
     try {
       const preloaders = document.querySelectorAll('#preloader, .preloader, .loader-wrapper, #loading, .page-loader, .site-preloader');
       for (const p of preloaders) {
+        const savedDisplay = p.style.display;
         p.style.display = 'none';
+        cleanupTasks.push(() => { p.style.display = savedDisplay; });
       }
     } catch {}
+
+    return function cleanup() {
+      for (let i = cleanupTasks.length - 1; i >= 0; i--) { try { cleanupTasks[i](); } catch {} }
+    };
   }
 
   /* ======================================================================
@@ -424,7 +465,9 @@
     try {
       if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         const bgRes = await new Promise((res) => {
+          const timer = setTimeout(() => res(null), FETCH_TIMEOUT);
           chrome.runtime.sendMessage({ type: 'FETCH_IMAGE', url: absoluteUrl }, (resp) => {
+            clearTimeout(timer);
             if (chrome.runtime.lastError) res(null);
             else res(resp);
           });
@@ -449,9 +492,11 @@
     }
 
     return new Promise(resolve => {
+      const timer = setTimeout(() => resolve({ url: absoluteUrl, blob: null }), FETCH_TIMEOUT);
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
+        clearTimeout(timer);
         try {
           const c = document.createElement('canvas');
           c.width = img.naturalWidth || 1;
@@ -465,7 +510,7 @@
           resolve({ url: absoluteUrl, blob: null });
         }
       };
-      img.onerror = () => resolve({ url: absoluteUrl, blob: null });
+      img.onerror = () => { clearTimeout(timer); resolve({ url: absoluteUrl, blob: null }); };
       img.src = absoluteUrl;
     });
   }
@@ -558,12 +603,21 @@
       return id;
     }
     async getBlobMap() {
+      const ASSET_TIMEOUT = 20000;
       const map = {};
-      for (const [url, p] of this.promises.entries()) {
-        try {
-          const res = await p;
-          if (res && res.blob) map[url] = res;
-        } catch {}
+      const entries = Array.from(this.promises.entries());
+      const results = await Promise.allSettled(
+        entries.map(([url, p]) =>
+          Promise.race([
+            p,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ASSET_TIMEOUT))
+          ]).then(res => ({ url, res }))
+        )
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value.res && r.value.res.blob) {
+          map[r.value.url] = r.value.res;
+        }
       }
       return map;
     }
@@ -843,8 +897,13 @@
                 if (bgRes && bgRes.data) cssText = bgRes.data;
               }
               if (!cssText) {
-                const r = await fetch(sheet.href);
-                if (r.ok) cssText = await r.text();
+                try {
+                  const ctrl = new AbortController();
+                  const timer = setTimeout(() => ctrl.abort(), 5000);
+                  const r = await fetch(sheet.href, { signal: ctrl.signal });
+                  clearTimeout(timer);
+                  if (r.ok) cssText = await r.text();
+                } catch {}
               }
               if (cssText) {
                 parseCssFontFaces(cssText, sheet.href);
@@ -870,7 +929,9 @@
         try {
           if (typeof chrome !== 'undefined' && chrome.runtime) {
             const bgRes = await new Promise((res) => {
+              const timer = setTimeout(() => res(null), FETCH_TIMEOUT);
               chrome.runtime.sendMessage({ type: 'FETCH_FONT', url }, (resp) => {
+                clearTimeout(timer);
                 if (chrome.runtime.lastError) res({ error: chrome.runtime.lastError.message });
                 else res(resp || { error: 'No response' });
               });
@@ -886,7 +947,10 @@
               return;
             }
           }
-          const resp = await fetch(url);
+          const ctrl = new AbortController();
+          const fTimer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
+          const resp = await fetch(url, { signal: ctrl.signal });
+          clearTimeout(fTimer);
           if (resp.ok) {
             const buf = await resp.arrayBuffer();
             const font = opentype.parse(buf);
@@ -962,12 +1026,12 @@
     }
 
     // Icon fonts with 1-2 characters (e.g. FontAwesome, RemixIcon, Tabler, Bootstrap, Phosphor)
-    const isIconFont = /(?:awesome|feather|tabler|boxicon|remix|glyph|phosphor)/i.test(fontName) && !fontName.includes('system-ui');
+    const isIconFont = /(?:icon|awesome|feather|tabler|boxicon|remix|glyph|phosphor)/i.test(fontName) && !fontName.includes('system-ui');
     if (chars.length <= 2) {
       if (isIconFont) return true;
       // Specific icon, glyph, or flag library classes
-      if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|mdi-[a-z0-9-]+|glyph|flag|ph|ph-[a-z0-9-]+)\b/i.test(cls) ||
-          cls.includes('__glyph') || cls.includes('__flag') || cls.includes('-glyph') || cls.includes('-flag')) {
+      if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|mdi-[a-z0-9-]+|glyph|flag|ph|ph-[a-z0-9-]+|icon-[a-z0-9-]+|[a-z0-9-]+-icon-[a-z0-9-]+)\b/i.test(cls) ||
+          cls.includes('__glyph') || cls.includes('__flag') || cls.includes('-glyph') || cls.includes('-flag') || cls.includes('icon')) {
         return true;
       }
     }
@@ -1083,8 +1147,8 @@
             continue;
           }
 
-          if (isDefTag) {
-            continue; // Do not corrupt gradients, stops, masks, or groups with explicit fills
+          if (isDefTag || orig.closest('defs')) {
+            continue; // Do not corrupt defs, gradients, stops, masks, paths inside defs, or groups with explicit fills
           }
 
           let computedFill = origCs.fill;
@@ -1185,6 +1249,57 @@
       }
 
       return clone.outerHTML;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function extractSvgTexts(el) {
+    try {
+      if (!el || typeof el.querySelectorAll !== 'function') return null;
+      const textEls = Array.from(el.querySelectorAll('text'));
+      if (!textEls.length) return null;
+      const svgTexts = [];
+
+      for (const textEl of textEls) {
+        if (typeof textEl.getNumberOfChars !== 'function') continue;
+        const numChars = textEl.getNumberOfChars();
+        if (!numChars) continue;
+
+        const cs = window.getComputedStyle(textEl);
+        const textFamily = cs.fontFamily;
+        const textWeight = cs.fontWeight || '400';
+        const textStyle = cs.fontStyle || 'normal';
+        const parsedFontSize = parseFloat(cs.fontSize) || 16;
+        const textFill = cs.fill && cs.fill !== 'none' ? cs.fill : (cs.color || '#000000');
+        const textOpacity = parseFloat(cs.fillOpacity || cs.opacity || '1');
+
+        for (let i = 0; i < numChars; i++) {
+          const char = textEl.textContent[i];
+          if (!char || !char.trim()) continue;
+          try {
+            const start = textEl.getStartPositionOfChar(i);
+            const end = textEl.getEndPositionOfChar(i);
+            const rot = textEl.getRotationOfChar(i);
+            const advance = Math.hypot(end.x - start.x, end.y - start.y) || (parsedFontSize * 0.6);
+            svgTexts.push({
+              char,
+              x: start.x,
+              y: start.y,
+              rot,
+              advance,
+              fontSize: parsedFontSize,
+              fontFamily: textFamily,
+              fontWeight: textWeight,
+              fontStyle: textStyle,
+              fill: textFill,
+              opacity: isNaN(textOpacity) ? 1 : textOpacity
+            });
+          } catch (e) {}
+        }
+      }
+
+      return svgTexts.length > 0 ? svgTexts : null;
     } catch (e) {
       return null;
     }
@@ -1694,6 +1809,7 @@
   }
 
   async function serializePseudo(el, pseudo, assets, fonts, parentRect) {
+    if (captureTimedOut) return null;
     try {
       const cs = window.getComputedStyle(el, pseudo);
       const content = cs.content;
@@ -2239,7 +2355,12 @@
   }
 
   async function serializeNode(node, assets, fonts, parentStyles) {
+    if (captureTimedOut) return null;
     if (node.nodeType === TEXT_NODE) {
+      if (node.parentElement) {
+        const pTag = node.parentElement.tagName.toUpperCase();
+        if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE'].includes(pTag)) return null;
+      }
       const rawText = node.textContent || '';
       if (!rawText.trim()) return null;
       const ws = parentStyles?.whiteSpace || 'normal';
@@ -2814,7 +2935,9 @@
     }
 
     let svgContent = null;
+    let svgTexts = null;
     if (tag === 'SVG' || el instanceof SVGElement) {
+      svgTexts = extractSvgTexts(el);
       const rawSvg = serializeSVG(el);
       if (rawSvg) {
         const vRes = await vectorizeEmbeddedSvgImages(rawSvg);
@@ -3120,6 +3243,7 @@
       rect: docRect,
       childNodes,
       content: svgContent || undefined,
+      svgTexts: svgTexts || undefined,
       placeholderUrl: placeholderUrl || undefined,
       pseudoElementNodes
     };
@@ -3149,20 +3273,34 @@
     }
   }
 
+  let restorePage = null;
+  let savedImageAttrs = [];
+
   try {
+    try { await navigator.clipboard.writeText(' '); } catch (e) {}
+
+    const CAPTURE_TIMEOUT = 90000;
+    const captureTimer = setTimeout(() => { captureTimedOut = true; }, CAPTURE_TIMEOUT);
+
     await initFontMap();
     const toast = showToast('⏳ Pre-rendering full webpage…');
 
     // 1. Scroll through page to activate lazy-loaded elements & image sources
-    await prepareAndScrollPage();
+    restorePage = await prepareAndScrollPage();
 
-    // 2. Decode all visible and lazy-loaded images
+    // 2. Decode all visible and lazy-loaded images (save original attributes for restoration)
     const images = Array.from(document.images || []);
+    savedImageAttrs = images.map(img => ({ img, decoding: img.decoding, loading: img.loading }));
     images.forEach(img => {
       if (img.decoding !== 'sync') img.decoding = 'sync';
       if (img.loading !== 'eager') img.loading = 'eager';
     });
-    await Promise.allSettled(images.map(img => img.decode().catch(() => {})));
+    await Promise.allSettled(images.map(img => {
+      return Promise.race([
+        img.decode().catch(() => {}),
+        new Promise(resolve => setTimeout(resolve, 3000))
+      ]);
+    }));
 
     const assets = new AssetCollector();
     const fonts = new FontCollector();
@@ -3223,6 +3361,7 @@
       fonts: fonts.getFonts()
     };
 
+    clearTimeout(captureTimer);
     window.__capturedPayload = payload;
     const json = JSON.stringify(payload);
     const ok = await writeClipboard(json);
@@ -3239,10 +3378,8 @@
     showToast('❌ Capture failed: ' + (err.message || err), 8000);
   } finally {
     window.__html2FigRunning = false;
-    const scrollFix = document.getElementById('h2f-scroll-fix');
-    if (scrollFix) scrollFix.remove();
-    const animKiller = document.getElementById('h2f-animation-killer');
-    if (animKiller) animKiller.remove();
+    captureTimedOut = false;
+    try { if (restorePage) restorePage(); } catch {}
+    for (const s of savedImageAttrs) { try { s.img.decoding = s.decoding; s.img.loading = s.loading; } catch {} }
   }
 })();
-
