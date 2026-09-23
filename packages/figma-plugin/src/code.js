@@ -2474,7 +2474,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
     const directChildren = [];
     if (sNode.pseudoElementNodes?.before) directChildren.push(sNode.pseudoElementNodes.before);
-    if (sNode.childNodes) directChildren.push(...sNode.childNodes);
+    if (sNode.childNodes) { for (let i = 0; i < sNode.childNodes.length; i++) directChildren.push(sNode.childNodes[i]); }
     if (sNode.pseudoElementNodes?.after) directChildren.push(sNode.pseudoElementNodes.after);
 
     if (isCentered && directChildren.length === 1) {
@@ -2527,7 +2527,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
   const allChildren = [];
   if (sNode.pseudoElementNodes?.before) allChildren.push(sNode.pseudoElementNodes.before);
-  if (sNode.childNodes) allChildren.push(...sNode.childNodes);
+  if (sNode.childNodes) { for (let i = 0; i < sNode.childNodes.length; i++) allChildren.push(sNode.childNodes[i]); }
   if (sNode.pseudoElementNodes?.after) allChildren.push(sNode.pseudoElementNodes.after);
 
   const hasBackdropChild = allChildren.some(isBackdropNode);
@@ -2865,7 +2865,7 @@ async function renderTree(data) {
   figma.currentPage.appendChild(rootFrame);
 
   if (data.root?.childNodes) {
-    const rootChildren = [...data.root.childNodes];
+    const rootChildren = Array.from(data.root.childNodes);
     rootChildren.forEach((child, idx) => { child._origIdx = idx; });
     rootChildren.sort((a, b) => {
       const zA = getEffectiveZIndex(a);
