@@ -1493,6 +1493,62 @@ function hasInvertFilter(filterStr) {
   return isNaN(num) || num > 0.4;
 }
 
+function parseCssTransformMatrix(transformStr) {
+  if (!transformStr || !transformStr.includes('matrix')) return null;
+  const parts = transformStr.match(/matrix(?:3d)?\(([^)]+)\)/);
+  if (!parts) return null;
+  const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
+  let a = 1, b = 0, c = 0, d = 1;
+  if (vals.length === 6) {
+    [a, b, c, d] = vals;
+  } else if (vals.length === 16) {
+    a = vals[0];
+    b = vals[1];
+    c = vals[4];
+    d = vals[5];
+  }
+  const det = a * d - b * c;
+  let flipX = false;
+  let flipY = false;
+
+  if (det < 0) {
+    if (a < 0 && d > 0 && Math.abs(b) < 1e-4 && Math.abs(c) < 1e-4) {
+      flipX = true;
+      a = -a;
+    } else if (a > 0 && d < 0 && Math.abs(b) < 1e-4 && Math.abs(c) < 1e-4) {
+      flipY = true;
+      d = -d;
+    } else {
+      flipX = true;
+      a = -a;
+      b = -b;
+    }
+  }
+  const angleDeg = Math.atan2(b, a) * (180 / Math.PI);
+  return { angleDeg, flipX, flipY };
+}
+
+function applySvgFlip(svgStr, flipX, flipY) {
+  if (!flipX && !flipY) return svgStr;
+  const vbMatch = svgStr.match(/viewBox=["']\s*([\d.-]+)[\s,]+([\d.-]+)[\s,]+([\d.-]+)[\s,]+([\d.-]+)\s*["']/i);
+  let minX = 0, minY = 0, vbW = 100, vbH = 100;
+  if (vbMatch) {
+    minX = parseFloat(vbMatch[1]) || 0;
+    minY = parseFloat(vbMatch[2]) || 0;
+    vbW = parseFloat(vbMatch[3]) || 100;
+    vbH = parseFloat(vbMatch[4]) || 100;
+  }
+  const tx = flipX ? (2 * minX + vbW) : 0;
+  const ty = flipY ? (2 * minY + vbH) : 0;
+  const sx = flipX ? -1 : 1;
+  const sy = flipY ? -1 : 1;
+  const groupTransform = `translate(${tx} ${ty}) scale(${sx} ${sy})`;
+
+  return svgStr.replace(/(<svg\b[^>]*>)([\s\S]*?)(<\/svg>)/i, (m, start, inner, end) => {
+    return `${start}<g transform="${groupTransform}">${inner}</g>${end}`;
+  });
+}
+
 function prepareSvgString(svgString, isInverted) {
   if (!svgString) return '';
   let clean = svgString;
@@ -1742,7 +1798,22 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   // SVG Vector element
   if (sNode.content && (sNode.tag === 'SVG' || sNode.content.includes('<svg'))) {
     try {
-      const cleanSvg = prepareSvgString(sNode.content, hasInvertFilter(s.filter));
+      let angleDeg = 0;
+      let flipX = false;
+      let flipY = false;
+      if (s.transform && s.transform.includes('matrix')) {
+        const mat = parseCssTransformMatrix(s.transform);
+        if (mat) {
+          angleDeg = mat.angleDeg;
+          flipX = mat.flipX;
+          flipY = mat.flipY;
+        }
+      }
+
+      let cleanSvg = prepareSvgString(sNode.content, hasInvertFilter(s.filter));
+      if (flipX || flipY) {
+        cleanSvg = applySvgFlip(cleanSvg, flipX, flipY);
+      }
       const svgNode = figma.createNodeFromSvg(cleanSvg);
       svgNode.name = (sNode.tag || 'node').toLowerCase();
       hydrateSvgPatterns(svgNode, sNode.content);
@@ -1758,15 +1829,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       } catch (e) {
         console.warn('[HTML-2-Fig] SVG text rendering error:', e);
       }
-      let angleDeg = 0;
-      if (s.transform && s.transform.includes('matrix') && Math.abs(parentFrame.rotation || 0) < 0.1) {
-        const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
-        if (parts) {
-          const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
-          angleDeg = Math.atan2(vals[1], vals[0]) * (180 / Math.PI);
-        }
-      }
-      if (Math.abs(angleDeg) > 0.1) {
+      if (Math.abs(angleDeg) > 0.1 && Math.abs(parentFrame.rotation || 0) < 0.1) {
         const rotDeg = -angleDeg;
         svgNode.rotation = rotDeg;
         const rad = rotDeg * (Math.PI / 180);
