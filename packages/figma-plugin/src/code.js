@@ -1773,17 +1773,18 @@ async function renderSvgTexts(svgNode, sNode) {
 
 function getEffectiveZIndex(node) {
   if (!node) return 0;
-  const z = node.styles?.zIndex && node.styles.zIndex !== 'auto' ? parseInt(node.styles.zIndex, 10) : null;
-  if (z !== null && !isNaN(z)) return z;
   const s = node.styles || {};
-  const isIsolated = (
-    (s.opacity && parseFloat(s.opacity) < 0.999) ||
-    (s.transform && s.transform !== 'none') ||
-    (s.filter && s.filter !== 'none') ||
-    (s.isolation === 'isolate') ||
-    (s.mixBlendMode && s.mixBlendMode !== 'normal')
-  );
-  if (isIsolated) return 0;
+  const zRaw = s.zIndex;
+  if (zRaw && zRaw !== 'auto') {
+    const z = parseInt(zRaw, 10);
+    if (!isNaN(z)) return z * 2; // scale by 2 to leave room for the positioned-auto slot (1)
+  }
+  // CSS spec: positioned elements (absolute/fixed/relative/sticky) with z-index:auto
+  // participate in stacking ABOVE non-positioned (static) siblings at the same level.
+  const isPositioned = s.position === 'absolute' || s.position === 'fixed' || s.position === 'relative' || s.position === 'sticky';
+  if (isPositioned) return 1;
+
+  // Non-positioned element: check if any child/pseudo raises the effective z-index
   let maxZ = 0;
   let minZ = 0;
   if (node.pseudoElementNodes?.before) {

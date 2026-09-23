@@ -3252,7 +3252,8 @@
         if (sChild) childNodes.push(sChild);
       }
 
-      // Sort child nodes according to explicit CSS z-index while preserving DOM order
+      // Sort child nodes according to CSS stacking order rules while preserving DOM order
+      // CSS rules: position:absolute/fixed/relative with z-index:auto stacks ABOVE position:static siblings
       const hasBackdropChild = childNodes.some(child => {
         const backdrop = child.styles?.backdropFilter || child.styles?.webkitBackdropFilter || '';
         return backdrop !== 'none' && backdrop.includes('blur');
@@ -3260,7 +3261,18 @@
       if (childNodes.length > 1 && !hasBackdropChild) {
         childNodes.forEach((child, idx) => {
           child._originalIdx = idx;
-          child._effectiveZIndex = (child.styles?.zIndex && child.styles.zIndex !== 'auto') ? (parseInt(child.styles.zIndex, 10) || 0) : 0;
+          const cs = child.styles || {};
+          const isPositioned = cs.position === 'absolute' || cs.position === 'fixed' || cs.position === 'relative' || cs.position === 'sticky';
+          if (cs.zIndex && cs.zIndex !== 'auto') {
+            // Explicit numeric z-index: scale up by 2 to leave room for the 0.5 slot
+            child._effectiveZIndex = (parseInt(cs.zIndex, 10) || 0) * 2;
+          } else if (isPositioned) {
+            // position:absolute/fixed/relative with z-index:auto — sits above static siblings (z=0) per CSS spec
+            child._effectiveZIndex = 1;
+          } else {
+            // position:static with no z-index — lowest stacking level
+            child._effectiveZIndex = 0;
+          }
         });
         childNodes.sort((a, b) => {
           const diff = a._effectiveZIndex - b._effectiveZIndex;
