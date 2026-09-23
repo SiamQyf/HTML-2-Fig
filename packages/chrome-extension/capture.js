@@ -3,22 +3,10 @@
  * Captures document.body directly (preventing duplicated HEAD/HTML rendering),
  * pre-scrolls to activate lazy sections, and serializes clean DOM trees.
  */
-;(async function html2FigCapture() {
+(function() {
   'use strict';
 
-  if (window.__html2FigRunning) return;
-  window.__html2FigRunning = true;
-
-  // If injected into an iframe, tell the parent to expand this iframe to full scroll height
-  // so the entire page content is visible before we capture.
-  if (window.__html2FigInFrame || window.self !== window.top) {
-    try {
-      const fullH = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0, window.innerHeight);
-      window.parent.postMessage({ type: 'H2F_IFRAME_EXPAND', height: fullH }, '*');
-    } catch {}
-    // Give the parent time to resize us
-    await new Promise(r => setTimeout(r, 300));
-  }
+  window.html2Fig = window.html2Fig || {};
 
   const FETCH_TIMEOUT = 15000;
   const ELEMENT_NODE = 1;
@@ -3401,186 +3389,144 @@
     }
   }
 
-  let restorePage = null;
-  let savedImageAttrs = [];
-
-  try {
-    try { await navigator.clipboard.writeText(' '); } catch (e) {}
-
+  async function captureRaw() {
+    let restorePage = null;
+    let savedImageAttrs = [];
     const CAPTURE_TIMEOUT = 90000;
     const captureTimer = setTimeout(() => { captureTimedOut = true; }, CAPTURE_TIMEOUT);
 
-    await initFontMap();
-    const toast = showToast('⏳ Pre-rendering full webpage…');
+    try {
+      await initFontMap();
 
-    // Listen for size-expand requests from capture.js running inside a child iframe
-    const iframeExpandHandler = (evt) => {
-      if (evt.data && evt.data.type === 'H2F_IFRAME_EXPAND') {
-        const frames = Array.from(document.querySelectorAll('iframe'));
-        for (const f of frames) {
-          try {
-            if (f.contentWindow === evt.source) {
-              f.style.height = evt.data.height + 'px';
-              f.style.overflow = 'hidden';
-              break;
-            }
-          } catch {}
+      // 1. Scroll through page to activate lazy-loaded elements & image sources
+      restorePage = await prepareAndScrollPage();
+
+      // 2. Decode all visible and lazy-loaded images (save original attributes for restoration)
+      const images = Array.from(document.images || []);
+      savedImageAttrs = images.map(img => ({ img, decoding: img.decoding, loading: img.loading }));
+      images.forEach(img => {
+        if (img.decoding !== 'sync') img.decoding = 'sync';
+        if (img.loading !== 'eager') img.loading = 'eager';
+      });
+      await Promise.allSettled(images.map(img => {
+        return Promise.race([
+          img.decode().catch(() => {}),
+          new Promise(resolve => setTimeout(resolve, 3000))
+        ]);
+      }));
+
+      const assets = new AssetCollector();
+      const fonts = new FontCollector();
+
+      // Target document.body directly to avoid double nesting HTML + BODY frames
+      const targetElement = document.body || document.documentElement;
+      const root = await serializeNode(targetElement, assets, fonts, null);
+
+      if (targetElement === document.body && document.documentElement) {
+        const htmlStyles = window.getComputedStyle(document.documentElement);
+        if (htmlStyles.backgroundColor !== 'rgba(0, 0, 0, 0)' && (!root.styles.backgroundColor || root.styles.backgroundColor === 'rgba(0, 0, 0, 0)')) {
+          root.styles.backgroundColor = htmlStyles.backgroundColor;
         }
-      }
-    };
-    window.addEventListener('message', iframeExpandHandler);
-
-    // ── Dominant iframe detection ────────────────────────────────────────────
-    // Sites like ThemeForest embed the full design inside a preview <iframe>
-    // with a fixed/small height. We detect it and capture the iframe content instead.
-    if (!window.__html2FigInFrame) {
-      const vpW = window.innerWidth;
-      const vpH = window.innerHeight;
-      let dominantIframe = null;
-      for (const f of document.querySelectorAll('iframe')) {
-        const r = f.getBoundingClientRect();
-        if (r.width >= vpW * 0.5 && r.height >= vpH * 0.35) { dominantIframe = f; break; }
-      }
-
-      if (dominantIframe) {
-        try {
-          // ── Same-origin ──────────────────────────────────────────────────
-          const iframeDoc = dominantIframe.contentDocument;
-          const iframeWin = dominantIframe.contentWindow;
-          if (!iframeDoc || !iframeWin) throw new Error('no-access');
-
-          try { toast.remove(); } catch {}
-          showToast('⏳ Capturing iframe content…');
-
-          // Expand iframe to its full scroll height so all content is reachable
-          const fullH = Math.max(
-            iframeDoc.documentElement.scrollHeight,
-            iframeDoc.body ? iframeDoc.body.scrollHeight : 0,
-            iframeWin.innerHeight
-          );
-          dominantIframe.style.setProperty('height', fullH + 'px', 'important');
-          dominantIframe.style.setProperty('max-height', 'none', 'important');
-          await new Promise(r => setTimeout(r, 200));
-
-          // Inject capture.js into the same-origin iframe
-          iframeWin.__html2FigInFrame = true;
-          const s = iframeDoc.createElement('script');
-          s.src = chrome.runtime.getURL('capture.js');
-          (iframeDoc.head || iframeDoc.documentElement).appendChild(s);
-
-          // Our job here is done — the injected script handles the rest
-          window.__html2FigRunning = false;
-          return;
-        } catch (_crossOriginErr) {
-          // ── Cross-origin ─────────────────────────────────────────────────
-          // Can't access the iframe DOM. Open its URL in a new tab and capture there.
-          const iframeSrc = dominantIframe.src;
-          if (iframeSrc && iframeSrc.startsWith('http')) {
-            try { toast.remove(); } catch {}
-            showToast('⏳ Opening preview in new tab for full capture…', 5000);
-            chrome.runtime.sendMessage({ type: 'OPEN_AND_CAPTURE', url: iframeSrc });
-            window.__html2FigRunning = false;
-            return;
+        if (htmlStyles.backgroundImage !== 'none' && (!root.styles.backgroundImage || root.styles.backgroundImage === 'none')) {
+          root.styles.backgroundImage = htmlStyles.backgroundImage;
+          root.styles.backgroundSize = htmlStyles.backgroundSize;
+          root.styles.backgroundPositionX = htmlStyles.backgroundPositionX;
+          root.styles.backgroundPositionY = htmlStyles.backgroundPositionY;
+          root.styles.backgroundRepeat = htmlStyles.backgroundRepeat;
+          const matches = htmlStyles.backgroundImage.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
+          for (const m of matches) {
+            if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
           }
         }
       }
-    }
+      const assetMap = await assets.getBlobMap();
 
-    // 1. Scroll through page to activate lazy-loaded elements & image sources
-    restorePage = await prepareAndScrollPage();
+      let fullDocWidth = Math.max(
+        document.documentElement.scrollWidth,
+        document.body ? document.body.scrollWidth : 0,
+        window.innerWidth
+      );
+      const fullDocHeight = Math.max(
+        document.documentElement.scrollHeight,
+        document.body ? document.body.scrollHeight : 0,
+        window.innerHeight
+      );
 
-    // 2. Decode all visible and lazy-loaded images (save original attributes for restoration)
-    const images = Array.from(document.images || []);
-    savedImageAttrs = images.map(img => ({ img, decoding: img.decoding, loading: img.loading }));
-    images.forEach(img => {
-      if (img.decoding !== 'sync') img.decoding = 'sync';
-      if (img.loading !== 'eager') img.loading = 'eager';
-    });
-    await Promise.allSettled(images.map(img => {
-      return Promise.race([
-        img.decode().catch(() => {}),
-        new Promise(resolve => setTimeout(resolve, 3000))
-      ]);
-    }));
+      clearTimeout(captureTimer);
 
-    const assets = new AssetCollector();
-    const fonts = new FontCollector();
-
-    // Target document.body directly to avoid double nesting HTML + BODY frames
-    const targetElement = document.body || document.documentElement;
-    const root = await serializeNode(targetElement, assets, fonts, null);
-
-    if (targetElement === document.body && document.documentElement) {
-      const htmlStyles = window.getComputedStyle(document.documentElement);
-      if (htmlStyles.backgroundColor !== 'rgba(0, 0, 0, 0)' && (!root.styles.backgroundColor || root.styles.backgroundColor === 'rgba(0, 0, 0, 0)')) {
-        root.styles.backgroundColor = htmlStyles.backgroundColor;
+      return {
+        version: 2,
+        generator: 'HTML-2-Fig',
+        documentTitle: document.title || 'Web Import',
+        documentRect: {
+          x: 0,
+          y: 0,
+          width: fullDocWidth,
+          height: fullDocHeight
+        },
+        viewportRect: {
+          x: 0,
+          y: 0,
+          width: window.innerWidth,
+          height: window.innerHeight
+        },
+        devicePixelRatio: window.devicePixelRatio || 1,
+        root,
+        assets: assetMap,
+        fonts: fonts.getFonts()
+      };
+    } finally {
+      clearTimeout(captureTimer);
+      captureTimedOut = false;
+      try { if (restorePage) restorePage(); } catch {}
+      for (const s of savedImageAttrs) {
+        try { s.img.decoding = s.decoding; s.img.loading = s.loading; } catch {}
       }
-      if (htmlStyles.backgroundImage !== 'none' && (!root.styles.backgroundImage || root.styles.backgroundImage === 'none')) {
-        root.styles.backgroundImage = htmlStyles.backgroundImage;
-        root.styles.backgroundSize = htmlStyles.backgroundSize;
-        root.styles.backgroundPositionX = htmlStyles.backgroundPositionX;
-        root.styles.backgroundPositionY = htmlStyles.backgroundPositionY;
-        root.styles.backgroundRepeat = htmlStyles.backgroundRepeat;
-        const matches = htmlStyles.backgroundImage.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
-        for (const m of matches) {
-          if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
+    }
+  }
+
+  async function startCapture() {
+    if (window.__html2FigRunning) return;
+    window.__html2FigRunning = true;
+
+    let toast = null;
+    try {
+      try { await navigator.clipboard.writeText(' '); } catch (e) {}
+      toast = showToast('⏳ Pre-rendering full webpage…');
+
+      let payload = await captureRaw();
+
+      // Splice all iframes (same-origin and cross-origin) into the captured tree
+      if (typeof window.__e2fSpliceFrames === 'function') {
+        try {
+          payload = await window.__e2fSpliceFrames(payload);
+        } catch (spliceErr) {
+          console.warn('[HTML-2-Fig] Splice frames warning:', spliceErr);
         }
       }
+
+      window.__capturedPayload = payload;
+      const json = typeof payload === 'string' ? payload : JSON.stringify(payload);
+      const ok = await writeClipboard(json);
+
+      try { if (toast) toast.remove(); } catch {}
+
+      if (ok) {
+        showToast('✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
+      } else {
+        showToast('⚠️ Capture complete. Please allow clipboard access.', 6000);
+      }
+    } catch (err) {
+      console.error('[HTML-2-Fig] Capture error:', err);
+      try { if (toast) toast.remove(); } catch {}
+      showToast('❌ Capture failed: ' + (err.message || err), 8000);
+    } finally {
+      window.__html2FigRunning = false;
     }
-    const assetMap = await assets.getBlobMap();
-
-    let fullDocWidth = Math.max(
-      document.documentElement.scrollWidth,
-      document.body ? document.body.scrollWidth : 0,
-      window.innerWidth
-    );
-    const fullDocHeight = Math.max(
-      document.documentElement.scrollHeight,
-      document.body ? document.body.scrollHeight : 0,
-      window.innerHeight
-    );
-
-    const payload = {
-      version: 2,
-      generator: 'HTML-2-Fig',
-      documentTitle: document.title || 'Web Import',
-      documentRect: {
-        x: 0,
-        y: 0,
-        width: fullDocWidth,
-        height: fullDocHeight
-      },
-      viewportRect: {
-        x: 0,
-        y: 0,
-        width: window.innerWidth,
-        height: window.innerHeight
-      },
-      devicePixelRatio: window.devicePixelRatio || 1,
-      root,
-      assets: assetMap,
-      fonts: fonts.getFonts()
-    };
-
-    clearTimeout(captureTimer);
-    window.__capturedPayload = payload;
-    const json = JSON.stringify(payload);
-    const ok = await writeClipboard(json);
-
-    try { toast.remove(); } catch {}
-
-    if (ok) {
-      showToast('✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
-    } else {
-      showToast('⚠️ Capture complete. Please allow clipboard access.', 6000);
-    }
-  } catch (err) {
-    console.error('[HTML-2-Fig] Capture error:', err);
-    showToast('❌ Capture failed: ' + (err.message || err), 8000);
-  } finally {
-    window.__html2FigRunning = false;
-    captureTimedOut = false;
-    try { if (restorePage) restorePage(); } catch {}
-    for (const s of savedImageAttrs) { try { s.img.decoding = s.decoding; s.img.loading = s.loading; } catch {} }
   }
+
+  window.html2Fig = {
+    startCapture,
+    captureRaw
+  };
 })();
