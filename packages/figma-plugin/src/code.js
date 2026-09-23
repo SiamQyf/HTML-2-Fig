@@ -1570,12 +1570,22 @@ function prepareSvgString(svgString, isInverted) {
     const hexB = Math.round(parseFloat(b)).toString(16).padStart(2, '0');
     return `#${hexR}${hexG}${hexB}`;
   });
+  // Collect IDs of <pattern> tags that Figma's SVG parser crashes on
+  const patternIds = new Set();
+  const patMatches = clean.matchAll(/<pattern\b[^>]*?\bid=["']([^"']+)["']/gi);
+  for (const m of patMatches) {
+    patternIds.add(m[1]);
+  }
   // Strip pattern tags that Figma's SVG parser crashes on
   clean = clean.replace(/<pattern[\s\S]*?<\/pattern>/gi, '');
   // Strip direct image tags inside SVG that Figma's parser crashes on
   clean = clean.replace(/<image[\s\S]*?\/?>/gi, '');
-  // Replace pattern url fills with fill="none" so Figma creates vector shapes cleanly
-  clean = clean.replace(/fill=["']url\(#[^"']+\)["']/gi, 'fill="none"');
+  // Only replace fills referencing pattern IDs with fill="none", NEVER linear/radial gradients!
+  if (patternIds.size > 0) {
+    clean = clean.replace(/fill=["']url\(#([^"']+)["']\)/gi, (m, id) => {
+      return patternIds.has(id) ? 'fill="none"' : m;
+    });
+  }
   // If SVG has textPath or text elements that are extracted and rendered via Figma text nodes,
   // strip <defs>, <text>, and <use> so Figma's parser doesn't crash or render guide circles
   if (/<textPath\b/i.test(clean)) {
