@@ -34,6 +34,41 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === 'INJECT_INTO_FRAME') {
+    // Inject capture script into a specific cross-origin iframe by frameId
+    chrome.scripting.executeScript({
+      target: { tabId: sender.tab.id, frameIds: [request.frameId] },
+      files: ['opentype.min.js', 'capture.js']
+    }).catch(err => {
+      console.error('[HTML-2-Fig] Failed to inject into frame:', err);
+    });
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (request.type === 'INJECT_INTO_FRAME_BY_URL') {
+    // Find the frame matching the given URL and inject into it
+    chrome.webNavigation.getAllFrames({ tabId: sender.tab.id }, (frames) => {
+      if (!frames) return;
+      const targetFrame = frames.find(f => f.url === request.url || f.url.startsWith(request.url));
+      if (targetFrame) {
+        chrome.scripting.executeScript({
+          target: { tabId: sender.tab.id, frameIds: [targetFrame.frameId] },
+          func: () => { window.__html2FigInFrame = true; }
+        }).then(() => {
+          return chrome.scripting.executeScript({
+            target: { tabId: sender.tab.id, frameIds: [targetFrame.frameId] },
+            files: ['opentype.min.js', 'capture.js']
+          });
+        }).catch(err => {
+          console.error('[HTML-2-Fig] Failed to inject into cross-origin frame:', err);
+        });
+      }
+    });
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (request.type === 'FETCH_IMAGE') {
     fetch(request.url)
       .then(res => {

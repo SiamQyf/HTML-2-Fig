@@ -9,6 +9,17 @@
   if (window.__html2FigRunning) return;
   window.__html2FigRunning = true;
 
+  // If injected into an iframe, tell the parent to expand this iframe to full scroll height
+  // so the entire page content is visible before we capture.
+  if (window.__html2FigInFrame || window.self !== window.top) {
+    try {
+      const fullH = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0, window.innerHeight);
+      window.parent.postMessage({ type: 'H2F_IFRAME_EXPAND', height: fullH }, '*');
+    } catch {}
+    // Give the parent time to resize us
+    await new Promise(r => setTimeout(r, 300));
+  }
+
   const FETCH_TIMEOUT = 15000;
   const ELEMENT_NODE = 1;
   const TEXT_NODE = 3;
@@ -3401,6 +3412,78 @@
 
     await initFontMap();
     const toast = showToast('⏳ Pre-rendering full webpage…');
+
+    // Listen for size-expand requests from capture.js running inside a child iframe
+    const iframeExpandHandler = (evt) => {
+      if (evt.data && evt.data.type === 'H2F_IFRAME_EXPAND') {
+        const frames = Array.from(document.querySelectorAll('iframe'));
+        for (const f of frames) {
+          try {
+            if (f.contentWindow === evt.source) {
+              f.style.height = evt.data.height + 'px';
+              f.style.overflow = 'hidden';
+              break;
+            }
+          } catch {}
+        }
+      }
+    };
+    window.addEventListener('message', iframeExpandHandler);
+
+    // ── Dominant iframe detection ────────────────────────────────────────────
+    // Sites like ThemeForest embed the actual design inside a large preview <iframe>.
+    // If we detect one that covers most of the viewport, redirect capture into it.
+    const dominantIframe = (() => {
+      const vpW = window.innerWidth;
+      const vpH = window.innerHeight;
+      const frames = Array.from(document.querySelectorAll('iframe'));
+      for (const f of frames) {
+        const r = f.getBoundingClientRect();
+        // Must cover at least 50% of viewport width AND 40% of viewport height
+        if (r.width >= vpW * 0.5 && r.height >= vpH * 0.4) return f;
+      }
+      return null;
+    })();
+
+    if (dominantIframe && !window.__html2FigInFrame) {
+      try {
+        const iframeDoc = dominantIframe.contentDocument;
+        const iframeWin = dominantIframe.contentWindow;
+        if (iframeDoc && iframeWin && !iframeWin.__html2FigRunning) {
+          // Same-origin: expand the iframe to its full scroll height and run capture inside it
+          showToast('⏳ Capturing iframe content…');
+          const origH = dominantIframe.style.height;
+          const origOverflow = dominantIframe.style.overflow;
+          const fullH = Math.max(iframeDoc.documentElement.scrollHeight, iframeDoc.body ? iframeDoc.body.scrollHeight : 0, iframeWin.innerHeight);
+          dominantIframe.style.height = fullH + 'px';
+          dominantIframe.style.overflow = 'hidden';
+          // Re-inject capture.js into the same-origin iframe's window
+          iframeWin.__html2FigInFrame = true;
+          const script = document.createElement('script');
+          script.src = chrome.runtime.getURL('capture.js');
+          iframeDoc.head.appendChild(script);
+          // Restore iframe size after a delay
+          setTimeout(() => {
+            try { dominantIframe.style.height = origH; dominantIframe.style.overflow = origOverflow; } catch {}
+          }, 5000);
+          // Stop our own capture — the iframe capture will write to clipboard
+          window.__html2FigRunning = false;
+          return;
+        }
+      } catch (crossOriginErr) {
+        // Cross-origin: ask background to inject into the frame
+        // First we need the frameId — use chrome.webNavigation or fall back to a brute-force approach
+        // We send a message to background; capture.js injected there will set __html2FigInFrame = true
+        showToast('⏳ Capturing cross-origin iframe…');
+        try {
+          // Get all frames and find the one matching the iframe src
+          const iframeSrc = dominantIframe.src;
+          chrome.runtime.sendMessage({ type: 'INJECT_INTO_FRAME_BY_URL', url: iframeSrc });
+        } catch {}
+        window.__html2FigRunning = false;
+        return;
+      }
+    }
 
     // 1. Scroll through page to activate lazy-loaded elements & image sources
     restorePage = await prepareAndScrollPage();
