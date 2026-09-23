@@ -136,58 +136,190 @@ const FONT_WEIGHT_MAP = {
   'lighter': ['Light']
 };
 
-async function loadFont(family, weight, italic) {
-  const cleanFamily = (family || 'Inter').replace(/['"]/g, '').split(',')[0].trim();
-  const weightKey = weight ? String(weight).toLowerCase() : '400';
-  const styleNames = FONT_WEIGHT_MAP[weightKey] || ['Regular'];
-
-  const candidates = [];
+async function loadFont(family, weight, italic, fontStretch, visualDensity, visualStretch) {
+  const familyRaw = (family || 'Inter').replace(/['"]/g, '');
+  const fontList = familyRaw.split(',').map(f => f.trim());
+  const cleanFamily = fontList[0];
   
-  // Font Awesome Special Handling
-  const lowerFamily = cleanFamily.toLowerCase();
-  if (lowerFamily.includes('font awesome') || lowerFamily === 'fontawesome') {
-    if (lowerFamily.includes('brands')) {
-      candidates.push({ family: cleanFamily, style: 'Regular' });
-    } else {
-      const isSolid = weightKey === '900' || weightKey === 'bold' || weightKey === 'bolder';
-      if (isSolid) {
-        candidates.push({ family: cleanFamily, style: 'Solid' });
-        candidates.push({ family: 'Font Awesome 5 Free', style: 'Solid' });
-        candidates.push({ family: 'Font Awesome 6 Free', style: 'Solid' });
-        candidates.push({ family: cleanFamily, style: 'Regular' });
-        candidates.push({ family: 'Font Awesome 5 Free', style: 'Regular' });
-      } else {
-        candidates.push({ family: cleanFamily, style: 'Regular' });
-        candidates.push({ family: cleanFamily, style: 'Light' });
-        candidates.push({ family: 'Font Awesome 5 Free', style: 'Regular' });
-        candidates.push({ family: 'Font Awesome 6 Free', style: 'Regular' });
-        candidates.push({ family: cleanFamily, style: 'Solid' });
-        candidates.push({ family: 'Font Awesome 5 Free', style: 'Solid' });
-      }
+  // 1. Determine the CSS weight key first
+  const familyLower = cleanFamily.toLowerCase();
+  let cssWeightKey = '400';
+  if (familyLower.includes('thin') || familyLower.includes('hairline')) cssWeightKey = '100';
+  else if (familyLower.includes('extra light') || familyLower.includes('extralight') || familyLower.includes('ultra light')) cssWeightKey = '200';
+  else if (familyLower.includes('light')) cssWeightKey = '300';
+  else if (familyLower.includes('medium')) cssWeightKey = '500';
+  else if (familyLower.includes('semi bold') || familyLower.includes('semibold') || familyLower.includes('demi bold')) cssWeightKey = '600';
+  else if (familyLower.includes('extra bold') || familyLower.includes('extrabold') || familyLower.includes('ultra bold')) cssWeightKey = '800';
+  else if (familyLower.includes('bold')) cssWeightKey = '700';
+  else if (familyLower.includes('black') || familyLower.includes('heavy')) cssWeightKey = '900';
+  else cssWeightKey = weight ? String(weight).toLowerCase() : '400';
+
+  // 2. Determine visual density weight key (used ONLY if font family is NOT installed / not in Figma library / not Google Font)
+  let visualWeightKey = cssWeightKey;
+  if (visualDensity !== undefined && visualDensity !== null) {
+    if (visualDensity > 0.35) visualWeightKey = '900';
+    else if (visualDensity > 0.29) visualWeightKey = '800';
+    else if (visualDensity > 0.24) visualWeightKey = '700';
+    else if (visualDensity > 0.20) visualWeightKey = '600';
+    else if (visualDensity > 0.17) visualWeightKey = '500';
+    else if (visualDensity > 0.12) visualWeightKey = '400';
+    else if (visualDensity > 0.08) visualWeightKey = '300';
+    else if (visualDensity > 0.05) visualWeightKey = '200';
+    else visualWeightKey = '100';
+  }
+
+  // Extract stretch from font family name if present
+  let stretchLower = (fontStretch || '').toLowerCase();
+  if (familyLower.includes('condensed') || familyLower.includes('compressed') || familyLower.includes('narrow') || familyLower.includes('extracond')) {
+    stretchLower = 'condensed';
+  }
+
+  if (visualStretch !== undefined && visualStretch !== null) {
+    if (visualStretch < 0.53) {
+      stretchLower = 'condensed';
+    } else if (visualStretch > 0.70) {
+      stretchLower = 'expanded';
     }
   }
 
-  // 1. Try exact family with all weight variations
-  for (const style of styleNames) {
-    candidates.push({ family: cleanFamily, style: style + (italic ? ' Italic' : '') });
-    if (italic) candidates.push({ family: cleanFamily, style: style + 'Italic' });
+  // Remove the weight/stretch descriptors from the family name to get the true base family
+  let baseFamily = cleanFamily.replace(/\b(Thin|Hairline|Extra\s?Light|Ultra\s?Light|Light|Medium|Semi\s?Bold|Demi\s?Bold|Extra\s?Bold|Ultra\s?Bold|Bold|Black|Heavy|Condensed|Compressed|Narrow|ExtraCond)\b/gi, '').trim();
+  if (!baseFamily) baseFamily = cleanFamily;
+  
+  const WEIGHT_FALLBACK_SEQUENCE = {
+    '100': ['100', '200', '300', '400'],
+    '200': ['200', '100', '300', '400'],
+    '300': ['300', '400', '200', '500'],
+    '400': ['400', '500', '300', '600'],
+    '500': ['500', '600', '400', '700'],
+    '600': ['600', '700', '500', '800'],
+    '700': ['700', '800', '600', '900'],
+    '800': ['800', '900', '700', '600'],
+    '900': ['900', '800', '700', '600']
+  };
+
+  function getCandidatesForFamily(fam, targetWeightKey) {
+    const list = [];
+    const seq = WEIGHT_FALLBACK_SEQUENCE[targetWeightKey] || [targetWeightKey, '400'];
+    for (const wKey of seq) {
+      const styleNames = FONT_WEIGHT_MAP[wKey] || ['Regular'];
+      for (const style of styleNames) {
+        list.push({ family: fam, style: style + (italic ? ' Italic' : '') });
+        if (italic) list.push({ family: fam, style: style + 'Italic' });
+      }
+    }
+    list.push({ family: fam, style: italic ? 'Italic' : 'Regular' });
+    return list;
+  }
+
+  // Font Awesome Special Handling
+  const lowerFamily = cleanFamily.toLowerCase();
+  if (lowerFamily.includes('font awesome') || lowerFamily === 'fontawesome') {
+    const isSolid = cssWeightKey === '900' || cssWeightKey === 'bold' || cssWeightKey === 'bolder' || parseInt(cssWeightKey) >= 700;
+    const faCandidates = [];
+    if (lowerFamily.includes('brands')) {
+      faCandidates.push({ family: cleanFamily, style: 'Regular' });
+    } else if (isSolid) {
+      faCandidates.push({ family: cleanFamily, style: 'Solid' });
+      faCandidates.push({ family: 'Font Awesome 5 Free', style: 'Solid' });
+      faCandidates.push({ family: 'Font Awesome 6 Free', style: 'Solid' });
+      faCandidates.push({ family: cleanFamily, style: 'Regular' });
+      faCandidates.push({ family: 'Font Awesome 5 Free', style: 'Regular' });
+    } else {
+      faCandidates.push({ family: cleanFamily, style: 'Regular' });
+      faCandidates.push({ family: cleanFamily, style: 'Light' });
+      faCandidates.push({ family: 'Font Awesome 5 Free', style: 'Regular' });
+      faCandidates.push({ family: 'Font Awesome 6 Free', style: 'Regular' });
+      faCandidates.push({ family: cleanFamily, style: 'Solid' });
+      faCandidates.push({ family: 'Font Awesome 5 Free', style: 'Solid' });
+    }
+    for (const font of faCandidates) {
+      try {
+        await figma.loadFontAsync({ family: font.family, style: font.style });
+        return font;
+      } catch {}
+    }
+  }
+
+  // STEP A: If the font family is in Figma (Google Fonts, Figma Library, or Installed Locally on the user's OS),
+  // try loading it with the exact CSS font-weight!
+  const directCandidates = [];
+  directCandidates.push(...getCandidatesForFamily(cleanFamily, cssWeightKey));
+  if (baseFamily !== cleanFamily) {
+    directCandidates.push(...getCandidatesForFamily(baseFamily, cssWeightKey));
+  }
+
+  for (const font of directCandidates) {
+    try {
+      await figma.loadFontAsync({ family: font.family, style: font.style });
+      return font; // Successfully loaded from Google Fonts / installed font / Figma library with CSS weight!
+    } catch {}
+  }
+
+  // STEP B: The font family is NOT in Google Fonts, NOT in Figma's library, and NOT installed locally.
+  // Now and ONLY now do we use visual density guessing and variable fallback fonts.
+  const candidates = [];
+
+  // 3. Try to fall back to a Google Font based on the font category/type
+  let fallbackGoogleFont = null;
+  const fullFamilyString = familyRaw.toLowerCase();
+  const isCondensed = stretchLower.includes('condensed') || stretchLower.includes('compressed') || (parseFloat(stretchLower) < 100);
+
+  if (isCondensed) {
+    fallbackGoogleFont = 'Roboto Condensed';
+  } else if (fullFamilyString.includes('serif') && !fullFamilyString.includes('sans-serif')) {
+    fallbackGoogleFont = 'Lora';
+  } else if (fullFamilyString.includes('monospace')) {
+    fallbackGoogleFont = 'Roboto Mono';
+  } else if (fullFamilyString.includes('cursive')) {
+    fallbackGoogleFont = 'Caveat';
+  } else if (fullFamilyString.includes('fantasy')) {
+    fallbackGoogleFont = 'Cinzel';
+  } else {
+    // For modern sans-serifs, Plus Jakarta Sans or Inter
+    fallbackGoogleFont = 'Inter';
+  }
+
+  // 4. Try the calculated Google Font Fallback using visual weight
+  if (fallbackGoogleFont && fallbackGoogleFont !== cleanFamily && fallbackGoogleFont !== baseFamily) {
+    candidates.push(...getCandidatesForFamily(fallbackGoogleFont, visualWeightKey));
   }
   
-  // 2. Try exact family with Regular/Italic fallback
-  candidates.push({ family: cleanFamily, style: italic ? 'Italic' : 'Regular' });
-  
-  // 3. Try Inter with all weight variations
-  for (const style of styleNames) {
-    candidates.push({ family: 'Inter', style: style + (italic ? ' Italic' : '') });
+  // 5. Ultimate Variable Font Fallback (Roboto Flex)
+  // Maps the exact stroke width (pixel density) and letter width (aspect ratio) dynamically
+  if (visualDensity || visualStretch) {
+    // Calibrated Math: Normal sans-serif fonts have a density around 0.17 to 0.19.
+    let wght = 400;
+    if (visualDensity) {
+       wght = 400 + ((visualDensity - 0.18) * 3500); 
+       wght = Math.max(100, Math.min(1000, Math.round(wght)));
+    } else {
+       wght = parseInt(visualWeightKey) || 400;
+    }
+    
+    // Calibrated Math: Normal fonts have a stretch ratio around 0.60 to 0.62.
+    let wdth = 100;
+    if (visualStretch) {
+       wdth = 100 + ((visualStretch - 0.60) * 200);
+       wdth = Math.max(25, Math.min(151, Math.round(wdth)));
+    } else {
+       wdth = isCondensed ? 75 : 100;
+    }
+    
+    candidates.push({ 
+      family: 'Roboto Flex', 
+      style: 'Regular',
+      variationSettings: { wght, wdth }
+    });
   }
-  
-  // 4. Ultimate fallbacks
-  candidates.push({ family: 'Inter', style: 'Regular' });
-  candidates.push({ family: 'Roboto', style: 'Regular' });
+
+  // 6. Final safety fallbacks
+  if (fallbackGoogleFont !== 'Inter') candidates.push({ family: 'Inter', style: 'Regular' });
+  if (fallbackGoogleFont !== 'Roboto') candidates.push({ family: 'Roboto', style: 'Regular' });
 
   for (const font of candidates) {
     try {
-      await figma.loadFontAsync(font);
+      await figma.loadFontAsync({ family: font.family, style: font.style });
       return font;
     } catch {}
   }
@@ -1516,10 +1648,17 @@ async function renderSvgTexts(svgNode, sNode) {
       const char = item.char;
       if (!char || !char.trim()) continue;
 
-      const fontName = await loadFont(item.fontFamily, item.fontWeight || '400', item.fontStyle === 'italic');
+      const fontObj = await loadFont(item.fontFamily, item.fontWeight || '400', item.fontStyle === 'italic', item.fontStretch, item.visualDensity, item.visualStretch);
       const textNode = figma.createText();
-      textNode.fontName = fontName;
+      textNode.fontName = { family: fontObj.family, style: fontObj.style };
       textNode.characters = char;
+
+      if (fontObj.variationSettings && typeof textNode.setRangeFontVariationAxes === 'function') {
+        try {
+          const axes = Object.entries(fontObj.variationSettings).map(([tag, value]) => ({ tag, value: Number(value) }));
+          if (axes.length > 0) textNode.setRangeFontVariationAxes(0, textNode.characters.length, axes);
+        } catch (e) {}
+      }
 
       const fSize = Math.max(1, (item.fontSize || 16) * scaleY);
       textNode.fontSize = fSize;
@@ -2329,16 +2468,6 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     return maxZ !== 0 ? maxZ : minZ;
   }
 
-  if (!hasBackdropChild) {
-    allChildren.forEach((child, idx) => { child._origIdx = idx; });
-    allChildren.sort((a, b) => {
-      const zA = getEffectiveZIndex(a);
-      const zB = getEffectiveZIndex(b);
-      const diff = zA - zB;
-      return diff !== 0 ? diff : a._origIdx - b._origIdx;
-    });
-  }
-
   for (const child of allChildren) {
     await renderNode(child, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s, currentTextClip);
   }
@@ -2355,9 +2484,9 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   let text = (sNode.text || '');
   const ws = s.whiteSpace || 'normal';
   if (ws === 'normal' || ws === 'nowrap') {
-    text = text.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ');
+    text = text.replace(/[\r\n\t\u2028\u2029]+/g, ' ').replace(/ +/g, ' ');
   } else if (ws === 'pre-line') {
-    text = text.replace(/[ \t\f\v]+/g, ' ');
+    text = text.replace(/[ \t\f\v]+/g, ' ').replace(/[\u2028\u2029]/g, '\n');
   }
   text = text.trim();
   if (!text) return;
@@ -2366,9 +2495,8 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   if (s.position === 'absolute' || s.position === 'fixed') {
     try { textNode.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
   }
-
-  const fontName = await loadFont(s.fontFamily, s.fontWeight || '400', s.fontStyle === 'italic');
-  textNode.fontName = fontName;
+  const fontObj = await loadFont(s.fontFamily, s.fontWeight || '400', s.fontStyle === 'italic', s.fontStretch, s.visualDensity, s.visualStretch);
+  textNode.fontName = { family: fontObj.family, style: fontObj.style };
 
   let finalText = text;
   if (s.textTransform === 'uppercase') finalText = text.toUpperCase();
@@ -2380,6 +2508,19 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
 
   const fontSize = parseFloat(s.fontSize) || 16;
   textNode.fontSize = fontSize;
+
+  // Apply variable font variation settings (such as wght and wdth for Roboto Flex) if present
+  if (fontObj.variationSettings && typeof textNode.setRangeFontVariationAxes === 'function') {
+    try {
+      const axes = [];
+      for (const [axis, val] of Object.entries(fontObj.variationSettings)) {
+        axes.push({ tag: axis, value: Number(val) });
+      }
+      if (axes.length > 0) {
+        textNode.setRangeFontVariationAxes(0, textNode.characters.length, axes);
+      }
+    } catch (e) {}
+  }
 
   const dec = (s.textDecorationLine || s.textDecoration || '').toLowerCase();
   
@@ -2423,8 +2564,18 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   }
 
   if (s.letterSpacing && s.letterSpacing !== 'normal' && s.letterSpacing !== '0px') {
-    const ls = parseFloat(s.letterSpacing);
-    if (!isNaN(ls)) textNode.letterSpacing = { value: ls, unit: 'PIXELS' };
+    const rawLs = String(s.letterSpacing).trim();
+    if (rawLs.endsWith('em')) {
+      const emVal = parseFloat(rawLs);
+      if (!isNaN(emVal)) {
+        textNode.letterSpacing = { value: emVal * 100, unit: 'PERCENT' };
+      }
+    } else {
+      const pxVal = parseFloat(rawLs);
+      if (!isNaN(pxVal)) {
+        textNode.letterSpacing = { value: pxVal, unit: 'PIXELS' };
+      }
+    }
   }
 
   const alignMap = { 'left': 'LEFT', 'start': 'LEFT', 'center': 'CENTER', 'right': 'RIGHT', 'end': 'RIGHT', 'justify': 'JUSTIFIED' };
@@ -2505,57 +2656,47 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const w = sNode._localRect ? sNode._localRect.width : (sNode.rect?.width || 0);
   const h = sNode._localRect ? sNode._localRect.height : (sNode.rect?.height || 0);
 
-  // Compensate for Figma's top half-leading on single-line text so it aligns with adjacent icons
-  if (!isMultiLine && h > 0) {
-    const effectiveLh = figmaLineHeight || (fontSize * 1.2);
-    posY -= (effectiveLh - h) / 2;
-  }
+  // Remove Figma's top half-leading compensation because we use exact centering
+  // if (!isMultiLine && h > 0) {
+  //   const effectiveLh = figmaLineHeight || (fontSize * 1.2);
+  //   posY -= (effectiveLh - h) / 2;
+  // }
 
   textNode.x = posX;
   textNode.y = posY;
   const textStr = finalText.trim();
 
-
   if (sNode.id && (sNode.id.includes('input-text') || sNode.id.includes('select-text')) && w > 0 && h > 0) {
-    try {
-      textNode.textAutoResize = 'TRUNCATE';
-    } catch {
-      textNode.textAutoResize = 'NONE';
-    }
+    try { textNode.textAutoResize = 'TRUNCATE'; } catch { textNode.textAutoResize = 'NONE'; }
     textNode.resize(Math.ceil(w), Math.ceil(h));
     textNode.textAlignVertical = 'CENTER';
   } else if (isMultiLine && w > 0) {
     textNode.textAutoResize = 'HEIGHT';
     textNode.resize(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
+    textNode.x = posX;
+    textNode.y = posY;
   } else {
+    // Single line text: Let the font be its natural width/height so it never wraps
     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
     const isVert = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr');
-    if (w > 0 && !isVert) {
-      // Fix text overlap for inline elements by forcing Figma's text width to match the browser's bounding box width.
-      // We only SHRINK text if Figma rendered it wider than HTML. We NEVER stretch, because stretching fills gaps
-      // that were previously trimmed spaces!
-      if (textNode.width > w + 1 && textNode.characters.length > 1) {
-        const diff = textNode.width - w;
-        // Cap the max adjustment per character to prevent extreme squishing
-        let adjust = diff / textNode.characters.length;
-        if (adjust > 1.0) adjust = 1.0; // max shrink 1px per char
-        
-        let currentLs = 0;
-        if (textNode.letterSpacing && textNode.letterSpacing.unit === 'PIXELS') {
-          currentLs = textNode.letterSpacing.value;
-        }
-        try {
-          textNode.letterSpacing = { value: currentLs - adjust, unit: 'PIXELS' };
-        } catch (e) {}
-      }
+    if (w > 0 && h > 0 && !isVert) {
+      
+      // Vertical Alignment:
+      // Center the Figma text node vertically relative to the original DOM node's height.
+      const figmaH = textNode.height;
+      const domCenterY = posY + (h / 2);
+      textNode.y = domCenterY - (figmaH / 2);
 
-      const isInlineToken = textNode.characters.endsWith(' ') || textNode.characters.startsWith(' ') || isSlicedLine || s.display === 'inline';
-      if (!isInlineToken) {
-        if (s.textAlign === 'center') {
-          textNode.x = posX + (w - textNode.width) / 2;
-        } else if (s.textAlign === 'right' || s.textAlign === 'end') {
-          textNode.x = posX + (w - textNode.width);
-        }
+      // Horizontal Alignment:
+      // Guarantee that if the website aligned text to center, it is mathematically centered
+      // around the DOM node's center, even if the fallback font width differs from the original!
+      const figmaW = textNode.width;
+      if (s.textAlign === 'center') {
+        textNode.x = posX + (w / 2) - (figmaW / 2);
+      } else if (s.textAlign === 'right' || s.textAlign === 'end') {
+        textNode.x = posX + w - figmaW;
+      } else {
+        textNode.x = posX;
       }
     }
   }
@@ -2681,4 +2822,5 @@ figma.ui.onmessage = async (msg) => {
     }
   }
 };
+
 

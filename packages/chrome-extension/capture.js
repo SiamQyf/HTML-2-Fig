@@ -333,6 +333,16 @@
     window.scrollTo(0, 0);
     await new Promise(r => setTimeout(r, 200));
 
+    // Ensure all web fonts are fully downloaded before computing visual metrics
+    try {
+      if (document.fonts && document.fonts.ready) {
+        await Promise.race([
+          document.fonts.ready,
+          new Promise(r => setTimeout(r, 3000)) // Safety timeout
+        ]);
+      }
+    } catch (e) {}
+
     return function cleanup() {
       for (let i = cleanupTasks.length - 1; i >= 0; i--) { try { cleanupTasks[i](); } catch {} }
     };
@@ -717,7 +727,6 @@
     const cs = window.getComputedStyle(el);
     const styles = {};
 
-    // Helper to convert complex color functions to rgba using the canvas
     const convertColors = (str) => {
       if (!str || typeof str !== 'string') return str;
       if (!str.includes('okl') && !str.includes('lab') && !str.includes('lch') && !str.includes('color(')) return str;
@@ -735,8 +744,59 @@
     }
     styles.fontFamily = cs.fontFamily;
     styles.fontSize = cs.fontSize;
-    styles.fontWeight = cs.fontWeight;
     styles.fontStyle = cs.fontStyle;
+    styles.fontStretch = cs.fontStretch;
+    
+    // Dynamically analyze font visual thickness and stretch using Canvas
+    // Completely independent of CSS font-weight
+    const isIconFont = (cs.fontFamily || '').toLowerCase().match(/icon|awesome|glyph|symbol|feather|material/i);
+    const fontKey = `${cs.fontFamily}-${cs.fontStyle}`;
+    if (!window._fontMetricsCache) window._fontMetricsCache = {};
+    if (!window._fontMetricsCache[fontKey]) {
+      if (isIconFont) {
+        // Icon fonts don't contain Latin characters; give safe standard fallback density
+        window._fontMetricsCache[fontKey] = { stretchRatio: 0.6, density: 0.16 };
+      } else {
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          const testString = 'Hox@gA08W';
+          const testSize = 60;
+          ctx.font = `${cs.fontStyle} normal ${testSize}px ${cs.fontFamily}, sans-serif`;
+          const metrics = ctx.measureText(testString);
+          const w = metrics.width;
+          if (w > 5 && isFinite(w)) {
+            canvas.width = Math.ceil(w);
+            canvas.height = Math.ceil(testSize * 1.5);
+            ctx.font = `${cs.fontStyle} normal ${testSize}px ${cs.fontFamily}, sans-serif`;
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = 'black';
+            ctx.fillText(testString, 0, 0);
+            
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let filled = 0;
+            for (let i = 3; i < imgData.length; i += 4) {
+              if (imgData[i] > 128) filled++;
+            }
+            
+            const stretchRatio = (w / testString.length) / testSize;
+            let density = filled / (w * testSize);
+            // Guard against corrupted or zero readings
+            if (!isFinite(density) || density <= 0.01) density = 0.16;
+            if (!isFinite(stretchRatio) || stretchRatio <= 0.1) stretchRatio = 0.6;
+            window._fontMetricsCache[fontKey] = { stretchRatio, density };
+          } else {
+            window._fontMetricsCache[fontKey] = { stretchRatio: 0.6, density: 0.16 };
+          }
+        } catch (e) {
+          window._fontMetricsCache[fontKey] = { stretchRatio: 0.6, density: 0.16 };
+        }
+      }
+    }
+    const fm = window._fontMetricsCache[fontKey];
+    styles.visualStretch = fm.stretchRatio;
+    styles.visualDensity = fm.density;
+
     styles.color = convertColors(cs.color);
     styles.webkitTextFillColor = convertColors(cs.webkitTextFillColor || cs.color);
     if (cs.webkitTextStrokeWidth && cs.webkitTextStrokeWidth !== '0px') {
@@ -2406,7 +2466,7 @@
         if (!str) return '';
         if (ws === 'pre' || ws === 'pre-wrap' || ws === 'break-spaces') return str;
         if (ws === 'pre-line') return str.replace(/[ \t\f\v]+/g, ' ');
-        return str.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ');
+        return str.replace(/[\r\n\t\u2028\u2029]+/g, ' ').replace(/ +/g, ' ');
       };
 
       const formatInlineText = (str) => {
@@ -2904,8 +2964,13 @@
         placeholderUrl = assets.addCanvas(el);
       }
     } else if (el instanceof HTMLVideoElement) {
-      if (el.poster) assets.addImage(el.poster);
-      else placeholderUrl = assets.addVideo(el);
+      if (el.poster) {
+        assets.addImage(el.poster);
+        styles.backgroundImage = `url("${el.poster}")`;
+        styles.backgroundSize = 'cover';
+      } else {
+        placeholderUrl = assets.addVideo(el);
+      }
     } else if (isDevWaveEl && el.classList && el.classList.contains('developers-wave-animation')) {
       if (!el.querySelector('canvas, img, picture')) {
         placeholderUrl = STRIPE_DEV_WAVE_URL;
@@ -3140,12 +3205,14 @@
                   const svgW = Math.round(docRect.width);
                   const svgH = Math.round(docRect.height);
                   let shapes = '';
+                  const maxShapes = 200;
+                  let count = 0;
                   if (isHorizontal) {
-                    for (let x = 0; x < svgW + gapEnd; x += gapEnd) {
+                    for (let x = 0; x < svgW + gapEnd && count < maxShapes; x += gapEnd, count++) {
                       shapes += `<rect x="${Number(x.toFixed(2))}" y="0" width="${Number(tickThickness.toFixed(2))}" height="${svgH}" fill="${color}" />`;
                     }
                   } else {
-                    for (let y = 0; y < svgH + gapEnd; y += gapEnd) {
+                    for (let y = 0; y < svgH + gapEnd && count < maxShapes; y += gapEnd, count++) {
                       shapes += `<rect x="0" y="${Number(y.toFixed(2))}" width="${svgW}" height="${Number(tickThickness.toFixed(2))}" fill="${color}" />`;
                     }
                   }
