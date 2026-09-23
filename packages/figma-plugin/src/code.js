@@ -11,6 +11,19 @@ const NAMED_COLORS = {
   blue: { r: 0, g: 0, b: 1, a: 1 }
 };
 
+// Safe conversion of byte arrays to strings — avoids V8's 65534 argument limit
+function bytesToString(bytes) {
+  if (typeof TextDecoder !== 'undefined') {
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+  let result = '';
+  for (let i = 0; i < bytes.length; i += 8192) {
+    const chunk = bytes.slice(i, i + 8192);
+    result += String.fromCharCode.apply(null, chunk);
+  }
+  return result;
+}
+
 function parseColor(css) {
   if (!css || css === 'none' || css === 'initial' || css === 'inherit' || css === 'transparent') return null;
   css = css.trim().toLowerCase();
@@ -770,9 +783,7 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
             if (meta.includes(';base64')) {
               try {
                 const bytes = figma.base64Decode(raw.trim());
-                svgContent = typeof TextDecoder !== 'undefined'
-                  ? new TextDecoder('utf-8').decode(bytes)
-                  : String.fromCharCode.apply(null, bytes);
+                svgContent = bytesToString(bytes);
               } catch {}
             } else {
               try {
@@ -790,12 +801,10 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
         if (!isSvg) {
           const testBytes = decodeBase64Image(blobObj);
           if (testBytes) {
-            const header = String.fromCharCode.apply(null, testBytes.slice(0, 100)).toLowerCase();
+            const header = bytesToString(testBytes.slice(0, 100)).toLowerCase();
             if (header.includes('<svg') || header.includes('<?xml')) {
               isSvg = true;
-              svgContent = typeof TextDecoder !== 'undefined'
-                ? new TextDecoder('utf-8').decode(testBytes)
-                : String.fromCharCode.apply(null, testBytes);
+              svgContent = bytesToString(testBytes);
             }
           }
         }
@@ -1985,17 +1994,10 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     if (blobObj) {
       const bytes = decodeBase64Image(blobObj);
       if (bytes) {
-        const header = String.fromCharCode.apply(null, bytes.slice(0, 100)).toLowerCase();
+        const header = bytesToString(bytes.slice(0, 100)).toLowerCase();
         if (isSvg || header.includes('<svg') || header.includes('<?xml')) {
           try {
-            let svgString = '';
-            if (typeof TextDecoder !== 'undefined') {
-              svgString = new TextDecoder('utf-8').decode(bytes);
-            } else {
-              for (let i = 0; i < bytes.length; i++) {
-                svgString += String.fromCharCode(bytes[i]);
-              }
-            }
+            const svgString = bytesToString(bytes);
 
             const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter));
             const svgNode = figma.createNodeFromSvg(cleanSvg);
@@ -2185,16 +2187,9 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       const bytes = decodeBase64Image(blobObj);
       if (bytes) {
         try {
-          const header = String.fromCharCode.apply(null, bytes.slice(0, 100)).toLowerCase();
+          const header = bytesToString(bytes.slice(0, 100)).toLowerCase();
           if (header.includes('<svg') || header.includes('<?xml')) {
-            let svgString = '';
-            if (typeof TextDecoder !== 'undefined') {
-              svgString = new TextDecoder('utf-8').decode(bytes);
-            } else {
-              for (let i = 0; i < bytes.length; i++) {
-                svgString += String.fromCharCode(bytes[i]);
-              }
-            }
+            const svgString = bytesToString(bytes);
             const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter));
             const svgNode = figma.createNodeFromSvg(cleanSvg);
             svgNode.name = (sNode.tag || 'node').toLowerCase();
