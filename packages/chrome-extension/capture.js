@@ -308,10 +308,8 @@
     // Now that virtual smooth scroll wrappers and scroll-linked animations are neutralized, scroll natively to trigger lazy images
     let scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
     const MAX_SCROLL_HEIGHT = 50000;
-    const MAX_SCROLL_TIME = 15000;
-    const step = 32;
-    const delay = 16;
-    const scrollStart = performance.now();
+    const step = 720;
+    const delay = 1000;
 
     for (let y = 0; y < scrollHeight; y += step) {
       if (captureTimedOut) break;
@@ -319,19 +317,18 @@
       await new Promise(r => setTimeout(r, delay));
       const newHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
       scrollHeight = Math.min(newHeight, MAX_SCROLL_HEIGHT);
-      if (performance.now() - scrollStart > MAX_SCROLL_TIME) break;
     }
     
     window.scrollTo(0, scrollHeight);
-    await new Promise(r => setTimeout(r, 600));
+    await new Promise(r => setTimeout(r, delay));
     
-    for (let y = scrollHeight; y > 0; y -= (step * 8)) {
+    for (let y = scrollHeight; y > 0; y -= (step * 4)) {
       window.scrollTo(0, y);
       await new Promise(r => setTimeout(r, 16));
     }
 
     window.scrollTo(0, 0);
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 1000));
 
     // Ensure all web fonts are fully downloaded before computing visual metrics
     try {
