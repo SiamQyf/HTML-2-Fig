@@ -1762,6 +1762,41 @@ async function renderSvgTexts(svgNode, sNode) {
   }
 }
 
+function getEffectiveZIndex(node) {
+  if (!node) return 0;
+  const z = node.styles?.zIndex && node.styles.zIndex !== 'auto' ? parseInt(node.styles.zIndex, 10) : null;
+  if (z !== null && !isNaN(z)) return z;
+  const s = node.styles || {};
+  const isIsolated = (
+    (s.opacity && parseFloat(s.opacity) < 0.999) ||
+    (s.transform && s.transform !== 'none') ||
+    (s.filter && s.filter !== 'none') ||
+    (s.isolation === 'isolate') ||
+    (s.mixBlendMode && s.mixBlendMode !== 'normal')
+  );
+  if (isIsolated) return 0;
+  let maxZ = 0;
+  let minZ = 0;
+  if (node.pseudoElementNodes?.before) {
+    const bZ = getEffectiveZIndex(node.pseudoElementNodes.before);
+    if (bZ > maxZ) maxZ = bZ;
+    if (bZ < minZ) minZ = bZ;
+  }
+  if (node.pseudoElementNodes?.after) {
+    const aZ = getEffectiveZIndex(node.pseudoElementNodes.after);
+    if (aZ > maxZ) maxZ = aZ;
+    if (aZ < minZ) minZ = aZ;
+  }
+  if (node.childNodes && node.childNodes.length > 0) {
+    for (const child of node.childNodes) {
+      const cZ = getEffectiveZIndex(child);
+      if (cZ > maxZ) maxZ = cZ;
+      if (cZ < minZ) minZ = cZ;
+    }
+  }
+  return maxZ !== 0 ? maxZ : minZ;
+}
+
 async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles, inheritedTextClip = null) {
   if (!sNode) return;
 
@@ -2496,39 +2531,14 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (sNode.pseudoElementNodes?.after) allChildren.push(sNode.pseudoElementNodes.after);
 
   const hasBackdropChild = allChildren.some(isBackdropNode);
-  function getEffectiveZIndex(node) {
-    if (!node) return 0;
-    const z = node.styles?.zIndex && node.styles.zIndex !== 'auto' ? parseInt(node.styles.zIndex, 10) : null;
-    if (z !== null && !isNaN(z)) return z;
-    const s = node.styles || {};
-    const isIsolated = (
-      (s.opacity && parseFloat(s.opacity) < 0.999) ||
-      (s.transform && s.transform !== 'none') ||
-      (s.filter && s.filter !== 'none') ||
-      (s.isolation === 'isolate') ||
-      (s.mixBlendMode && s.mixBlendMode !== 'normal')
-    );
-    if (isIsolated) return 0;
-    let maxZ = 0;
-    let minZ = 0;
-    if (node.pseudoElementNodes?.before) {
-      const bZ = getEffectiveZIndex(node.pseudoElementNodes.before);
-      if (bZ > maxZ) maxZ = bZ;
-      if (bZ < minZ) minZ = bZ;
-    }
-    if (node.pseudoElementNodes?.after) {
-      const aZ = getEffectiveZIndex(node.pseudoElementNodes.after);
-      if (aZ > maxZ) maxZ = aZ;
-      if (aZ < minZ) minZ = aZ;
-    }
-    if (node.childNodes && node.childNodes.length > 0) {
-      for (const child of node.childNodes) {
-        const cZ = getEffectiveZIndex(child);
-        if (cZ > maxZ) maxZ = cZ;
-        if (cZ < minZ) minZ = cZ;
-      }
-    }
-    return maxZ !== 0 ? maxZ : minZ;
+  if (!hasBackdropChild && allChildren.length > 1) {
+    allChildren.forEach((child, idx) => { child._origIdx = idx; });
+    allChildren.sort((a, b) => {
+      const zA = getEffectiveZIndex(a);
+      const zB = getEffectiveZIndex(b);
+      const diff = zA - zB;
+      return diff !== 0 ? diff : a._origIdx - b._origIdx;
+    });
   }
 
   for (const child of allChildren) {
@@ -2855,7 +2865,15 @@ async function renderTree(data) {
   figma.currentPage.appendChild(rootFrame);
 
   if (data.root?.childNodes) {
-    for (const child of data.root.childNodes) {
+    const rootChildren = [...data.root.childNodes];
+    rootChildren.forEach((child, idx) => { child._origIdx = idx; });
+    rootChildren.sort((a, b) => {
+      const zA = getEffectiveZIndex(a);
+      const zB = getEffectiveZIndex(b);
+      const diff = zA - zB;
+      return diff !== 0 ? diff : a._origIdx - b._origIdx;
+    });
+    for (const child of rootChildren) {
       await renderNode(child, rootFrame, 0, 0, data.assets, data.root.styles);
     }
   } else if (data.root) {
