@@ -3431,57 +3431,58 @@
     window.addEventListener('message', iframeExpandHandler);
 
     // ── Dominant iframe detection ────────────────────────────────────────────
-    // Sites like ThemeForest embed the actual design inside a large preview <iframe>.
-    // If we detect one that covers most of the viewport, redirect capture into it.
-    const dominantIframe = (() => {
+    // Sites like ThemeForest embed the full design inside a preview <iframe>
+    // with a fixed/small height. We detect it and capture the iframe content instead.
+    if (!window.__html2FigInFrame) {
       const vpW = window.innerWidth;
       const vpH = window.innerHeight;
-      const frames = Array.from(document.querySelectorAll('iframe'));
-      for (const f of frames) {
+      let dominantIframe = null;
+      for (const f of document.querySelectorAll('iframe')) {
         const r = f.getBoundingClientRect();
-        // Must cover at least 50% of viewport width AND 40% of viewport height
-        if (r.width >= vpW * 0.5 && r.height >= vpH * 0.4) return f;
+        if (r.width >= vpW * 0.5 && r.height >= vpH * 0.35) { dominantIframe = f; break; }
       }
-      return null;
-    })();
 
-    if (dominantIframe && !window.__html2FigInFrame) {
-      try {
-        const iframeDoc = dominantIframe.contentDocument;
-        const iframeWin = dominantIframe.contentWindow;
-        if (iframeDoc && iframeWin && !iframeWin.__html2FigRunning) {
-          // Same-origin: expand the iframe to its full scroll height and run capture inside it
+      if (dominantIframe) {
+        try {
+          // ── Same-origin ──────────────────────────────────────────────────
+          const iframeDoc = dominantIframe.contentDocument;
+          const iframeWin = dominantIframe.contentWindow;
+          if (!iframeDoc || !iframeWin) throw new Error('no-access');
+
+          try { toast.remove(); } catch {}
           showToast('⏳ Capturing iframe content…');
-          const origH = dominantIframe.style.height;
-          const origOverflow = dominantIframe.style.overflow;
-          const fullH = Math.max(iframeDoc.documentElement.scrollHeight, iframeDoc.body ? iframeDoc.body.scrollHeight : 0, iframeWin.innerHeight);
-          dominantIframe.style.height = fullH + 'px';
-          dominantIframe.style.overflow = 'hidden';
-          // Re-inject capture.js into the same-origin iframe's window
+
+          // Expand iframe to its full scroll height so all content is reachable
+          const fullH = Math.max(
+            iframeDoc.documentElement.scrollHeight,
+            iframeDoc.body ? iframeDoc.body.scrollHeight : 0,
+            iframeWin.innerHeight
+          );
+          dominantIframe.style.setProperty('height', fullH + 'px', 'important');
+          dominantIframe.style.setProperty('max-height', 'none', 'important');
+          await new Promise(r => setTimeout(r, 200));
+
+          // Inject capture.js into the same-origin iframe
           iframeWin.__html2FigInFrame = true;
-          const script = document.createElement('script');
-          script.src = chrome.runtime.getURL('capture.js');
-          iframeDoc.head.appendChild(script);
-          // Restore iframe size after a delay
-          setTimeout(() => {
-            try { dominantIframe.style.height = origH; dominantIframe.style.overflow = origOverflow; } catch {}
-          }, 5000);
-          // Stop our own capture — the iframe capture will write to clipboard
+          const s = iframeDoc.createElement('script');
+          s.src = chrome.runtime.getURL('capture.js');
+          (iframeDoc.head || iframeDoc.documentElement).appendChild(s);
+
+          // Our job here is done — the injected script handles the rest
           window.__html2FigRunning = false;
           return;
-        }
-      } catch (crossOriginErr) {
-        // Cross-origin: ask background to inject into the frame
-        // First we need the frameId — use chrome.webNavigation or fall back to a brute-force approach
-        // We send a message to background; capture.js injected there will set __html2FigInFrame = true
-        showToast('⏳ Capturing cross-origin iframe…');
-        try {
-          // Get all frames and find the one matching the iframe src
+        } catch (_crossOriginErr) {
+          // ── Cross-origin ─────────────────────────────────────────────────
+          // Can't access the iframe DOM. Open its URL in a new tab and capture there.
           const iframeSrc = dominantIframe.src;
-          chrome.runtime.sendMessage({ type: 'INJECT_INTO_FRAME_BY_URL', url: iframeSrc });
-        } catch {}
-        window.__html2FigRunning = false;
-        return;
+          if (iframeSrc && iframeSrc.startsWith('http')) {
+            try { toast.remove(); } catch {}
+            showToast('⏳ Opening preview in new tab for full capture…', 5000);
+            chrome.runtime.sendMessage({ type: 'OPEN_AND_CAPTURE', url: iframeSrc });
+            window.__html2FigRunning = false;
+            return;
+          }
+        }
       }
     }
 

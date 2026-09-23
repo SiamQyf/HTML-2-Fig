@@ -25,7 +25,6 @@ chrome.action.onClicked.addListener(async (tab) => {
   try {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      // Injecting in default ISOLATED world so chrome.runtime is available
       files: ['opentype.min.js', 'capture.js']
     });
   } catch (err) {
@@ -34,41 +33,32 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.type === 'INJECT_INTO_FRAME') {
-    // Inject capture script into a specific cross-origin iframe by frameId
-    chrome.scripting.executeScript({
-      target: { tabId: sender.tab.id, frameIds: [request.frameId] },
-      files: ['opentype.min.js', 'capture.js']
-    }).catch(err => {
-      console.error('[HTML-2-Fig] Failed to inject into frame:', err);
+
+  // ── Open cross-origin iframe URL in a new tab and auto-capture it ──────────
+  if (request.type === 'OPEN_AND_CAPTURE') {
+    chrome.tabs.create({ url: request.url, active: true }, (newTab) => {
+      const onUpdated = (tabId, info) => {
+        if (tabId !== newTab.id || info.status !== 'complete') return;
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        // Wait 1.5s for JS on the new tab to initialize, then inject capture
+        setTimeout(async () => {
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId: newTab.id },
+              files: ['opentype.min.js', 'capture.js']
+            });
+          } catch (err) {
+            console.error('[HTML-2-Fig] Failed to capture new tab:', err);
+          }
+        }, 1500);
+      };
+      chrome.tabs.onUpdated.addListener(onUpdated);
     });
     sendResponse({ ok: true });
     return false;
   }
 
-  if (request.type === 'INJECT_INTO_FRAME_BY_URL') {
-    // Find the frame matching the given URL and inject into it
-    chrome.webNavigation.getAllFrames({ tabId: sender.tab.id }, (frames) => {
-      if (!frames) return;
-      const targetFrame = frames.find(f => f.url === request.url || f.url.startsWith(request.url));
-      if (targetFrame) {
-        chrome.scripting.executeScript({
-          target: { tabId: sender.tab.id, frameIds: [targetFrame.frameId] },
-          func: () => { window.__html2FigInFrame = true; }
-        }).then(() => {
-          return chrome.scripting.executeScript({
-            target: { tabId: sender.tab.id, frameIds: [targetFrame.frameId] },
-            files: ['opentype.min.js', 'capture.js']
-          });
-        }).catch(err => {
-          console.error('[HTML-2-Fig] Failed to inject into cross-origin frame:', err);
-        });
-      }
-    });
-    sendResponse({ ok: true });
-    return false;
-  }
-
+  // ── Background image / font fetchers (bypass CORS) ─────────────────────────
   if (request.type === 'FETCH_IMAGE') {
     fetch(request.url)
       .then(res => {
@@ -83,9 +73,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(err => {
         sendResponse({ data: null, error: err.message });
       });
-    return true; // Keep channel open for async response
+    return true;
   }
-  
+
   if (request.type === 'FETCH_TEXT') {
     fetch(request.url)
       .then(res => {
@@ -98,7 +88,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(err => {
         sendResponse({ data: null, error: err.message });
       });
-    return true; // Keep channel open for async response
+    return true;
   }
 
   if (request.type === 'FETCH_FONT') {
@@ -108,11 +98,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return res.arrayBuffer();
       })
       .then(buffer => {
-        // Convert ArrayBuffer to Base64
         let binary = '';
         const bytes = new Uint8Array(buffer);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) {
+        for (let i = 0; i < bytes.byteLength; i++) {
           binary += String.fromCharCode(bytes[i]);
         }
         sendResponse({ data: btoa(binary), error: null });
@@ -120,6 +108,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(err => {
         sendResponse({ data: null, error: err.message });
       });
-    return true; // Keep channel open for async response
+    return true;
   }
 });
