@@ -465,7 +465,7 @@ function parseLinearGradient(css) {
   }
 }
 
-function parseRadialGradient(css) {
+function parseRadialGradient(css, width, height) {
   if (!css || !css.includes('radial-gradient(')) return null;
   try {
     const start = css.indexOf('radial-gradient(');
@@ -502,12 +502,14 @@ function parseRadialGradient(css) {
           const atParts = firstArg.split('at ')[1].trim().split(/\s+/);
           if (atParts[0]) {
             if (atParts[0].endsWith('%')) cx = parseFloat(atParts[0]) / 100;
+            else if (atParts[0].endsWith('px') && width) cx = parseFloat(atParts[0]) / width;
             else if (atParts[0] === 'left') cx = 0;
             else if (atParts[0] === 'right') cx = 1;
             else if (atParts[0] === 'center') cx = 0.5;
           }
           if (atParts[1]) {
             if (atParts[1].endsWith('%')) cy = parseFloat(atParts[1]) / 100;
+            else if (atParts[1].endsWith('px') && height) cy = parseFloat(atParts[1]) / height;
             else if (atParts[1] === 'top') cy = 0;
             else if (atParts[1] === 'bottom') cy = 1;
             else if (atParts[1] === 'center') cy = 0.5;
@@ -518,12 +520,22 @@ function parseRadialGradient(css) {
         const dimTokens = shapePart.split(/\s+/).filter(t => t.endsWith('%') || t.endsWith('px') || !isNaN(parseFloat(t)));
         if (dimTokens.length >= 2) {
           if (dimTokens[0].endsWith('%')) rx = parseFloat(dimTokens[0]) / 100;
+          else if (dimTokens[0].endsWith('px') && width) rx = parseFloat(dimTokens[0]) / width;
+
           if (dimTokens[1].endsWith('%')) ry = parseFloat(dimTokens[1]) / 100;
+          else if (dimTokens[1].endsWith('px') && height) ry = parseFloat(dimTokens[1]) / height;
         } else if (dimTokens.length === 1) {
           if (dimTokens[0].endsWith('%')) {
             rx = parseFloat(dimTokens[0]) / 100;
-            ry = rx;
+            ry = (width && height) ? (rx * width / height) : rx;
+          } else if (dimTokens[0].endsWith('px') && width && height) {
+            const px = parseFloat(dimTokens[0]);
+            rx = px / width;
+            ry = px / height;
           }
+        } else if (shapePart.includes('circle')) {
+          rx = 0.5;
+          ry = (width && height) ? (0.5 * width / height) : 0.5;
         }
       }
     }
@@ -570,11 +582,33 @@ function parseRadialGradient(css) {
       stops.push({ position: 1, color: { ...stops[stops.length - 1].color } });
     }
 
+    rx = Math.max(0.001, Math.abs(rx));
+    ry = Math.max(0.001, Math.abs(ry));
+
+    // Figma's gradientTransform is an affine transform matrix:
+    // [[m00, m01, m02], [m10, m11, m12]]
+    // that maps normalized object space to Figma's canonical gradient space.
+    // In Figma canonical gradient space:
+    // Handle 0 (Center) is at (0, 0.5)
+    // Handle 1 (X axis end) is at (1, 0.5) [length 1.0 along X]
+    // Handle 2 (Y axis end) is at (0, 1.0) [length 0.5 along Y]
+    //
+    // Mapping (cx, cy) to (0, 0.5), (cx + rx, cy) to (1, 0.5), and (cx, cy + ry) to (0, 1.0):
+    // X': (X - cx) / rx = (1 / rx) * X + (-cx / rx)
+    // Y': 0.5 + 0.5 * (Y - cy) / ry = (0.5 / ry) * Y + (0.5 - 0.5 * cy / ry)
+    const m00 = 1 / rx;
+    const m01 = 0;
+    const m02 = -cx / rx;
+
+    const m10 = 0;
+    const m11 = 0.5 / ry;
+    const m12 = 0.5 - (0.5 * cy) / ry;
+
     return {
       type: 'GRADIENT_RADIAL',
       gradientTransform: [
-        [rx, 0, cx],
-        [0, ry, cy]
+        [m00, m01, m02],
+        [m10, m11, m12]
       ],
       gradientStops: stops
     };
@@ -1113,7 +1147,7 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
             continue;
           }
         } else if (bg.includes('radial-gradient')) {
-          const grad = parseRadialGradient(bg);
+          const grad = parseRadialGradient(bg, nodeW, nodeH);
           if (grad) {
             fills.push(grad);
             continue;
@@ -2750,7 +2784,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
           const grad = parseLinearGradient(bg);
           if (grad) textFills.push(grad);
         } else if (bg.includes('radial-gradient')) {
-          const grad = parseRadialGradient(bg);
+          const grad = parseRadialGradient(bg, textNode.width, textNode.height);
           if (grad) textFills.push(grad);
         } else if (bg.includes('conic-gradient')) {
           const grad = parseAngularGradient(bg);
