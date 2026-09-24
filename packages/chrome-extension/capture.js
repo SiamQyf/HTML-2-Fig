@@ -1905,6 +1905,18 @@
     return { open: '“', close: '”' };
   }
 
+  function getPositionedContainingBlock(el) {
+    let cur = el;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      const curCs = window.getComputedStyle(cur);
+      if (curCs.position !== 'static' || curCs.transform !== 'none' || curCs.filter !== 'none' || curCs.perspective !== 'none') {
+        return cur;
+      }
+      cur = cur.parentElement;
+    }
+    return document.body || document.documentElement;
+  }
+
   async function serializePseudo(el, pseudo, assets, fonts, parentRect) {
     if (captureTimedOut) return null;
     try {
@@ -1916,11 +1928,30 @@
       if (display === 'none' || parseFloat(cs.opacity) < 0.02 || cs.visibility === 'hidden') return null;
       if (cs.clipPath && cs.clipPath !== 'none' && (cs.clipPath.includes('inset(100%)') || cs.clipPath.includes('(0px'))) return null;
 
+      // Resolve containing block for absolutely positioned pseudo-elements
+      let containingEl = el;
+      let baseRect = parentRect;
+      if (cs.position === 'absolute') {
+        containingEl = getPositionedContainingBlock(el);
+        if (containingEl && containingEl !== el) {
+          const clientCbRect = containingEl.getBoundingClientRect();
+          const cbFixed = isElementOrAncestorFixed(containingEl, window.getComputedStyle(containingEl));
+          const cbScrollX = cbFixed ? 0 : window.scrollX;
+          const cbScrollY = cbFixed ? 0 : window.scrollY;
+          baseRect = {
+            x: clientCbRect.x + cbScrollX,
+            y: clientCbRect.y + cbScrollY,
+            width: clientCbRect.width,
+            height: clientCbRect.height
+          };
+        }
+      }
+
       // Detect CSS border triangles on pseudo-elements
       const tri = convertCssTriangleToSvg(cs);
       if (tri) {
-        let px = parentRect.x;
-        let py = parentRect.y;
+        let px = baseRect.x;
+        let py = baseRect.y;
         const parentCs = window.getComputedStyle(el);
 
         if (cs.position === 'absolute') {
@@ -1928,10 +1959,10 @@
           const b = parseFloat(cs.bottom);
           const l = parseFloat(cs.left);
           const r = parseFloat(cs.right);
-          if (!isNaN(l) && cs.left !== 'auto') px = parentRect.x + l;
-          else if (!isNaN(r) && cs.right !== 'auto') px = parentRect.x + parentRect.width - tri.w - r;
-          if (!isNaN(t) && cs.top !== 'auto') py = parentRect.y + t;
-          else if (!isNaN(b) && cs.bottom !== 'auto') py = parentRect.y + parentRect.height - tri.h - b;
+          if (!isNaN(l) && cs.left !== 'auto') px = baseRect.x + l;
+          else if (!isNaN(r) && cs.right !== 'auto') px = baseRect.x + baseRect.width - tri.w - r;
+          if (!isNaN(t) && cs.top !== 'auto') py = baseRect.y + t;
+          else if (!isNaN(b) && cs.bottom !== 'auto') py = baseRect.y + baseRect.height - tri.h - b;
         } else if (parentCs.display && (parentCs.display.includes('grid') || parentCs.display.includes('flex'))) {
           if (parentCs.placeItems === 'center' || parentCs.alignItems === 'center') {
             py = parentRect.y + (parentRect.height - tri.h) / 2;
@@ -2057,7 +2088,7 @@
       
       if (styles.fontFamily) fonts.addFont(styles.fontFamily);
       
-      let pseudoRect = { ...parentRect };
+      let pseudoRect = { ...baseRect };
       delete pseudoRect.offsetWidth;
       delete pseudoRect.offsetHeight;
       const w = parseFloat(cs.width);
@@ -2085,11 +2116,52 @@
         const l = parseFloat(cs.left);
         const r = parseFloat(cs.right);
 
-        if (!isNaN(l) && cs.left !== 'auto') pseudoRect.x = parentRect.x + l;
-        else if (!isNaN(r) && cs.right !== 'auto') pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - r;
+        if (!isNaN(l) && cs.left !== 'auto') pseudoRect.x = baseRect.x + l;
+        else if (!isNaN(r) && cs.right !== 'auto') pseudoRect.x = baseRect.x + baseRect.width - pseudoRect.width - r;
         
-        if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = parentRect.y + t;
-        else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = parentRect.y + parentRect.height - pseudoRect.height - b;
+        if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = baseRect.y + t;
+        else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = baseRect.y + baseRect.height - pseudoRect.height - b;
+
+        // Filter out pseudo-elements that are completely outside an overflow:hidden ancestor
+        let clipAncestor = containingEl || el.parentElement;
+        while (clipAncestor && clipAncestor !== document.body && clipAncestor !== document.documentElement) {
+          const clipCs = window.getComputedStyle(clipAncestor);
+          const overflow = (clipCs.overflow || '') + ' ' + (clipCs.overflowX || '') + ' ' + (clipCs.overflowY || '');
+          if (overflow.includes('hidden') || overflow.includes('clip')) {
+            const cRect = clipAncestor.getBoundingClientRect();
+            const cFixed = isElementOrAncestorFixed(clipAncestor, clipCs);
+            const cScrollX = cFixed ? 0 : window.scrollX;
+            const cScrollY = cFixed ? 0 : window.scrollY;
+            const cDocX = cRect.x + cScrollX;
+            const cDocY = cRect.y + cScrollY;
+            
+            const isOutside = (
+              (pseudoRect.x + pseudoRect.width) <= cDocX ||
+              pseudoRect.x >= (cDocX + cRect.width) ||
+              (pseudoRect.y + pseudoRect.height) <= cDocY ||
+              pseudoRect.y >= (cDocY + cRect.height)
+            );
+            if (isOutside) {
+              return null;
+            }
+          }
+          if (clipAncestor === containingEl) break;
+          clipAncestor = clipAncestor.parentElement;
+        }
+
+        // Inherit border radius from containing block if pseudo covers it
+        if (containingEl && containingEl !== el) {
+          const cbCs = window.getComputedStyle(containingEl);
+          if (cbCs.borderRadius && cbCs.borderRadius !== '0px' && (!styles.borderRadius || styles.borderRadius === '0px')) {
+            if (Math.abs(pseudoRect.width - baseRect.width) <= 4 && Math.abs(pseudoRect.height - baseRect.height) <= 4) {
+              styles.borderRadius = cbCs.borderRadius;
+              styles.borderTopLeftRadius = cbCs.borderTopLeftRadius;
+              styles.borderTopRightRadius = cbCs.borderTopRightRadius;
+              styles.borderBottomLeftRadius = cbCs.borderBottomLeftRadius;
+              styles.borderBottomRightRadius = cbCs.borderBottomRightRadius;
+            }
+          }
+        }
       } else {
         const parentCs = window.getComputedStyle(el);
         const isFlex = parentCs.display && parentCs.display.includes('flex');
