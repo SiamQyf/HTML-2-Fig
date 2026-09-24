@@ -1917,6 +1917,60 @@
     return document.body || document.documentElement;
   }
 
+  function establishesStackingContext(node) {
+    if (!node) return false;
+    const s = node.styles || {};
+    if (s.zIndex && s.zIndex !== 'auto' && (s.position === 'absolute' || s.position === 'relative' || s.position === 'fixed' || s.position === 'sticky')) return true;
+    if (s.opacity !== undefined && parseFloat(s.opacity) < 1) return true;
+    if (s.transform && s.transform !== 'none') return true;
+    if (s.filter && s.filter !== 'none') return true;
+    if (s.perspective && s.perspective !== 'none') return true;
+    if (s.clipPath && s.clipPath !== 'none') return true;
+    if (s.mask && s.mask !== 'none') return true;
+    if (s.isolation === 'isolate') return true;
+    if (s.contain && (s.contain.includes('paint') || s.contain.includes('layout'))) return true;
+    return false;
+  }
+
+  function getEffectiveZIndex(node) {
+    if (!node) return 0;
+    const s = node.styles || {};
+    const zRaw = s.zIndex;
+    let selfZ = 0;
+    if (zRaw && zRaw !== 'auto') {
+      const z = parseInt(zRaw, 10);
+      if (!isNaN(z)) selfZ = z * 2;
+    } else {
+      const isPositioned = s.position === 'absolute' || s.position === 'fixed' || s.position === 'relative' || s.position === 'sticky';
+      if (isPositioned) selfZ = 1;
+    }
+
+    if (establishesStackingContext(node)) {
+      return selfZ;
+    }
+
+    let maxZ = selfZ;
+    let minZ = selfZ;
+    if (node.pseudoElementNodes?.before) {
+      const bZ = getEffectiveZIndex(node.pseudoElementNodes.before);
+      if (bZ > maxZ) maxZ = bZ;
+      if (bZ < minZ) minZ = bZ;
+    }
+    if (node.pseudoElementNodes?.after) {
+      const aZ = getEffectiveZIndex(node.pseudoElementNodes.after);
+      if (aZ > maxZ) maxZ = aZ;
+      if (aZ < minZ) minZ = aZ;
+    }
+    if (node.childNodes && node.childNodes.length > 0) {
+      for (const child of node.childNodes) {
+        const cZ = getEffectiveZIndex(child);
+        if (cZ > maxZ) maxZ = cZ;
+        if (cZ < minZ) minZ = cZ;
+      }
+    }
+    return maxZ !== 0 ? maxZ : minZ;
+  }
+
   async function serializePseudo(el, pseudo, assets, fonts, parentRect) {
     if (captureTimedOut) return null;
     try {
@@ -3348,18 +3402,7 @@
       if (childNodes.length > 1 && !hasBackdropChild) {
         childNodes.forEach((child, idx) => {
           child._originalIdx = idx;
-          const cs = child.styles || {};
-          const isPositioned = cs.position === 'absolute' || cs.position === 'fixed' || cs.position === 'relative' || cs.position === 'sticky';
-          if (cs.zIndex && cs.zIndex !== 'auto') {
-            // Explicit numeric z-index: scale up by 2 to leave room for the 0.5 slot
-            child._effectiveZIndex = (parseInt(cs.zIndex, 10) || 0) * 2;
-          } else if (isPositioned) {
-            // position:absolute/fixed/relative with z-index:auto — sits above static siblings (z=0) per CSS spec
-            child._effectiveZIndex = 1;
-          } else {
-            // position:static with no z-index — lowest stacking level
-            child._effectiveZIndex = 0;
-          }
+          child._effectiveZIndex = getEffectiveZIndex(child);
         });
         childNodes.sort((a, b) => {
           const diff = a._effectiveZIndex - b._effectiveZIndex;

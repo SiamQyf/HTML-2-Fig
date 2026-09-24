@@ -1781,22 +1781,44 @@ async function renderSvgTexts(svgNode, sNode) {
   }
 }
 
+function establishesStackingContext(node) {
+  if (!node) return false;
+  const s = node.styles || {};
+  if (s.zIndex && s.zIndex !== 'auto' && (s.position === 'absolute' || s.position === 'relative' || s.position === 'fixed' || s.position === 'sticky')) return true;
+  if (s.opacity !== undefined && parseFloat(s.opacity) < 1) return true;
+  if (s.transform && s.transform !== 'none') return true;
+  if (s.filter && s.filter !== 'none') return true;
+  if (s.perspective && s.perspective !== 'none') return true;
+  if (s.clipPath && s.clipPath !== 'none') return true;
+  if (s.mask && s.mask !== 'none') return true;
+  if (s.isolation === 'isolate') return true;
+  if (s.contain && (s.contain.includes('paint') || s.contain.includes('layout'))) return true;
+  return false;
+}
+
 function getEffectiveZIndex(node) {
   if (!node) return 0;
   const s = node.styles || {};
   const zRaw = s.zIndex;
+  let selfZ = 0;
   if (zRaw && zRaw !== 'auto') {
     const z = parseInt(zRaw, 10);
-    if (!isNaN(z)) return z * 2; // scale by 2 to leave room for the positioned-auto slot (1)
+    if (!isNaN(z)) selfZ = z * 2; // scale by 2 to leave room for the positioned-auto slot (1)
+  } else {
+    // CSS spec: positioned elements (absolute/fixed/relative/sticky) with z-index:auto
+    // participate in stacking ABOVE non-positioned (static) siblings at the same level.
+    const isPositioned = s.position === 'absolute' || s.position === 'fixed' || s.position === 'relative' || s.position === 'sticky';
+    if (isPositioned) selfZ = 1;
   }
-  // CSS spec: positioned elements (absolute/fixed/relative/sticky) with z-index:auto
-  // participate in stacking ABOVE non-positioned (static) siblings at the same level.
-  const isPositioned = s.position === 'absolute' || s.position === 'fixed' || s.position === 'relative' || s.position === 'sticky';
-  if (isPositioned) return 1;
 
-  // Non-positioned element: check if any child/pseudo raises the effective z-index
-  let maxZ = 0;
-  let minZ = 0;
+  // If this element establishes its own stacking context, its children cannot bubble up past it
+  if (establishesStackingContext(node)) {
+    return selfZ;
+  }
+
+  // Non-stacking-context element: check if any child/pseudo raises the effective z-index per CSS stacking rules
+  let maxZ = selfZ;
+  let minZ = selfZ;
   if (node.pseudoElementNodes?.before) {
     const bZ = getEffectiveZIndex(node.pseudoElementNodes.before);
     if (bZ > maxZ) maxZ = bZ;
