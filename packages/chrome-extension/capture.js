@@ -2907,6 +2907,23 @@
 
     if (isClipHidden || isTinyHidden || isSrOnlyClass) return null;
 
+    const clientRect = el.getBoundingClientRect();
+
+    // Filter out position:fixed elements that are completely outside the viewport
+    // (e.g. closed offcanvas menus, hidden slide-out drawers, bottom sheets, modals)
+    if (styles.position === 'fixed') {
+      const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      if (clientRect.width > 0 && clientRect.height > 0 && (clientRect.bottom <= 0 || clientRect.top >= vh || clientRect.right <= 0 || clientRect.left >= vw)) {
+        return null;
+      }
+    }
+
+    // Filter out elements positioned completely offscreen (e.g. left: -9999px, top: -9999px)
+    if (clientRect.width > 0 && clientRect.height > 0 && (clientRect.right <= 0 || clientRect.bottom <= 0)) {
+      return null;
+    }
+
     if (styles.transform && styles.transform.includes('matrix')) {
       const parts = styles.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
       if (parts) {
@@ -2976,7 +2993,6 @@
       }
     }
 
-    const clientRect = el.getBoundingClientRect();
     const isFixed = isElementOrAncestorFixed(el, styles);
     
     // For position: fixed elements (like floating scroll-to-top buttons in bottom-right),
