@@ -452,7 +452,7 @@
     if (!blob) return Promise.resolve(null);
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve({ type: blob.type, data: reader.result });
+      reader.onload = () => resolve({ type: blob.type, data: reader.result, base64Blob: reader.result });
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(blob);
     });
@@ -3529,11 +3529,46 @@
   /* ======================================================================
    *  7.  CLIPBOARD WRITER & INITIATOR
    * ====================================================================== */
+  async function encodeFigh2dHtml(text) {
+    try {
+      const uint8 = new TextEncoder().encode(text);
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(new File([uint8], '', { type: 'application/octet-stream' }));
+      });
+      const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      const html = '<span data-h2d="<!--(figh2d)' + b64 + '(/figh2d)-->"></span>';
+      return new Blob([html], { type: 'text/html' });
+    } catch (e) {
+      console.warn('[HTML-2-Fig] Error encoding HTML clipboard item:', e);
+      return null;
+    }
+  }
+
   async function writeClipboard(text) {
+    // 1. Try modern dual-format clipboard write (HTML with figh2d comment for native Figma canvas paste + Plain text for Figma plugin paste)
+    try {
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write) {
+        const htmlBlob = await encodeFigh2dHtml(text);
+        const textBlob = new Blob([text], { type: 'text/plain' });
+        const items = {};
+        if (htmlBlob) items['text/html'] = htmlBlob;
+        items['text/plain'] = textBlob;
+        await navigator.clipboard.write([new ClipboardItem(items)]);
+        return true;
+      }
+    } catch (e) {
+      console.warn('[HTML-2-Fig] navigator.clipboard.write failed, falling back to writeText:', e);
+    }
+
+    // 2. Fallback to standard writeText
     try {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
+      // 3. Last-resort fallback to execCommand('copy')
       try {
         const ta = document.createElement('textarea');
         ta.value = text;
@@ -3673,7 +3708,7 @@
       try { if (toast) toast.remove(); } catch {}
 
       if (ok) {
-        showToast('✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
+        showToast('✅ Full page captured! Paste into Figma (Ctrl+V)', 6000);
       } else {
         showToast('⚠️ Capture complete. Please allow clipboard access.', 6000);
       }

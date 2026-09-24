@@ -586,29 +586,28 @@ function parseRadialGradient(css, width, height) {
     ry = Math.max(0.001, Math.abs(ry));
 
     // Figma's gradientTransform is an affine transform matrix:
-    // [[m00, m01, m02], [m10, m11, m12]]
-    // that maps normalized object space to Figma's canonical gradient space.
-    // In Figma canonical gradient space:
-    // Handle 0 (Center) is at (0, 0.5)
-    // Handle 1 (X axis end) is at (1, 0.5) [length 1.0 along X]
-    // Handle 2 (Y axis end) is at (0, 1.0) [length 0.5 along Y]
+    // [[scaleX, 0, tx], [0, scaleY, ty]]
+    // that maps canonical gradient space [0, 1] x [0, 1] to normalized object space.
+    // In canonical gradient space:
+    // Center is at (0.5, 0.5)
+    // Horizontal radius endpoint (stop 1.0) is at (1.0, 0.5) -> distance 0.5
+    // Vertical radius endpoint (stop 1.0) is at (0.5, 1.0) -> distance 0.5
     //
-    // Mapping (cx, cy) to (0, 0.5), (cx + rx, cy) to (1, 0.5), and (cx, cy + ry) to (0, 1.0):
-    // X': (X - cx) / rx = (1 / rx) * X + (-cx / rx)
-    // Y': 0.5 + 0.5 * (Y - cy) / ry = (0.5 / ry) * Y + (0.5 - 0.5 * cy / ry)
-    const m00 = 1 / rx;
-    const m01 = 0;
-    const m02 = -cx / rx;
-
-    const m10 = 0;
-    const m11 = 0.5 / ry;
-    const m12 = 0.5 - (0.5 * cy) / ry;
+    // To position center at (cx, cy) with radii rx and ry:
+    // scaleX = rx / 0.5 = 2 * rx
+    // scaleY = ry / 0.5 = 2 * ry
+    // tx = cx - 0.5 * scaleX = cx - rx
+    // ty = cy - 0.5 * scaleY = cy - ry
+    const scaleX = 2 * rx;
+    const scaleY = 2 * ry;
+    const tx = cx - rx;
+    const ty = cy - ry;
 
     return {
       type: 'GRADIENT_RADIAL',
       gradientTransform: [
-        [m00, m01, m02],
-        [m10, m11, m12]
+        [scaleX, 0, tx],
+        [0, scaleY, ty]
       ],
       gradientStops: stops
     };
