@@ -2223,6 +2223,11 @@
         const scrollX = isFixed ? 0 : window.scrollX;
         const scrollY = isFixed ? 0 : window.scrollY;
 
+        const pMarginLeft = parseFloat(cs.marginLeft) || 0;
+        const pMarginRight = parseFloat(cs.marginRight) || 0;
+        const pMarginTop = parseFloat(cs.marginTop) || 0;
+        const pMarginBottom = parseFloat(cs.marginBottom) || 0;
+
         if (isFlex) {
           const isRow = !parentCs.flexDirection || parentCs.flexDirection.startsWith('row');
           const colGap = parseFloat(parentCs.columnGap || parentCs.gap) || 0;
@@ -2231,7 +2236,7 @@
           const items = Array.from(el.children).map((child, idx) => {
             const cCs = window.getComputedStyle(child);
             const cOrder = parseInt(cCs.order, 10) || 0;
-            return { isPseudo: false, order: cOrder, sourceIndex: idx, rect: child.getBoundingClientRect() };
+            return { isPseudo: false, order: cOrder, sourceIndex: idx, rect: child.getBoundingClientRect(), cs: cCs };
           });
           const pseudoOrder = parseInt(cs.order, 10) || 0;
           const pseudoItem = { isPseudo: true, order: pseudoOrder, sourceIndex: pseudo === '::before' ? -1 : 999999 };
@@ -2244,65 +2249,71 @@
 
           if (isRow) {
             if (prev) {
-              pseudoRect.x = prev.rect.right + colGap + scrollX;
+              const prevMarginRight = prev.cs ? (parseFloat(prev.cs.marginRight) || 0) : 0;
+              pseudoRect.x = prev.rect.right + prevMarginRight + colGap + pMarginLeft + scrollX;
             } else {
-              let startX = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+              let startX = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0) + pMarginLeft;
               if (items.length === 1 && !isNaN(pseudoRect.width)) {
                 if (parentCs.justifyContent === 'center') {
                   startX = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
                 } else if (parentCs.justifyContent === 'flex-end' || parentCs.justifyContent === 'right') {
-                  startX = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0);
+                  startX = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0) - pMarginRight;
                 }
               }
               pseudoRect.x = startX;
             }
 
             if (next) {
-              const nextLeft = next.rect.left + scrollX;
-              const availableW = Math.max(0, nextLeft - colGap - pseudoRect.x);
+              const nextMarginLeft = next.cs ? (parseFloat(next.cs.marginLeft) || 0) : 0;
+              const nextLeft = next.rect.left - nextMarginLeft + scrollX;
+              const availableW = Math.max(0, nextLeft - colGap - pMarginRight - pseudoRect.x);
               pseudoRect.width = (!isNaN(w) && cs.width !== 'auto') ? w : availableW;
             } else if (isNaN(w) || cs.width === 'auto') {
-              pseudoRect.width = Math.max(0, parentRect.x + parentRect.width - pseudoRect.x - (parseFloat(parentCs.paddingRight) || 0));
+              pseudoRect.width = Math.max(0, parentRect.x + parentRect.width - pseudoRect.x - (parseFloat(parentCs.paddingRight) || 0) - pMarginRight);
             }
 
             const align = cs.alignSelf !== 'auto' ? cs.alignSelf : parentCs.alignItems;
             if (align === 'center') {
-              pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
+              pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2 + (pMarginTop - pMarginBottom) / 2;
             } else if (align === 'flex-end') {
-              pseudoRect.y = parentRect.y + parentRect.height - pseudoRect.height - (parseFloat(parentCs.paddingBottom) || 0);
+              pseudoRect.y = parentRect.y + parentRect.height - pseudoRect.height - (parseFloat(parentCs.paddingBottom) || 0) - pMarginBottom;
             } else if (align === 'flex-start') {
-              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0) + pMarginTop;
             } else if (prev) {
-              pseudoRect.y = prev.rect.y + (prev.rect.height - pseudoRect.height) / 2 + scrollY;
+              pseudoRect.y = prev.rect.y + (prev.rect.height - pseudoRect.height) / 2 + scrollY + (pMarginTop - pMarginBottom) / 2;
             } else {
-              pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
+              pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2 + (pMarginTop - pMarginBottom) / 2;
             }
           } else {
             if (prev) {
-              pseudoRect.y = prev.rect.bottom + rowGap + scrollY;
+              const prevMarginBottom = prev.cs ? (parseFloat(prev.cs.marginBottom) || 0) : 0;
+              pseudoRect.y = prev.rect.bottom + prevMarginBottom + rowGap + pMarginTop + scrollY;
             } else {
-              let startY = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+              let startY = parentRect.y + (parseFloat(parentCs.paddingTop) || 0) + pMarginTop;
               if (items.length === 1 && !isNaN(pseudoRect.height)) {
                 if (parentCs.justifyContent === 'center') {
                   startY = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
                 } else if (parentCs.justifyContent === 'flex-end' || parentCs.justifyContent === 'bottom') {
-                  startY = parentRect.y + parentRect.height - pseudoRect.height - (parseFloat(parentCs.paddingBottom) || 0);
+                  startY = parentRect.y + parentRect.height - pseudoRect.height - (parseFloat(parentCs.paddingBottom) || 0) - pMarginBottom;
                 }
               }
               pseudoRect.y = startY;
             }
             if (next) {
-              const nextTop = next.rect.top + scrollY;
-              const availableH = Math.max(0, nextTop - rowGap - pseudoRect.y);
+              const nextMarginTop = next.cs ? (parseFloat(next.cs.marginTop) || 0) : 0;
+              const nextTop = next.rect.top - nextMarginTop + scrollY;
+              const availableH = Math.max(0, nextTop - rowGap - pMarginBottom - pseudoRect.y);
               pseudoRect.height = (!isNaN(h) && cs.height !== 'auto') ? h : availableH;
+            } else if (isNaN(h) || cs.height === 'auto') {
+              pseudoRect.height = Math.max(0, parentRect.y + parentRect.height - pseudoRect.y - (parseFloat(parentCs.paddingBottom) || 0) - pMarginBottom);
             }
             const align = cs.alignSelf !== 'auto' ? cs.alignSelf : parentCs.alignItems;
             if (align === 'center') {
-              pseudoRect.x = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
+              pseudoRect.x = parentRect.x + (parentRect.width - pseudoRect.width) / 2 + (pMarginLeft - pMarginRight) / 2;
             } else if (align === 'flex-end') {
-              pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0);
+              pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0) - pMarginRight;
             } else {
-              pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+              pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0) + pMarginLeft;
             }
           }
         } else {
@@ -2313,7 +2324,7 @@
             if (isCenteredText || (isIconContainer && !el.childNodes?.length)) {
               pseudoRect.x = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
             } else {
-              pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+              pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0) + pMarginLeft;
             }
 
             const parentLineH = parseFloat(parentCs.lineHeight);
@@ -2322,7 +2333,7 @@
             if (isMiddleAlign || (isIconContainer && !el.childNodes?.length)) {
               pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
             } else {
-              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0) + pMarginTop;
             }
           } else if (pseudo === '::after') {
             if (el.lastChild) {
@@ -2331,25 +2342,25 @@
                 r.selectNodeContents(el.lastChild);
                 const lastR = r.getBoundingClientRect();
                 if (lastR.width > 0 || lastR.height > 0) {
-                  pseudoRect.x = lastR.right + scrollX + (parseFloat(cs.marginLeft) || 0);
+                  pseudoRect.x = lastR.right + scrollX + pMarginLeft;
                   pseudoRect.y = lastR.top + scrollY + (lastR.height - pseudoRect.height) / 2;
                 } else if (el.lastElementChild) {
                   const lastR = el.lastElementChild.getBoundingClientRect();
-                  pseudoRect.x = lastR.right + scrollX + (parseFloat(cs.marginLeft) || 0);
+                  pseudoRect.x = lastR.right + scrollX + pMarginLeft;
                   pseudoRect.y = lastR.top + scrollY + (lastR.height - pseudoRect.height) / 2;
                 } else {
-                  pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0);
+                  pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0) - pMarginRight;
                 }
               } catch (e) {
                 if (el.lastElementChild) {
                   const lastR = el.lastElementChild.getBoundingClientRect();
-                  pseudoRect.x = lastR.right + scrollX + (parseFloat(cs.marginLeft) || 0);
+                  pseudoRect.x = lastR.right + scrollX + pMarginLeft;
                   pseudoRect.y = lastR.top + scrollY + (lastR.height - pseudoRect.height) / 2;
                 }
               }
             } else {
-              pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0);
-              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+              pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0) - pMarginRight;
+              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0) + pMarginTop;
             }
           }
         }
