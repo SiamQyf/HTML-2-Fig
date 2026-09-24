@@ -741,6 +741,25 @@
         styles[prop] = convertColors(val);
       }
     }
+
+    // Strip zero-size / invisible box shadows (e.g. 'rgb(...) 0px 0px 0px 0px')
+    if (styles.boxShadow && styles.boxShadow !== 'none') {
+      const parts = styles.boxShadow.split(/,(?![^(]*\))/);
+      const isAllZero = parts.every(s => {
+        const clean = s.replace(/inset/gi, '').trim();
+        const m = clean.match(/(.*?)\s*(-?[\d.]+px)\s+(-?[\d.]+px)(?:\s+([\d.]+px))?(?:\s+([\d.]+px))?/);
+        if (!m) return true;
+        const x = parseFloat(m[2]) || 0;
+        const y = parseFloat(m[3]) || 0;
+        const radius = parseFloat(m[4]) || 0;
+        const spread = parseFloat(m[5]) || 0;
+        return x === 0 && y === 0 && radius === 0 && spread === 0;
+      });
+      if (isAllZero) {
+        delete styles.boxShadow;
+      }
+    }
+
     styles.fontFamily = cs.fontFamily;
     styles.fontSize = cs.fontSize;
     styles.fontStyle = cs.fontStyle;

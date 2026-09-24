@@ -485,12 +485,46 @@ function parseRadialGradient(css) {
     if (!inner) return null;
 
     let stopsStr = inner;
-    // Check if first argument is shape / position (e.g. 'circle at center', 'ellipse at center', 'at center')
+    let rx = 0.5;
+    let ry = 0.5;
+    let cx = 0.5;
+    let cy = 0.5;
+
+    // Check if first argument is shape / size / position (e.g. '50% 96%', 'circle at center', 'at center')
     const firstCommaIdx = inner.indexOf(',');
     if (firstCommaIdx !== -1) {
       const firstArg = inner.substring(0, firstCommaIdx).trim();
-      if (firstArg.includes('at ') || firstArg.includes('circle') || firstArg.includes('ellipse') || firstArg.includes('closest-') || firstArg.includes('farthest-')) {
+      const firstToken = firstArg.split(/[\s,]+/)[0];
+      if (!parseColor(firstToken)) {
         stopsStr = inner.substring(firstCommaIdx + 1).trim();
+
+        if (firstArg.includes('at ')) {
+          const atParts = firstArg.split('at ')[1].trim().split(/\s+/);
+          if (atParts[0]) {
+            if (atParts[0].endsWith('%')) cx = parseFloat(atParts[0]) / 100;
+            else if (atParts[0] === 'left') cx = 0;
+            else if (atParts[0] === 'right') cx = 1;
+            else if (atParts[0] === 'center') cx = 0.5;
+          }
+          if (atParts[1]) {
+            if (atParts[1].endsWith('%')) cy = parseFloat(atParts[1]) / 100;
+            else if (atParts[1] === 'top') cy = 0;
+            else if (atParts[1] === 'bottom') cy = 1;
+            else if (atParts[1] === 'center') cy = 0.5;
+          }
+        }
+
+        const shapePart = (firstArg.includes('at ') ? firstArg.split('at ')[0].trim() : firstArg).trim();
+        const dimTokens = shapePart.split(/\s+/).filter(t => t.endsWith('%') || t.endsWith('px') || !isNaN(parseFloat(t)));
+        if (dimTokens.length >= 2) {
+          if (dimTokens[0].endsWith('%')) rx = parseFloat(dimTokens[0]) / 100;
+          if (dimTokens[1].endsWith('%')) ry = parseFloat(dimTokens[1]) / 100;
+        } else if (dimTokens.length === 1) {
+          if (dimTokens[0].endsWith('%')) {
+            rx = parseFloat(dimTokens[0]) / 100;
+            ry = rx;
+          }
+        }
       }
     }
 
@@ -529,12 +563,18 @@ function parseRadialGradient(css) {
     if (stops.length === 1) {
       stops.push({ position: 1, color: { ...stops[0].color } });
     }
+    if (stops[0].position > 0) {
+      stops.unshift({ position: 0, color: { ...stops[0].color } });
+    }
+    if (stops[stops.length - 1].position < 1) {
+      stops.push({ position: 1, color: { ...stops[stops.length - 1].color } });
+    }
 
     return {
       type: 'GRADIENT_RADIAL',
       gradientTransform: [
-        [1, 0, 0],
-        [0, 1, 0]
+        [rx, 0, cx],
+        [0, ry, cy]
       ],
       gradientStops: stops
     };
@@ -659,6 +699,9 @@ function parseBoxShadows(css) {
         const y = parseFloat(m[3]) || 0;
         const radius = parseFloat(m[4]) || 0;
         const spread = parseFloat(m[5]) || 0;
+        if ((x === 0 && y === 0 && radius === 0 && spread === 0) || !col || col.a <= 0.005) {
+          continue;
+        }
         effects.push({
           type: isInset ? 'INNER_SHADOW' : 'DROP_SHADOW',
           color: { r: col.r, g: col.g, b: col.b, a: clamp01(col.a) },
