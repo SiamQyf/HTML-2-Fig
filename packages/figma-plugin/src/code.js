@@ -811,7 +811,7 @@ function parseBoxShadows(css) {
     for (const s of shadows) {
       const isInset = s.includes('inset');
       const clean = s.replace('inset', '').trim();
-      const m = clean.match(/(.*?)\s*(-?[\d.]+px)\s+(-?[\d.]+px)(?:\s+([\d.]+px))?(?:\s+([\d.]+px))?/);
+      const m = clean.match(/(.*?)\s*(-?[\d.]+(?:px)?)\s+(-?[\d.]+(?:px)?)(?:\s+([\d.]+(?:px)?))?(?:\s+([\d.]+(?:px)?))?/);
       if (m) {
         const col = parseColor(m[1]) || parseColor(clean.slice(clean.lastIndexOf(' ')).trim()) || { r: 0, g: 0, b: 0, a: 0.25 };
         const x = parseFloat(m[2]) || 0;
@@ -821,7 +821,7 @@ function parseBoxShadows(css) {
         
         if (Math.abs(x) < 0.1 && Math.abs(y) < 0.1 && radius < 0.1 && Math.abs(spread) < 0.1) continue;
 
-        effects.push({
+        const effect = {
           type: isInset ? 'INNER_SHADOW' : 'DROP_SHADOW',
           color: { r: col.r, g: col.g, b: col.b, a: clamp01(col.a) },
           offset: { x, y },
@@ -829,7 +829,11 @@ function parseBoxShadows(css) {
           spread,
           visible: true,
           blendMode: 'NORMAL'
-        });
+        };
+        if (!isInset) {
+          effect.showShadowBehindNode = false;
+        }
+        effects.push(effect);
       }
     }
   } catch {}
@@ -1495,7 +1499,7 @@ function applyStrokes(node, styles) {
   }
 }
 
-function applyEffects(node, styles) {
+function applyEffects(node, styles, effectiveBgColor = null) {
   const effects = [];
 
   if (styles.boxShadow && styles.boxShadow !== 'none') {
@@ -1515,7 +1519,14 @@ function applyEffects(node, styles) {
     if (m) effects.push({ type: 'LAYER_BLUR', radius: parseFloat(m[1]), visible: true });
   }
 
-  if (effects.length > 0) node.effects = effects;
+  if (effects.length > 0) {
+    node.effects = effects;
+    const hasDropShadow = effects.some(e => e.type === 'DROP_SHADOW');
+    if (hasDropShadow && (!node.fills || node.fills.length === 0 || node.fills.every(f => (f.opacity || 0) <= 0.005))) {
+      const bg = effectiveBgColor || parseColor(styles._effectiveBgColor) || { r: 1, g: 1, b: 1 };
+      node.fills = [{ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: 1 }];
+    }
+  }
 }
 
 function isBackdropNode(node) {
@@ -1570,41 +1581,7 @@ function applyCornerRadius(node, styles) {
   }
 }
 
-function arcToCubicBezier(cx, cy, rx, ry, startAngle, endAngle) {
-  const totalAngle = endAngle - startAngle;
-  // Maximum step is pi / 3 (~60 deg) for high precision
-  const numSegments = Math.max(1, Math.ceil(Math.abs(totalAngle) / (Math.PI / 3)));
-  const step = totalAngle / numSegments;
-  const curves = [];
-
-  let currentAngle = startAngle;
-  for (let i = 0; i < numSegments; i++) {
-    const nextAngle = currentAngle + step;
-    const alpha = nextAngle - currentAngle;
-    const k = (4 / 3) * Math.tan(alpha / 4);
-
-    const x0 = cx + rx * Math.cos(currentAngle);
-    const y0 = cy + ry * Math.sin(currentAngle);
-    const dx0 = -rx * Math.sin(currentAngle);
-    const dy0 = ry * Math.cos(currentAngle);
-
-    const x3 = cx + rx * Math.cos(nextAngle);
-    const y3 = cy + ry * Math.sin(nextAngle);
-    const dx3 = -rx * Math.sin(nextAngle);
-    const dy3 = ry * Math.cos(nextAngle);
-
-    const cp1x = x0 + k * dx0;
-    const cp1y = y0 + k * dy0;
-    const cp2x = x3 - k * dx3;
-    const cp2y = y3 - k * dy3;
-
-    curves.push({ cp1x, cp1y, cp2x, cp2y, x: x3, y: y3 });
-    currentAngle = nextAngle;
-  }
-  return curves;
-}
-
-function convertClipPathToPathData(cp, w, h) {
+function convertClipPathToSvg(cp, w, h) {
   if (!cp || cp === 'none') return null;
   const cpLower = cp.toLowerCase().trim();
 
@@ -1614,12 +1591,12 @@ function convertClipPathToPathData(cp, w, h) {
     return parseFloat(v) || 0;
   }
 
-  let result = null;
-
   // Handle path('...')
   if (cpLower.includes('path(')) {
     const match = cp.match(/path\(['"]?(.*?)['"]?\)/);
-    result = match ? match[1] : null;
+    if (match && match[1]) {
+      return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><path d="${match[1]}" fill="#ffffff" /></svg>`;
+    }
   }
   // Handle polygon(...)
   else if (cpLower.includes('polygon(')) {
@@ -1637,7 +1614,7 @@ function convertClipPathToPathData(cp, w, h) {
           }
         }
         if (commands.length >= 3) {
-          result = commands.join(' ') + ' Z';
+          return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><path d="${commands.join(' ')} Z" fill="#ffffff" /></svg>`;
         }
       }
     }
@@ -1651,48 +1628,24 @@ function convertClipPathToPathData(cp, w, h) {
       const cx = parseVal(m[3], w);
       const cy = parseVal(m[4], h);
       if (rx > 0 && ry > 0) {
-        // Top arc: e.g. ellipse(110% 90% at 50% 0%)
+        // Top arc (e.g. at 50% 0%)
         if (cy <= 0.05 * h) {
-          const cosR = Math.max(-1, Math.min(1, (w - cx) / rx));
-          const cosL = Math.max(-1, Math.min(1, (0 - cx) / rx));
-          const thetaR = Math.acos(cosR);
-          const thetaL = Math.acos(cosL);
-          const yR = cy + ry * Math.sin(thetaR);
-
-          const curves = arcToCubicBezier(cx, cy, rx, ry, thetaR, thetaL);
-          let d = `M 0 0 L ${w} 0 L ${w} ${yR.toFixed(4)}`;
-          for (const c of curves) {
-            d += ` C ${c.cp1x.toFixed(4)} ${c.cp1y.toFixed(4)} ${c.cp2x.toFixed(4)} ${c.cp2y.toFixed(4)} ${c.x.toFixed(4)} ${c.y.toFixed(4)}`;
-          }
-          d += ` Z`;
-          result = d;
+          const termL = Math.max(0, 1 - Math.pow(cx / rx, 2));
+          const termR = Math.max(0, 1 - Math.pow((w - cx) / rx, 2));
+          const yLeft = (cy + ry * Math.sqrt(termL)).toFixed(2);
+          const yRight = (cy + ry * Math.sqrt(termR)).toFixed(2);
+          return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><path d="M 0 0 L ${w} 0 L ${w} ${yRight} A ${rx.toFixed(2)} ${ry.toFixed(2)} 0 0 1 0 ${yLeft} Z" fill="#ffffff" /></svg>`;
         }
-        // Bottom arc: e.g. ellipse(100% 100% at 50% 100%)
+        // Bottom arc (e.g. at 50% 100%)
         else if (cy >= 0.95 * h) {
-          const cosL = Math.max(-1, Math.min(1, (0 - cx) / rx));
-          const cosR = Math.max(-1, Math.min(1, (w - cx) / rx));
-          const thetaL = -Math.acos(cosL);
-          const thetaR = -Math.acos(cosR);
-          const yL = cy + ry * Math.sin(thetaL);
-
-          const curves = arcToCubicBezier(cx, cy, rx, ry, thetaL, thetaR);
-          let d = `M 0 ${h} L 0 ${yL.toFixed(4)}`;
-          for (const c of curves) {
-            d += ` C ${c.cp1x.toFixed(4)} ${c.cp1y.toFixed(4)} ${c.cp2x.toFixed(4)} ${c.cp2y.toFixed(4)} ${c.x.toFixed(4)} ${c.y.toFixed(4)}`;
-          }
-          d += ` L ${w} ${h} Z`;
-          result = d;
+          const termL = Math.max(0, 1 - Math.pow(cx / rx, 2));
+          const termR = Math.max(0, 1 - Math.pow((w - cx) / rx, 2));
+          const yLeft = (cy - ry * Math.sqrt(termL)).toFixed(2);
+          const yRight = (cy - ry * Math.sqrt(termR)).toFixed(2);
+          return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><path d="M 0 ${h} L ${w} ${h} L ${w} ${yRight} A ${rx.toFixed(2)} ${ry.toFixed(2)} 0 0 0 0 ${yLeft} Z" fill="#ffffff" /></svg>`;
         }
-        // General full ellipse: 4 quarter-ellipse cubic Beziers (space-separated commands, no commas)
-        else {
-          const kx = rx * 0.5522847498;
-          const ky = ry * 0.5522847498;
-          result = `M ${cx.toFixed(4)} ${(cy - ry).toFixed(4)} ` +
-            `C ${(cx + kx).toFixed(4)} ${(cy - ry).toFixed(4)} ${(cx + rx).toFixed(4)} ${(cy - ky).toFixed(4)} ${(cx + rx).toFixed(4)} ${cy.toFixed(4)} ` +
-            `C ${(cx + rx).toFixed(4)} ${(cy + ky).toFixed(4)} ${(cx + kx).toFixed(4)} ${(cy + ry).toFixed(4)} ${cx.toFixed(4)} ${(cy + ry).toFixed(4)} ` +
-            `C ${(cx - kx).toFixed(4)} ${(cy + ry).toFixed(4)} ${(cx - rx).toFixed(4)} ${(cy + ky).toFixed(4)} ${(cx - rx).toFixed(4)} ${cy.toFixed(4)} ` +
-            `C ${(cx - rx).toFixed(4)} ${(cy - ky).toFixed(4)} ${(cx - kx).toFixed(4)} ${(cy - ry).toFixed(4)} ${cx.toFixed(4)} ${(cy - ry).toFixed(4)} Z`;
-        }
+        // General ellipse
+        return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><ellipse cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" rx="${rx.toFixed(2)}" ry="${ry.toFixed(2)}" fill="#ffffff" /></svg>`;
       }
     }
   }
@@ -1705,19 +1658,12 @@ function convertClipPathToPathData(cp, w, h) {
       const cx = m[2] ? parseVal(m[2], w) : w / 2;
       const cy = m[3] ? parseVal(m[3], h) : h / 2;
       if (r > 0) {
-        const k = r * 0.5522847498;
-        result = `M ${cx.toFixed(4)} ${(cy - r).toFixed(4)} ` +
-          `C ${(cx + k).toFixed(4)} ${(cy - r).toFixed(4)} ${(cx + r).toFixed(4)} ${(cy - k).toFixed(4)} ${(cx + r).toFixed(4)} ${cy.toFixed(4)} ` +
-          `C ${(cx + r).toFixed(4)} ${(cy + k).toFixed(4)} ${(cx + k).toFixed(4)} ${(cy + r).toFixed(4)} ${cx.toFixed(4)} ${(cy + r).toFixed(4)} ` +
-          `C ${(cx - k).toFixed(4)} ${(cy + r).toFixed(4)} ${(cx - r).toFixed(4)} ${(cy + k).toFixed(4)} ${(cx - r).toFixed(4)} ${cy.toFixed(4)} ` +
-          `C ${(cx - r).toFixed(4)} ${(cy - k).toFixed(4)} ${(cx - k).toFixed(4)} ${(cy - r).toFixed(4)} ${cx.toFixed(4)} ${(cy - r).toFixed(4)} Z`;
+        return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r.toFixed(2)}" fill="#ffffff" /></svg>`;
       }
     }
   }
 
-  if (!result) return null;
-  // Figma vectorPaths strictly requires all coordinates and commands to be space-separated with NO commas
-  return result.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+  return null;
 }
 
 function applyOpacity(node, styles) {
@@ -2366,16 +2312,67 @@ function getEffectiveZIndex(node, isSectionLevel = false) {
 }
 
 
-async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false) {
+function getUnrotatedRectInRotationRoot(nodeRect, activeRotation) {
+  if (!nodeRect || !activeRotation || !activeRotation.rootRect) return null;
+  const cos = activeRotation.cosR != null ? activeRotation.cosR : Math.cos((activeRotation.rotRad || 0));
+  const sin = activeRotation.sinR != null ? activeRotation.sinR : Math.sin((activeRotation.rotRad || 0));
+
+  const rootCenterX = (activeRotation.rootRect.x || 0) + (activeRotation.rootRect.width || 0) / 2;
+  const rootCenterY = (activeRotation.rootRect.y || 0) + (activeRotation.rootRect.height || 0) / 2;
+
+  const localCenterX = activeRotation.rootUnrotW / 2;
+  const localCenterY = activeRotation.rootUnrotH / 2;
+
+  const nodeCenterX = (nodeRect.x || 0) + (nodeRect.width || 0) / 2;
+  const nodeCenterY = (nodeRect.y || 0) + (nodeRect.height || 0) / 2;
+
+  const dx = nodeCenterX - rootCenterX;
+  const dy = nodeCenterY - rootCenterY;
+
+  const localDx = dx * cos - dy * sin;
+  const localDy = dx * sin + dy * cos;
+
+  const nodeLocalCenterX = localCenterX + localDx;
+  const nodeLocalCenterY = localCenterY + localDy;
+
+  let nodeUnrotW = nodeRect.offsetWidth || 0;
+  let nodeUnrotH = nodeRect.offsetHeight || 0;
+  if (nodeUnrotW <= 0 || nodeUnrotH <= 0) {
+    if (Math.abs(Math.abs(activeRotation.angleDeg) - 90) < 1) {
+      nodeUnrotW = nodeRect.height || 0;
+      nodeUnrotH = nodeRect.width || 0;
+    } else {
+      nodeUnrotW = nodeRect.width || 0;
+      nodeUnrotH = nodeRect.height || 0;
+    }
+  }
+
+  return {
+    x: Math.round(nodeLocalCenterX - nodeUnrotW / 2),
+    y: Math.round(nodeLocalCenterY - nodeUnrotH / 2),
+    width: Math.round(nodeUnrotW),
+    height: Math.round(nodeUnrotH)
+  };
+}
+
+async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false, parentUnrotOrigin = { x: 0, y: 0 }, inheritedBgColor = null) {
   if (!sNode) return;
 
   if (sNode.nodeType === 3 /* TEXT */) {
-    await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip, activeRotation, parentNode, isVerticalInverted);
+    await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip, activeRotation, parentNode, isVerticalInverted, parentUnrotOrigin);
     reportProgress();
     return;
   }
 
   const s = sNode.styles || inheritedStyles || {};
+  let currentBgColor = inheritedBgColor;
+  const myBg = parseColor(s.backgroundColor);
+  if (myBg && myBg.a > 0.05) {
+    currentBgColor = { r: myBg.r, g: myBg.g, b: myBg.b };
+  } else if (s._effectiveBgColor) {
+    const eff = parseColor(s._effectiveBgColor);
+    if (eff && eff.a > 0.05) currentBgColor = { r: eff.r, g: eff.g, b: eff.b };
+  }
   let currentTextClip = inheritedTextClip;
   if (isBackgroundClipText(s)) {
     currentTextClip = s;
@@ -2403,31 +2400,18 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     s.textDecorationLine = 'none';
   }
 
-  if (!sNode._localRect && activeRotation && parentNode) {
-    const cosR = activeRotation.cosR;
-    const sinR = activeRotation.sinR;
-    const pW = Math.round(parentNode.rect?.offsetWidth || parentNode.rect?.width || parentFrame.width || 0);
-    const pH = Math.round(parentNode.rect?.offsetHeight || parentNode.rect?.height || parentFrame.height || 0);
-    const cW = Math.round(sNode.rect?.offsetWidth || sNode.rect?.width || 0);
-    const cH = Math.round(sNode.rect?.offsetHeight || sNode.rect?.height || 0);
-
-    const childGX = (sNode.rect?.x || 0) + (sNode.rect?.width || 0) / 2;
-    const childGY = (sNode.rect?.y || 0) + (sNode.rect?.height || 0) / 2;
-    const parentGX = (parentNode.rect?.x || parentX || 0) + (parentNode.rect?.width || 0) / 2;
-    const parentGY = (parentNode.rect?.y || parentY || 0) + (parentNode.rect?.height || 0) / 2;
-    const dX = childGX - parentGX;
-    const dY = childGY - parentGY;
-    const localDX = dX * cosR + dY * sinR;
-    const localDY = -dX * sinR + dY * cosR;
-
-    const childLCX = (pW / 2) + localDX;
-    const childLCY = (pH / 2) + localDY;
-    sNode._localRect = {
-      x: Math.round(childLCX - cW / 2),
-      y: Math.round(childLCY - cH / 2),
-      width: cW,
-      height: cH
-    };
+  let myUnrotOrigin = parentUnrotOrigin;
+  if (!sNode._localRect && activeRotation) {
+    const unrotRect = getUnrotatedRectInRotationRoot(sNode.rect, activeRotation);
+    if (unrotRect) {
+      sNode._localRect = {
+        x: unrotRect.x - (parentUnrotOrigin?.x || 0),
+        y: unrotRect.y - (parentUnrotOrigin?.y || 0),
+        width: unrotRect.width,
+        height: unrotRect.height
+      };
+      myUnrotOrigin = { x: unrotRect.x, y: unrotRect.y };
+    }
   }
 
   const origW = Math.round(sNode.rect?.offsetWidth || sNode.rect?.width || 0);
@@ -2537,7 +2521,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
         bgFrame.clipsContent = true;
         await applyFills(bgFrame, s, assets, w, h, true);
         applyStrokes(bgFrame, s);
-        applyEffects(bgFrame, s);
+        applyEffects(bgFrame, s, currentBgColor);
         applyCornerRadius(bgFrame, s);
         applyOpacity(bgFrame, s);
         
@@ -2659,7 +2643,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
               bgFrame.clipsContent = true;
               await applyFills(bgFrame, s, assets, w, h, true);
               applyStrokes(bgFrame, s);
-              applyEffects(bgFrame, s);
+              applyEffects(bgFrame, s, currentBgColor);
               applyCornerRadius(bgFrame, s);
               applyOpacity(bgFrame, s);
 
@@ -2720,7 +2704,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             if (fillTransform) fillDef.imageTransform = fillTransform;
             rect.fills = [fillDef];
             applyStrokes(imgFrame, s);
-            applyEffects(imgFrame, s);
+            applyEffects(imgFrame, s, currentBgColor);
             applyCornerRadius(imgFrame, s);
             applyOpacity(imgFrame, s);
             reportProgress();
@@ -2761,7 +2745,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           currentFills.push(fillDef);
           rect.fills = currentFills;
           applyStrokes(rect, s);
-          applyEffects(rect, s);
+          applyEffects(rect, s, currentBgColor);
           applyCornerRadius(rect, s);
           
           let angleDeg = 0;
@@ -2839,7 +2823,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           const img = figma.createImage(bytes);
           rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
           applyStrokes(rect, s);
-          applyEffects(rect, s);
+          applyEffects(rect, s, currentBgColor);
           applyCornerRadius(rect, s);
           applyOpacity(rect, s);
           reportProgress();
@@ -3012,8 +2996,9 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
   const nextVerticalInverted = isVerticalInverted || (isVerticalFlow && has180);
 
-  if (Math.abs(angleDeg) > 0.1) {
-    const rotDeg = -angleDeg; // Figma rotation is negative of CSS
+  let nextRotation = activeRotation;
+  if (Math.abs(angleDeg) > 0.1 && !activeRotation) {
+    const rotDeg = -angleDeg;
     const rotRad = rotDeg * (Math.PI / 180);
 
     // Compute true unrotated dimensions (CSS transforms do not alter offsetWidth/Height)
@@ -3046,18 +3031,30 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       ? (sNode._localRect.y + sNode._localRect.height / 2)
       : (Math.round((sNode.rect?.y || 0) - parentY) + (sNode.rect?.height || 0) / 2);
 
-    // In Figma, node.rotation rotates around its top-left corner.
+    // In Figma, node.rotation rotates around its top-left corner via [[cos, sin, tx], [-sin, cos, ty]].
     // Place frame.x and frame.y so the center of the rotated frame matches the element center:
     const halfW = rectW / 2;
     const halfH = rectH / 2;
     const cosR = Math.cos(rotRad);
     const sinR = Math.sin(rotRad);
-    const deltaX = halfW * cosR - halfH * sinR;
-    const deltaY = halfW * sinR + halfH * cosR;
+    const deltaX = halfW * cosR + halfH * sinR;
+    const deltaY = -halfW * sinR + halfH * cosR;
 
     frame.x = Math.round(centerInParentX - deltaX);
     frame.y = Math.round(centerInParentY - deltaY);
     frame.rotation = rotDeg;
+
+    nextRotation = {
+      rootNode: sNode,
+      angleDeg,
+      rotRad,
+      cosR,
+      sinR,
+      rootRect: sNode.rect,
+      rootUnrotW: rectW,
+      rootUnrotH: rectH
+    };
+    myUnrotOrigin = { x: 0, y: 0 };
 
     // Map children from global screen coordinates into this frame's unrotated local coordinate system
     const mapToLocal = (childNode) => {
@@ -3068,8 +3065,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       const globalCenterY = (sNode.rect?.y || 0) + (sNode.rect?.height || 0) / 2;
       const dX = childGX - globalCenterX;
       const dY = childGY - globalCenterY;
-      const localDX = dX * cosR + dY * sinR;
-      const localDY = -dX * sinR + dY * cosR;
+      const localDX = dX * cosR - dY * sinR;
+      const localDY = dX * sinR + dY * cosR;
 
       // If parent is a flex container centering its items or has single child/pseudo, check if child is centered in parent
       const pDisplay = (sNode.styles?.display || '');
@@ -3188,7 +3185,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
                       (sNode.text && sNode.text.trim().length > 0);
   await applyFills(frame, s, assets, rectW, rectH, hasChildren);
   applyStrokes(frame, s);
-  applyEffects(frame, s);
+  applyEffects(frame, s, currentBgColor);
   applyCornerRadius(frame, s);
   applyOpacity(frame, s);
   applyBlendMode(frame, s);
@@ -3209,16 +3206,12 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     });
   }
 
-  const nextRotation = (Math.abs(angleDeg) > 0.1)
-    ? { rotRad: -angleDeg * (Math.PI / 180), cosR: Math.cos(-angleDeg * (Math.PI / 180)), sinR: Math.sin(-angleDeg * (Math.PI / 180)) }
-    : activeRotation;
-
   for (const child of allChildren) {
-    await renderNode(child, frame, trueGlobalX, trueGlobalY, assets, s, currentTextClip, nextRotation, sNode, nextVerticalInverted);
+    await renderNode(child, frame, trueGlobalX, trueGlobalY, assets, s, currentTextClip, nextRotation, sNode, nextVerticalInverted, myUnrotOrigin, currentBgColor);
   }
 
   if (sNode.text && sNode.text.trim()) {
-    await renderTextNode(sNode, frame, trueGlobalX, trueGlobalY, s, currentTextClip, nextRotation, sNode, nextVerticalInverted);
+    await renderTextNode(sNode, frame, trueGlobalX, trueGlobalY, s, currentTextClip, nextRotation, sNode, nextVerticalInverted, myUnrotOrigin);
   }
 
   // Handle CSS gradient mask-image (e.g. .feather-shadow left/right text fade)
@@ -3268,8 +3261,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     const isSmallAvatar = isCircle && (rectW <= 300 && rectH <= 300);
 
     if (isEllipse || isPolygon || isPath || (isCircle && !isSmallAvatar)) {
-      const pathData = convertClipPathToPathData(cp, Math.round(rectW), Math.round(rectH));
-      if (pathData) {
+      const svgStr = convertClipPathToSvg(cp, Math.round(rectW), Math.round(rectH));
+      if (svgStr) {
         try {
           if (frame.fills && Array.isArray(frame.fills) && frame.fills.length > 0) {
             const bgRect = figma.createRectangle();
@@ -3285,7 +3278,6 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           let vecNode = null;
           // Strategy 1: Create vector from SVG via Figma's native SVG parser (most robust across all Figma versions)
           try {
-            const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${Math.round(rectW)} ${Math.round(rectH)}" width="${Math.round(rectW)}" height="${Math.round(rectH)}"><path d="${pathData}" fill="#ffffff" /></svg>`;
             const svgFrame = figma.createNodeFromSvg(svgStr);
             if (svgFrame.children && svgFrame.children.length === 1) {
               vecNode = svgFrame.children[0];
@@ -3296,15 +3288,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
               frame.appendChild(vecNode);
             }
           } catch (svgErr) {
-            console.warn('[HTML-2-Fig] createNodeFromSvg failed, trying createVector:', svgErr);
-            try {
-              const vectorMask = figma.createVector();
-              vectorMask.vectorPaths = [{ windingRule: 'EVENODD', data: pathData }];
-              frame.appendChild(vectorMask);
-              vecNode = vectorMask;
-            } catch (vecErr) {
-              console.warn('[HTML-2-Fig] createVector also failed:', vecErr);
-            }
+            console.warn('[HTML-2-Fig] createNodeFromSvg failed:', svgErr);
           }
 
           if (vecNode) {
@@ -3331,7 +3315,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
             // Disable parent frame rectangular clipping so it does not override or conflict with the vector mask
             frame.clipsContent = false;
-            console.log('[HTML-2-Fig] Applied mask to:', frame.name, 'with pathData length:', pathData.length);
+            console.log('[HTML-2-Fig] Applied mask to:', frame.name, 'with svgStr length:', svgStr.length);
           }
         } catch (err) {
           console.warn('[HTML-2-Fig] Failed to apply clip-path mask to:', frame.name, err);
@@ -3343,7 +3327,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   reportProgress();
 }
 
-async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false) {
+async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false, parentUnrotOrigin = { x: 0, y: 0 }) {
   const s = sNode.styles || inheritedStyles || parentFrame.styles || {};
   let text = (sNode.text || '');
   const ws = s.whiteSpace || 'normal';
@@ -3352,8 +3336,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   } else if (ws === 'pre-line') {
     text = text.replace(/[ \t\f\v]+/g, ' ').replace(/[\u2028\u2029]/g, '\n');
   }
-  text = text.trim();
-  if (!text) return;
+  if (!text || !text.trim()) return;
 
   const textNode = figma.createText();
   if (s.position === 'absolute' || s.position === 'fixed') {
@@ -3521,31 +3504,16 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
 
   parentFrame.appendChild(textNode);
 
-  if (!sNode._localRect && activeRotation && parentNode) {
-    const cosR = activeRotation.cosR;
-    const sinR = activeRotation.sinR;
-    const pW = Math.round(parentNode.rect?.offsetWidth || parentNode.rect?.width || parentFrame.width || 0);
-    const pH = Math.round(parentNode.rect?.offsetHeight || parentNode.rect?.height || parentFrame.height || 0);
-    const cW = Math.round(sNode.rect?.offsetWidth || sNode.rect?.width || 0);
-    const cH = Math.round(sNode.rect?.offsetHeight || sNode.rect?.height || 0);
-
-    const childGX = (sNode.rect?.x || 0) + (sNode.rect?.width || 0) / 2;
-    const childGY = (sNode.rect?.y || 0) + (sNode.rect?.height || 0) / 2;
-    const parentGX = (parentNode.rect?.x || parentX || 0) + (parentNode.rect?.width || 0) / 2;
-    const parentGY = (parentNode.rect?.y || parentY || 0) + (parentNode.rect?.height || 0) / 2;
-    const dX = childGX - parentGX;
-    const dY = childGY - parentGY;
-    const localDX = dX * cosR + dY * sinR;
-    const localDY = -dX * sinR + dY * cosR;
-
-    const childLCX = (pW / 2) + localDX;
-    const childLCY = (pH / 2) + localDY;
-    sNode._localRect = {
-      x: Math.round(childLCX - cW / 2),
-      y: Math.round(childLCY - cH / 2),
-      width: cW,
-      height: cH
-    };
+  if (!sNode._localRect && activeRotation) {
+    const unrotRect = getUnrotatedRectInRotationRoot(sNode.rect, activeRotation);
+    if (unrotRect) {
+      sNode._localRect = {
+        x: unrotRect.x - (parentUnrotOrigin?.x || 0),
+        y: unrotRect.y - (parentUnrotOrigin?.y || 0),
+        width: unrotRect.width,
+        height: unrotRect.height
+      };
+    }
   }
 
   const posX = sNode._localRect ? sNode._localRect.x : ((sNode.rect?.x || 0) - parentX);

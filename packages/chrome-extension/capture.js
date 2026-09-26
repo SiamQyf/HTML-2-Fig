@@ -234,6 +234,14 @@
         opacity: 1 !important;
         visibility: visible !important;
       }
+      [data-shadow-animation], [data-shadow-animation] *,
+      .highlight-separator, .highlight-separator * {
+        opacity: 1 !important;
+        visibility: visible !important;
+        clip-path: none !important;
+        animation: none !important;
+        transition: none !important;
+      }
       body .pxn-fade, body .pxn-split-text, body .pxn-chars-up,
       body .pxn-img-reveal, body .pxn-char,
       body [class*="pxn-fade"], body [class*="pxn-chars"], body [class*="pxn-split"],
@@ -270,7 +278,7 @@
     const savedInlineStyles = [];
     try {
       const animatedEls = document.querySelectorAll(
-        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter, .rs-rotate, [class*="rs-rotate"], [class*="tp-loop-wrap"]'
+        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter, .rs-rotate, [class*="rs-rotate"], [class*="tp-loop-wrap"], [data-shadow-animation], .highlight-separator'
       );
       for (const el of animatedEls) {
         const saved = { el, v: el.style.visibility, o: el.style.opacity, t: el.style.transform, c: el.style.clipPath };
@@ -994,6 +1002,25 @@
     }
     // Always capture background and border radius for frame fills
     styles.backgroundColor = cs.backgroundColor;
+
+    // If an element has a box-shadow and transparent background, in CSS the box-shadow
+    // is cast by the element's border box and clipped out from behind the element.
+    // In Figma, a frame cannot clip the drop shadow from behind without an opaque fill.
+    // We resolve the effective background color from ancestor elements so Figma renders
+    // the identical visual: a clean unshadowed interior matching the background, and
+    // the soft drop shadow cast outward.
+    if (cs.boxShadow && cs.boxShadow !== 'none' && isTransparentColor(cs.backgroundColor)) {
+      let p = el.parentElement;
+      while (p && p !== document.documentElement) {
+        const pcs = window.getComputedStyle(p);
+        if (pcs.backgroundColor && !isTransparentColor(pcs.backgroundColor)) {
+          styles.backgroundColor = pcs.backgroundColor;
+          styles._effectiveBgColor = pcs.backgroundColor;
+          break;
+        }
+        p = p.parentElement;
+      }
+    }
     styles.backgroundPosition = cs.backgroundPosition;
     styles.backgroundPositionX = cs.backgroundPositionX;
     styles.backgroundPositionY = cs.backgroundPositionY;
@@ -3049,14 +3076,14 @@
         let unrotH = undefined;
 
         if (isRotated && node.parentElement) {
-          const pW = node.parentElement.offsetWidth || node.parentElement.clientWidth;
-          const pH = node.parentElement.offsetHeight || node.parentElement.clientHeight;
-          if (pW > 0) {
-            unrotW = pW;
-            textW = pW;
-          }
-          if (pH > 0) {
-            unrotH = pH;
+          if (!parentHasMultipleChildren) {
+            const pW = node.parentElement.offsetWidth || node.parentElement.clientWidth;
+            const pH = node.parentElement.offsetHeight || node.parentElement.clientHeight;
+            if (pW > 0) unrotW = pW;
+            if (pH > 0) unrotH = pH;
+          } else {
+            unrotW = Math.ceil(rect.height);
+            unrotH = Math.ceil(rect.width);
           }
         } else if (clientRects.length > 1 && node.parentElement && !parentHasMultipleChildren) {
           try {
@@ -3286,9 +3313,9 @@
     // Exception for scroll-animated elements and background graphics
     if (isHidden && styles.display !== 'none') {
       const cls = (el.className && typeof el.className === 'string') ? el.className : '';
-      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split/i.test(cls) ||
-        el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') ||
-        el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"]');
+      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split|highlight-separator/i.test(cls) ||
+        el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') ||
+        el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"], [data-shadow-animation], .highlight-separator');
       
       if (isAnimTarget) {
         styles.visibility = 'visible';
@@ -3300,9 +3327,16 @@
     if (isHidden) return null;
 
     // Filter out visually-hidden / screen-reader-only elements (.sr-only, .visually-hidden)
-    const isClipHidden = (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
-                         (styles.clip && /rect\(\s*1px[,\s]+1px[,\s]+1px[,\s]+1px\s*\)/.test(styles.clip)) ||
-                         (styles.clipPath && /inset\(\s*(?:50%|100%|0px)\s*\)/.test(styles.clipPath));
+    const cls = (el.className && typeof el.className === 'string') ? el.className : '';
+    const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split|highlight-separator/i.test(cls) ||
+      el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') ||
+      el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"], [data-shadow-animation], .highlight-separator');
+
+    const isClipHidden = !isAnimTarget && (
+      (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
+      (styles.clip && /rect\(\s*1px[,\s]+1px[,\s]+1px[,\s]+1px\s*\)/.test(styles.clip)) ||
+      (styles.clipPath && /inset\(\s*(?:50%|100%|0px)\s*\)/.test(styles.clipPath))
+    );
     const isTinyHidden = (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden') &&
                          (parseFloat(styles.width) <= 1 || parseFloat(styles.height) <= 1) &&
                          (styles.position === 'absolute' || styles.position === 'fixed');
@@ -3767,7 +3801,8 @@
                     // Header's positioned children always elevate the header above hero sections
                     m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
                   } else if (!isSectionLevel && (s.position === 'absolute' || s.position === 'relative' || s.position === 'sticky')) {
-                    m = Math.max(m, parsedZ > 0 ? parsedZ : 1);
+                    // Do not aggressively bubble z-index for normal layout containers, as it incorrectly lifts their static siblings (e.g. the doctor image).
+                    m = Math.max(m, 1);
                   } else if (isSectionLevel && (s.position === 'absolute' || s.position === 'fixed') && parsedZ >= 6) {
                     m = Math.max(m, parsedZ);
                   }
