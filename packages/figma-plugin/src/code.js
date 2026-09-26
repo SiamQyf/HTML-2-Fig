@@ -359,6 +359,61 @@ function splitByTopLevelCommas(str) {
   return result;
 }
 
+function fixPremultipliedStops(stops) {
+  if (!stops || stops.length <= 1) return stops;
+
+  const result = [];
+  for (let i = 0; i < stops.length; i++) {
+    const s = stops[i];
+    if (s.color.a > 0.001) {
+      result.push(s);
+      continue;
+    }
+
+    // Find closest non-transparent stop before i
+    let prevOpaque = null;
+    for (let p = i - 1; p >= 0; p--) {
+      if (stops[p].color.a > 0.001) {
+        prevOpaque = stops[p];
+        break;
+      }
+    }
+
+    // Find closest non-transparent stop after i
+    let nextOpaque = null;
+    for (let n = i + 1; n < stops.length; n++) {
+      if (stops[n].color.a > 0.001) {
+        nextOpaque = stops[n];
+        break;
+      }
+    }
+
+    if (prevOpaque && !nextOpaque) {
+      result.push({
+        position: s.position,
+        color: { r: prevOpaque.color.r, g: prevOpaque.color.g, b: prevOpaque.color.b, a: s.color.a }
+      });
+    } else if (!prevOpaque && nextOpaque) {
+      result.push({
+        position: s.position,
+        color: { r: nextOpaque.color.r, g: nextOpaque.color.g, b: nextOpaque.color.b, a: s.color.a }
+      });
+    } else if (prevOpaque && nextOpaque) {
+      result.push({
+        position: s.position,
+        color: { r: prevOpaque.color.r, g: prevOpaque.color.g, b: prevOpaque.color.b, a: s.color.a }
+      });
+      result.push({
+        position: s.position,
+        color: { r: nextOpaque.color.r, g: nextOpaque.color.g, b: nextOpaque.color.b, a: s.color.a }
+      });
+    } else {
+      result.push(s);
+    }
+  }
+  return result;
+}
+
 function parseLinearGradient(css, styles = null) {
   if (!css || !css.includes('linear-gradient(')) return null;
   try {
@@ -537,7 +592,7 @@ function parseLinearGradient(css, styles = null) {
         [cos, sin, 0.5 - 0.5 * (cos + sin)],
         [-sin, cos, 0.5 - 0.5 * (-sin + cos)]
       ],
-      gradientStops: stops
+      gradientStops: fixPremultipliedStops(stops)
     };
   } catch {
     return null;
@@ -692,7 +747,7 @@ function parseRadialGradient(css) {
         [a, b, c],
         [d, e, f]
       ],
-      gradientStops: stops
+      gradientStops: fixPremultipliedStops(stops)
     };
   } catch {
     return null;
@@ -795,7 +850,7 @@ function parseAngularGradient(css) {
         [cos, sin, 0.5 - 0.5 * (cos + sin)],
         [-sin, cos, 0.5 - 0.5 * (-sin + cos)]
       ],
-      gradientStops: stops
+      gradientStops: fixPremultipliedStops(stops)
     };
   } catch {
     return null;
@@ -1197,6 +1252,10 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
                   scaleMode: 'TILE',
                   scalingFactor: Number(scalingFactor.toFixed(4))
                 });
+              } else if (isContain) {
+                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FIT' });
+              } else if (isCover || !isSprite) {
+                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
               } else {
                 let pX = posX;
                 let pY = posY;
@@ -1689,9 +1748,23 @@ const CSS_TO_FIGMA_BLEND_MODES = {
   'luminosity': 'LUMINOSITY'
 };
 
-function applyBlendMode(node, styles) {
+function applyBlendMode(node, styles, sNode = null) {
   const mode = styles.mixBlendMode || styles['mix-blend-mode'];
-  if (mode && CSS_TO_FIGMA_BLEND_MODES[mode.toLowerCase()]) {
+  if (!mode || mode === 'normal') return;
+
+  // In CSS, negative z-index elements (like background videos) inside an isolated stacking context
+  // render against a transparent backdrop and do not multiply against ancestor backgrounds.
+  // Furthermore, video elements whose poster already bakes the section gradient must not be multiplied in Figma,
+  // which would otherwise square the gradient and turn the colors into dark mud.
+  if (sNode) {
+    const isVideo = sNode.tag === 'VIDEO' || (sNode.attributes?.class && sNode.attributes.class.includes('video'));
+    const isNegZ = sNode.styles?.zIndex && parseInt(sNode.styles.zIndex, 10) < 0;
+    if (isVideo && (isNegZ || mode.toLowerCase() === 'multiply')) {
+      return;
+    }
+  }
+
+  if (CSS_TO_FIGMA_BLEND_MODES[mode.toLowerCase()]) {
     try {
       node.blendMode = CSS_TO_FIGMA_BLEND_MODES[mode.toLowerCase()];
     } catch {}
@@ -2948,6 +3021,28 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     frame.name += `.${sNode.attributes.class.replace(/\s+/g, '.')}`;
   }
   parentFrame.appendChild(frame);
+
+  // If a marquee / ticker slider was captured mid-flight with a large negative translate,
+  // normalize it so the wrapper starts at x=0 inside its parent and child slides flow properly
+  const isMarqueeWrapper = sNode.attributes?.class && /swiper-wrapper|marquee|ticker/i.test(sNode.attributes.class);
+  if (isMarqueeWrapper && x < -100) {
+    const shiftX = -x;
+    x = 0;
+    trueGlobalX = Math.round(parentX);
+    const shiftTreeX = (n) => {
+      if (!n) return;
+      if (n.rect) n.rect.x = (n.rect.x || 0) + shiftX;
+      if (n.childNodes) {
+        for (const child of n.childNodes) shiftTreeX(child);
+      }
+      if (n.pseudoElementNodes?.before) shiftTreeX(n.pseudoElementNodes.before);
+      if (n.pseudoElementNodes?.after) shiftTreeX(n.pseudoElementNodes.after);
+    };
+    if (sNode.childNodes) {
+      for (const c of sNode.childNodes) shiftTreeX(c);
+    }
+  }
+
   frame.x = x;
   frame.y = y;
 
@@ -3159,7 +3254,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       rectH = Math.max(rectH, Math.round(childrenSpan));
     }
   }
-  if (rectW < 1 && sNode.childNodes && sNode.childNodes.length > 0) {
+  if ((rectW < 1 || isMarqueeWrapper) && sNode.childNodes && sNode.childNodes.length > 0) {
     let maxChildRight = 0;
     for (const c of sNode.childNodes) {
       if (c.rect) {
@@ -3167,7 +3262,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       }
     }
     const childrenSpanW = maxChildRight - (sNode.rect?.x || 0);
-    if (childrenSpanW > 0) {
+    if (childrenSpanW > rectW) {
       rectW = Math.max(rectW, Math.round(childrenSpanW));
     }
   }
@@ -3188,7 +3283,71 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   applyEffects(frame, s, currentBgColor);
   applyCornerRadius(frame, s);
   applyOpacity(frame, s);
-  applyBlendMode(frame, s);
+  applyBlendMode(frame, s, sNode);
+  // For INPUT elements, if no child text node was captured, synthesize text from value / placeholder
+  const isInputTag = sNode.tag === 'INPUT' || (sNode.attributes && sNode.attributes.type);
+  const hasTextChild = (sNode.childNodes && sNode.childNodes.some(c => c.nodeType === 3 || c.text)) || (sNode.text && sNode.text.trim());
+  if (isInputTag && !hasTextChild) {
+    const inputType = (sNode.attributes?.type || 'text').toLowerCase();
+    const rawVal = sNode.attributes?.value || '';
+    let displayVal = '';
+    if (rawVal) {
+      if (inputType === 'date') {
+        const parts = rawVal.split('-');
+        if (parts.length === 3) displayVal = `${parts[1].padStart(2, '0')}/${parts[2].padStart(2, '0')}/${parts[0]}`;
+        else displayVal = rawVal;
+      } else if (inputType === 'time') {
+        const parts = rawVal.split(':');
+        if (parts.length >= 2) {
+          let h = parseInt(parts[0], 10);
+          const min = parts[1].padStart(2, '0');
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const h12 = h % 12 || 12;
+          displayVal = `${String(h12).padStart(2, '0')}:${min} ${ampm}`;
+        } else displayVal = rawVal;
+      } else {
+        displayVal = rawVal;
+      }
+    } else {
+      displayVal = sNode.attributes?.placeholder || (inputType === 'date' ? 'mm/dd/yyyy' : (inputType === 'time' ? '--:-- --' : ''));
+    }
+    if (displayVal) {
+      const padLeft = parseFloat(s.paddingLeft) || 0;
+      const padTop = parseFloat(s.paddingTop) || 0;
+      const padRight = parseFloat(s.paddingRight) || 0;
+      const padBottom = parseFloat(s.paddingBottom) || 0;
+      sNode.childNodes = sNode.childNodes || [];
+      sNode.childNodes.unshift({
+        nodeType: 3,
+        id: (sNode.id || 'input') + '-text',
+        text: displayVal,
+        rect: {
+          x: (sNode.rect?.x || 0) + padLeft,
+          y: (sNode.rect?.y || 0) + padTop,
+          width: Math.max(1, rectW - padLeft - padRight),
+          height: Math.max(1, rectH - padTop - padBottom)
+        },
+        styles: { ...s },
+        lineCount: 1
+      });
+    }
+  }
+
+  // Vertical centering for icon pseudo-elements inside .date-icon and .time-icon
+  if (sNode.attributes?.class && /date-icon|time-icon/.test(sNode.attributes.class)) {
+    if (sNode.pseudoElementNodes?.after) {
+      const afterNode = sNode.pseudoElementNodes.after;
+      const iconH = Math.round(afterNode.rect?.height || 34);
+      const iconW = Math.round(afterNode.rect?.width || 22);
+      const curX = afterNode.rect?.x ? Math.round(afterNode.rect.x - trueGlobalX) : Math.round(rectW - iconW - 28);
+      afterNode._localRect = {
+        x: curX,
+        y: Math.round((rectH - iconH) / 2),
+        width: iconW,
+        height: iconH
+      };
+    }
+  }
 
   const allChildren = [];
   if (sNode.pseudoElementNodes?.before) allChildren.push(sNode.pseudoElementNodes.before);

@@ -365,6 +365,61 @@
       }
     } catch (e) {}
 
+    // Fast-forward animated progress bars (e.g. .progress-bar, [role="progressbar"])
+    try {
+      const pbs = document.querySelectorAll('.progress-bar, [role="progressbar"]');
+      for (const pb of pbs) {
+        const val = pb.getAttribute('aria-valuenow') || pb.getAttribute('data-percent') || pb.getAttribute('data-value') || pb.getAttribute('data-percentage');
+        if (val) {
+          const curW = parseFloat(pb.style.width || window.getComputedStyle(pb).width) || 0;
+          const targetW = parseFloat(val);
+          if (curW < targetW) {
+            const savedW = pb.style.width;
+            pb.style.setProperty('width', targetW + '%', 'important');
+            pb.classList.add('appear');
+            cleanupTasks.push(() => { pb.style.width = savedW; });
+          }
+        }
+      }
+    } catch (e) {}
+
+    // Pause and normalize continuous marquee / ticker animations (e.g. .marquee-slide, [class*="marquee"], [class*="ticker"], .swiper-wrapper)
+    // In continuous marquee tickers, animations continuously translate the wrapper by thousands of pixels,
+    // causing text slides to scatter offscreen. Normalizing them ensures the marquee starts cleanly within the viewport.
+    try {
+      const marquees = document.querySelectorAll('.marquee-slide, [class*="marquee"], [class*="ticker"], .swiper-wrapper');
+      for (const m of marquees) {
+        const cls = (m.className && typeof m.className === 'string') ? m.className : '';
+        const cs = window.getComputedStyle(m);
+        const hasTransform = cs.transform && cs.transform !== 'none';
+        const isMarquee = /marquee|ticker|loop/i.test(cls) || (m.parentElement && /marquee|ticker|loop/i.test(m.parentElement.className || ''));
+
+        if (isMarquee || (hasTransform && cs.display.includes('flex') && m.children.length >= 2)) {
+          const parent = m.parentElement;
+          if (parent && parent.swiper) {
+            try {
+              parent.swiper.autoplay?.stop();
+              parent.swiper.setTranslate(0);
+            } catch (e) {}
+          }
+
+          const savedTransform = m.style.transform;
+          const savedTransition = m.style.transition;
+          const savedAnimation = m.style.animation;
+
+          m.style.setProperty('transform', 'none', 'important');
+          m.style.setProperty('transition', 'none', 'important');
+          m.style.setProperty('animation', 'none', 'important');
+
+          cleanupTasks.push(() => {
+            m.style.transform = savedTransform;
+            m.style.transition = savedTransition;
+            m.style.animation = savedAnimation;
+          });
+        }
+      }
+    } catch (e) {}
+
     // Neutralize sticky-scroll runway containers (e.g. .stack-box, pin-spacers, stacked cards)
     // where a tall parent (e.g. 300vh) exists only to scroll through sticky/pinned cards.
     // In static capture, only the active/first state is needed; collapsing the runway eliminates massive blank gaps.
@@ -408,6 +463,72 @@
               break;
             }
             parent = parent.parentElement;
+          }
+        }
+      }
+
+      // 3. Side-by-side / split sticky scroll runway detection:
+      // In sections where one side has a sticky graphic/image while the other side has multiple scrolling text steps (e.g. 01, 02, 03),
+      // in a static design only the first state is needed. Collapsing subsequent text steps eliminates massive blank spaces on the sticky side.
+      const processedSplitContainers = new Set();
+      for (const el of allEls) {
+        const cs = window.getComputedStyle(el);
+        if (cs.position === 'sticky') {
+          // Walk up to find the column inside a row/grid/flex container
+          let col = el;
+          let layoutContainer = null;
+          while (col && col.parentElement && col.parentElement !== document.body && col.parentElement !== document.documentElement) {
+            const p = col.parentElement;
+            const pcs = window.getComputedStyle(p);
+            const isLayout = pcs.display.includes('flex') || pcs.display.includes('grid') || p.classList.contains('row') || (p.className && typeof p.className === 'string' && /row|grid|flex/i.test(p.className));
+            if (isLayout && p.children.length >= 2) {
+              layoutContainer = p;
+              break;
+            }
+            col = p;
+          }
+
+          if (layoutContainer && col && !processedSplitContainers.has(layoutContainer)) {
+            const siblings = Array.from(layoutContainer.children).filter(c => c !== col);
+            for (const sib of siblings) {
+              let stepContainer = sib;
+              let sibChildren = Array.from(stepContainer.children).filter(c => {
+                const scs = window.getComputedStyle(c);
+                return scs.position !== 'absolute' && scs.position !== 'fixed' && c.getBoundingClientRect().height > 50;
+              });
+              if (sibChildren.length <= 1 && stepContainer.firstElementChild) {
+                const innerContainer = stepContainer.firstElementChild;
+                const innerChildren = Array.from(innerContainer.children).filter(c => {
+                  const ic = window.getComputedStyle(c);
+                  return ic.position !== 'absolute' && ic.position !== 'fixed' && c.getBoundingClientRect().height > 50;
+                });
+                if (innerChildren.length >= 2) {
+                  stepContainer = innerContainer;
+                  sibChildren = innerChildren;
+                }
+              }
+
+              const stickyH = el.getBoundingClientRect().height;
+              const sibH = sib.getBoundingClientRect().height;
+
+              if (sibChildren.length >= 2 && stickyH > 100 && sibH >= stickyH * 1.3) {
+                const firstH = sibChildren[0].getBoundingClientRect().height;
+                const hasLargeSteps = sibChildren.every(c => c.getBoundingClientRect().height >= 200) ||
+                                     sibChildren.some(c => (c.className && typeof c.className === 'string' && /h-100vh|100vh|screen/i.test(c.className)) || (c.style.height && c.style.height.includes('vh')));
+
+                if (hasLargeSteps || firstH >= 250) {
+                  processedSplitContainers.add(layoutContainer);
+                  for (let i = 1; i < sibChildren.length; i++) {
+                    const stepEl = sibChildren[i];
+                    const savedDisplay = stepEl.style.display;
+                    stepEl.style.setProperty('display', 'none', 'important');
+                    cleanupTasks.push(() => {
+                      stepEl.style.display = savedDisplay;
+                    });
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -2373,12 +2494,16 @@
         const b = parseFloat(cs.bottom);
         const l = parseFloat(cs.left);
         const r = parseFloat(cs.right);
+        const mt = parseFloat(cs.marginTop) || 0;
+        const mb = parseFloat(cs.marginBottom) || 0;
+        const ml = parseFloat(cs.marginLeft) || 0;
+        const mr = parseFloat(cs.marginRight) || 0;
 
-        if (!isNaN(l) && cs.left !== 'auto') pseudoRect.x = baseRect.x + l;
-        else if (!isNaN(r) && cs.right !== 'auto') pseudoRect.x = baseRect.x + baseRect.width - pseudoRect.width - r;
+        if (!isNaN(l) && cs.left !== 'auto') pseudoRect.x = baseRect.x + l + ml;
+        else if (!isNaN(r) && cs.right !== 'auto') pseudoRect.x = baseRect.x + baseRect.width - pseudoRect.width - r - mr;
         
-        if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = baseRect.y + t;
-        else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = baseRect.y + baseRect.height - pseudoRect.height - b;
+        if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = baseRect.y + t + mt;
+        else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = baseRect.y + baseRect.height - pseudoRect.height - b - mb;
 
         // Filter out pseudo-elements that are completely outside an overflow:hidden ancestor
         let clipAncestor = containingEl || el.parentElement;
@@ -3313,9 +3438,9 @@
     // Exception for scroll-animated elements and background graphics
     if (isHidden && styles.display !== 'none') {
       const cls = (el.className && typeof el.className === 'string') ? el.className : '';
-      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split|highlight-separator/i.test(cls) ||
-        el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') ||
-        el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"], [data-shadow-animation], .highlight-separator');
+      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split|highlight-separator|anime/i.test(cls) ||
+        el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') ||
+        el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"], [data-shadow-animation], .highlight-separator, [data-anime]');
       
       if (isAnimTarget) {
         styles.visibility = 'visible';
@@ -3328,9 +3453,9 @@
 
     // Filter out visually-hidden / screen-reader-only elements (.sr-only, .visually-hidden)
     const cls = (el.className && typeof el.className === 'string') ? el.className : '';
-    const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split|highlight-separator/i.test(cls) ||
-      el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') ||
-      el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"], [data-shadow-animation], .highlight-separator');
+    const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split|highlight-separator|anime/i.test(cls) ||
+      el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') ||
+      el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"], [data-shadow-animation], .highlight-separator, [data-anime]');
 
     const isClipHidden = !isAnimTarget && (
       (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
@@ -3433,6 +3558,12 @@
         assets.addImage(el.poster);
         styles.backgroundImage = `url("${el.poster}")`;
         styles.backgroundSize = 'cover';
+        // In CSS, video elements often have mix-blend-mode: multiply with negative z-index inside an isolated group,
+        // so in the browser they do not multiply against the section background.
+        // Neutralize mixBlendMode so the video poster doesn't double-multiply against the section gradient in Figma.
+        if (styles.mixBlendMode === 'multiply') {
+          styles.mixBlendMode = 'normal';
+        }
       } else {
         placeholderUrl = assets.addVideo(el);
       }
@@ -3440,6 +3571,10 @@
       if (!el.querySelector('canvas, img, picture')) {
         placeholderUrl = STRIPE_DEV_WAVE_URL;
       }
+    }
+
+    if (styles.mixBlendMode === 'multiply' && styles.zIndex && parseInt(styles.zIndex, 10) < 0) {
+      styles.mixBlendMode = 'normal';
     }
 
     const isFixed = isElementOrAncestorFixed(el, styles);
@@ -3846,13 +3981,43 @@
 
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || tag === 'INPUT' || tag === 'TEXTAREA') {
       const inputType = (el.getAttribute('type') || el.type || 'text').toLowerCase();
-      const isTextual = ['text', 'search', 'email', 'tel', 'url', 'password', 'number'].includes(inputType) || tag === 'TEXTAREA';
+      const isTextual = ['text', 'search', 'email', 'tel', 'url', 'password', 'number', 'date', 'time', 'datetime-local', 'month', 'week'].includes(inputType) || tag === 'TEXTAREA';
       const isButtonInput = ['button', 'submit', 'reset'].includes(inputType);
-      const val = isButtonInput
-        ? (el.value || el.getAttribute('value') || '')
-        : (isTextual ? (el.value || el.placeholder || el.getAttribute('placeholder') || '') : '');
+      let val = '';
+      if (isButtonInput) {
+        val = el.value || el.getAttribute('value') || '';
+      } else if (isTextual) {
+        const rawVal = el.value || el.getAttribute('value') || '';
+        if (rawVal) {
+          if (inputType === 'date') {
+            const parts = rawVal.split('-');
+            if (parts.length === 3) {
+              const y = parts[0], m = parts[1].padStart(2, '0'), d = parts[2].padStart(2, '0');
+              val = `${m}/${d}/${y}`;
+            } else {
+              val = rawVal;
+            }
+          } else if (inputType === 'time') {
+            const parts = rawVal.split(':');
+            if (parts.length >= 2) {
+              let h = parseInt(parts[0], 10);
+              const min = parts[1].padStart(2, '0');
+              const ampm = h >= 12 ? 'PM' : 'AM';
+              const h12 = h % 12 || 12;
+              const hStr = String(h12).padStart(2, '0');
+              val = `${hStr}:${min} ${ampm}`;
+            } else {
+              val = rawVal;
+            }
+          } else {
+            val = rawVal;
+          }
+        } else {
+          val = el.placeholder || el.getAttribute('placeholder') || (inputType === 'date' ? 'mm/dd/yyyy' : (inputType === 'time' ? '--:-- --' : ''));
+        }
+      }
       if (val && !childNodes.length) {
-        const isPlaceholder = !el.value && (el.placeholder || el.getAttribute('placeholder'));
+        const isPlaceholder = !el.value && (el.placeholder || el.getAttribute('placeholder') || inputType === 'date' || inputType === 'time');
         const padLeft = parseFloat(styles.paddingLeft) || 0;
         const padTop = parseFloat(styles.paddingTop) || 0;
         const padRight = parseFloat(styles.paddingRight) || 0;
