@@ -3316,6 +3316,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   }
 
   frame.resize(rectW, rectH);
+  const clipValues = ['hidden', 'clip', 'auto', 'scroll'];
   const isPageLevelWrapper = sNode.attributes?.id === 'smooth-wrapper' ||
                              sNode.attributes?.id === 'smooth-content' ||
                              (sNode.attributes?.class && /dialog-off-canvas|my-app|page-wrapper|main-wrapper|site-wrapper|root-wrapper/i.test(sNode.attributes.class));
