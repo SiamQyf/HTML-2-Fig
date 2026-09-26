@@ -1,6 +1,8 @@
 
 figma.showUI(__html__, { width: 360, height: 480, themeColors: true });
 
+let currentWithHover = false;
+
 
 const NAMED_COLORS = {
   transparent: { r: 0, g: 0, b: 0, a: 0 },
@@ -1338,7 +1340,14 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
   }
 
   if (fills.length > 0) node.fills = fills;
-  else if (node.type === 'FRAME') node.fills = [];
+  else if (node.type === 'FRAME') {
+    const bdrop = styles.backdropFilter || styles.webkitBackdropFilter || '';
+    if (bdrop.includes('blur') || styles._needsBgBlurFill) {
+      node.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 }, opacity: 0.005 }];
+    } else {
+      node.fills = [];
+    }
+  }
 }
 
 function applyStrokes(node, styles) {
@@ -1584,6 +1593,10 @@ function applyEffects(node, styles, effectiveBgColor = null) {
     if (hasDropShadow && (!node.fills || node.fills.length === 0 || node.fills.every(f => (f.opacity || 0) <= 0.005))) {
       const bg = effectiveBgColor || parseColor(styles._effectiveBgColor) || { r: 1, g: 1, b: 1 };
       node.fills = [{ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: 1 }];
+    }
+    const hasBgBlur = effects.some(e => e.type === 'BACKGROUND_BLUR');
+    if (hasBgBlur && (!node.fills || node.fills.length === 0 || node.fills.every(f => (f.opacity || 0) <= 0.001))) {
+      node.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 }, opacity: 0.005 }];
     }
   }
 }
@@ -2451,11 +2464,20 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     currentTextClip = s;
   }
 
-  // Fix for btn-hover-animation-switch showing overlapping icons:
-  // The left icon usually has a negative order and is meant to be hidden by default
-  if (sNode.attributes && sNode.attributes.class && sNode.attributes.class.includes('btn-icon')) {
-    if (s.order && parseInt(s.order) < 0) {
+  // Fix for btn-hover-animation-switch showing overlapping icons and hover overlays:
+  // When without hover items is active (default), skip secondary hover icons and hover-reveal items
+  if (!currentWithHover) {
+    if (sNode.isHoverItem) {
       return;
+    }
+    if (sNode.attributes && sNode.attributes.class) {
+      const cls = sNode.attributes.class;
+      if (cls.includes('hover-reveal') || cls.includes('hover-overlay')) {
+        return;
+      }
+      if (cls.includes('btn-icon') && s.order && parseInt(s.order) < 0) {
+        return;
+      }
     }
   }
 
@@ -3225,6 +3247,32 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     }
   }
 
+  // Progressive blur containers: divide child slices vertically into N horizontal bands
+  const isProgressiveBlurContainer = (sNode.attributes?.class && /progressive-blur/i.test(sNode.attributes.class)) ||
+    (sNode.childNodes && sNode.childNodes.length >= 4 && sNode.childNodes.every(c => (c.styles?.backdropFilter || c.styles?.webkitBackdropFilter || '').includes('blur')));
+
+  if (isProgressiveBlurContainer && sNode.childNodes && sNode.childNodes.length > 1) {
+    const isBlurBottom = (sNode.attributes?.class && /blur-bottom/i.test(sNode.attributes.class)) || !(/blur-top/i.test(sNode.attributes?.class || ''));
+    const nSlices = sNode.childNodes.length;
+    const sliceH = rectH / nSlices;
+    sNode.childNodes.forEach((c, idx) => {
+      const bandIdx = isBlurBottom ? idx : (nSlices - 1 - idx);
+      const bY = Math.round(bandIdx * sliceH);
+      const bH = Math.max(1, Math.round(sliceH));
+      c._localRect = {
+        x: 0,
+        y: bY,
+        width: rectW,
+        height: bH
+      };
+      if (c.rect) {
+        c.rect = { ...c.rect, x: sNode.rect?.x || 0, y: (sNode.rect?.y || 0) + bY, width: rectW, height: bH };
+      }
+      if (!c.styles) c.styles = {};
+      c.styles._needsBgBlurFill = true;
+    });
+  }
+
   // If this is a zero-height (or zero-width) element that has visible border strokes
   // (a common CSS pattern for dotted/dashed leader lines: height:0 + border-bottom),
   // expand the frame to at least the stroke weight so Figma can render the stroke.
@@ -3812,7 +3860,8 @@ function countNodes(node) {
   return c;
 }
 
-async function renderTree(data) {
+async function renderTree(data, withHoverOpt) {
+  currentWithHover = (withHoverOpt !== undefined) ? !!withHoverOpt : (data.withHover ?? false);
   const startTime = Date.now();
   totalNodes = countNodes(data.root);
   renderedNodes = 0;
@@ -3873,7 +3922,7 @@ async function renderTree(data) {
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'import' && msg.data) {
     try {
-      await renderTree(msg.data);
+      await renderTree(msg.data, msg.withHover);
     } catch (e) {
       figma.ui.postMessage({ type: 'error', message: e.message || String(e) });
     }

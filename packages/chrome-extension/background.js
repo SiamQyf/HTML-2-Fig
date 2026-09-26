@@ -315,6 +315,50 @@ function installFrameMachinery(nonce) {
   }
 }
 
+// ── Capture Execution Pipeline ──────────────────────────────────────────────
+async function executeCaptureOnTab(tabId, withHover = false) {
+  // 1. Inject opentype and capture engine into ALL frames (including cross-origin iframes)
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId, allFrames: true },
+      files: ['opentype.min.js', 'capture.js']
+    });
+  } catch (err) {
+    // Fallback to top frame if allFrames is blocked
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      files: ['opentype.min.js', 'capture.js']
+    });
+  }
+
+  // 2. Install frame messaging machinery across all frames
+  const nonce = 'h2f-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId, allFrames: true },
+      func: installFrameMachinery,
+      args: [nonce]
+    });
+  } catch (err) {
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      func: installFrameMachinery,
+      args: [nonce]
+    });
+  }
+
+  // 3. Trigger capture ONLY on the top frame with withHover setting
+  await chrome.scripting.executeScript({
+    target: { tabId: tabId },
+    func: (optWithHover) => {
+      if (window.html2Fig && window.html2Fig.startCapture) {
+        window.html2Fig.startCapture({ withHover: optWithHover });
+      }
+    },
+    args: [withHover]
+  });
+}
+
 // ── Toolbar Click Handler ───────────────────────────────────────────────────
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id || isRestrictedUrl(tab.url)) {
@@ -323,52 +367,35 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 
   try {
-    // 1. Inject opentype and capture engine into ALL frames (including cross-origin iframes)
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id, allFrames: true },
-        files: ['opentype.min.js', 'capture.js']
-      });
-    } catch (err) {
-      // Fallback to top frame if allFrames is blocked
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['opentype.min.js', 'capture.js']
-      });
-    }
-
-    // 2. Install frame messaging machinery across all frames
-    const nonce = 'h2f-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id, allFrames: true },
-        func: installFrameMachinery,
-        args: [nonce]
-      });
-    } catch (err) {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: installFrameMachinery,
-        args: [nonce]
-      });
-    }
-
-    // 3. Trigger capture ONLY on the top frame
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => {
-        if (window.html2Fig && window.html2Fig.startCapture) {
-          window.html2Fig.startCapture();
-        }
-      }
-    });
+    await executeCaptureOnTab(tab.id);
   } catch (err) {
     console.error('[HTML-2-Fig] Failed to run capture pipeline:', err);
   }
 });
 
-// ── Background image / font fetchers (bypass CORS) ───────────────────────────
+// ── Background image / font fetchers & popup capture trigger ─────────────────
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === 'START_CAPTURE') {
+    (async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab || !tab.id) {
+          sendResponse({ success: false, error: 'No active tab found' });
+          return;
+        }
+        if (isRestrictedUrl(tab.url)) {
+          sendResponse({ success: false, error: 'Cannot capture restricted browser internal page' });
+          return;
+        }
+        await executeCaptureOnTab(tab.id, !!request.withHover);
+        sendResponse({ success: true });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || String(err) });
+      }
+    })();
+    return true;
+  }
+
   if (request.type === 'FETCH_IMAGE') {
     fetch(request.url)
       .then(res => {

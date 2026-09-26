@@ -208,6 +208,9 @@
         overflow: visible !important;
         transform: none !important;
       }
+      footer.footer-sticky, .footer-sticky, footer[class*="footer-sticky"], [class*="footer-sticky"], [class*="sticky-footer"] {
+        position: static !important;
+      }
       .words, .word, .line, .letter, .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text {
         visibility: visible !important;
         opacity: 1 !important;
@@ -259,6 +262,37 @@
     `;
     document.head.appendChild(animKiller);
     cleanupTasks.push(() => { try { animKiller.remove(); } catch {} });
+
+    // Neutralize sticky footers and bottom-sticky elements
+    // In CSS, position: sticky with bottom forces the footer to stick to the bottom of the viewport
+    // at scrollY = 0, causing clientRect.y to be inside the viewport (e.g. ~290px behind the top hero) instead of at the end of the document.
+    const stickyBottoms = [];
+    try {
+      const candidates = document.querySelectorAll('footer, [class*="footer"], [class*="sticky"], [id*="footer"]');
+      for (const el of candidates) {
+        try {
+          const cs = window.getComputedStyle(el);
+          if ((cs.position === 'sticky' || cs.position === '-webkit-sticky') && cs.bottom !== 'auto') {
+            const savedPos = el.style.position;
+            el.style.setProperty('position', 'static', 'important');
+            stickyBottoms.push({ el, savedPos });
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    if (stickyBottoms.length > 0) {
+      cleanupTasks.push(() => {
+        for (const item of stickyBottoms) {
+          try {
+            if (item.savedPos) {
+              item.el.style.position = item.savedPos;
+            } else {
+              item.el.style.removeProperty('position');
+            }
+          } catch (e) {}
+        }
+      });
+    }
 
     // Clean up Odometer and other animated counters to prevent overlapping number ribbons
     try {
@@ -383,6 +417,96 @@
       }
     } catch (e) {}
 
+    // Neutralize and evaluate Skrollr scroll-driven animations to their in-view / active state.
+    // In skrollr-animated websites, elements with data-*-top (e.g. data-bottom-top="width:10%", data-center-top="width:100%;")
+    // reset back to their initial offscreen state when scrolled back to (0,0).
+    // Freezing them at their in-view / active keyframe prevents shrunken background containers and hidden content.
+    try {
+      const skr = window.skrollr && window.skrollr.get ? window.skrollr.get() : null;
+      if (skr && typeof skr.destroy === 'function') {
+        try { skr.destroy(); } catch {}
+      }
+
+      function parseSkrollrCss(cssText) {
+        const rules = [];
+        const parts = cssText.split(';');
+        for (const p of parts) {
+          const colon = p.indexOf(':');
+          if (colon !== -1) {
+            const prop = p.slice(0, colon).trim();
+            const val = p.slice(colon + 1).trim();
+            if (prop && val) rules.push({ prop, val });
+          }
+        }
+        return rules;
+      }
+
+      function interpolateSkrollrValue(val1, val2, progress = 0.5) {
+        const nums1 = val1.match(/[-+]?[\d.]+/g);
+        const nums2 = val2.match(/[-+]?[\d.]+/g);
+        if (nums1 && nums2 && nums1.length === nums2.length) {
+          let i = 0;
+          return val1.replace(/[-+]?[\d.]+/g, () => {
+            const n1 = parseFloat(nums1[i]);
+            const n2 = parseFloat(nums2[i]);
+            i++;
+            const mid = n1 + (n2 - n1) * progress;
+            return Number(mid.toFixed(2));
+          });
+        }
+        return progress >= 0.5 ? val2 : val1;
+      }
+
+      const skrollables = document.querySelectorAll('[data-bottom-top], [data-top-bottom], [data-center-top], [data-center], [data-center-center], [class*="skrollable"]');
+      for (const el of skrollables) {
+        let targetCss = el.getAttribute('data-center-center') ||
+                        el.getAttribute('data-center') ||
+                        el.getAttribute('data-center-top');
+
+        if (!targetCss) {
+          const startCss = el.getAttribute('data-bottom-top');
+          const endCss = el.getAttribute('data-top-bottom');
+          if (startCss && endCss) {
+            const startRules = parseSkrollrCss(startCss);
+            const endRules = parseSkrollrCss(endCss);
+            const midRules = [];
+            for (const sRule of startRules) {
+              const eRule = endRules.find(r => r.prop === sRule.prop);
+              if (eRule) {
+                midRules.push({ prop: sRule.prop, val: interpolateSkrollrValue(sRule.val, eRule.val, 0.5) });
+              } else {
+                midRules.push(sRule);
+              }
+            }
+            for (const eRule of endRules) {
+              if (!midRules.some(r => r.prop === eRule.prop)) {
+                midRules.push(eRule);
+              }
+            }
+            const savedCss = el.style.cssText;
+            for (const { prop, val } of midRules) {
+              el.style.setProperty(prop, val, 'important');
+            }
+            cleanupTasks.push(() => { el.style.cssText = savedCss; });
+            continue;
+          } else if (endCss) {
+            targetCss = endCss;
+          } else if (startCss) {
+            targetCss = startCss;
+          }
+        }
+
+        if (targetCss) {
+          const savedCss = el.style.cssText;
+          const rules = parseSkrollrCss(targetCss);
+          for (const { prop, val } of rules) {
+            el.style.setProperty(prop, val, 'important');
+          }
+          cleanupTasks.push(() => { el.style.cssText = savedCss; });
+        }
+      }
+    } catch (e) {}
+
     // Pause and normalize continuous marquee / ticker animations (e.g. .marquee-slide, [class*="marquee"], [class*="ticker"], .swiper-wrapper)
     // In continuous marquee tickers, animations continuously translate the wrapper by thousands of pixels,
     // causing text slides to scatter offscreen. Normalizing them ensures the marquee starts cleanly within the viewport.
@@ -390,8 +514,25 @@
       const marquees = document.querySelectorAll('.marquee-slide, [class*="marquee"], [class*="ticker"], .swiper-wrapper');
       for (const m of marquees) {
         const cls = (m.className && typeof m.className === 'string') ? m.className : '';
+        if (/rotate/i.test(cls)) continue;
+
         const cs = window.getComputedStyle(m);
         const hasTransform = cs.transform && cs.transform !== 'none';
+        if (hasTransform && cs.transform.includes('matrix')) {
+          const parts = cs.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+          if (parts) {
+            const vals = parts[1].split(',').map(parseFloat);
+            if (vals.length >= 4) {
+              const b = vals[1];
+              const c = vals[2];
+              if (Math.abs(b) > 0.01 || Math.abs(c) > 0.01) {
+                // Element is rotated/skewed, preserve its transform
+                continue;
+              }
+            }
+          }
+        }
+
         const isMarquee = /marquee|ticker|loop/i.test(cls) || (m.parentElement && /marquee|ticker|loop/i.test(m.parentElement.className || ''));
 
         if (isMarquee || (hasTransform && cs.display.includes('flex') && m.children.length >= 2)) {
@@ -1494,6 +1635,35 @@
     return false;
   }
 
+  function getFixedShiftY(el, styles) {
+    if (!el) return 0;
+    let fixedEl = el;
+    let fixedStyles = styles;
+    while (fixedEl && fixedStyles?.position !== 'fixed' && fixedEl !== document.body) {
+      fixedEl = fixedEl.parentElement;
+      if (fixedEl) {
+        try { fixedStyles = window.getComputedStyle(fixedEl); } catch { break; }
+      }
+    }
+
+    if (fixedEl && fixedStyles && fixedStyles.position === 'fixed') {
+      const b = fixedStyles.bottom;
+      const t = fixedStyles.top;
+      const cls = (fixedEl.className && typeof fixedEl.className === 'string') ? fixedEl.className : '';
+      const isAnchoredBottom = (b && b !== 'auto' && (t === 'auto' || parseFloat(b) < parseFloat(t))) ||
+        /blur-bottom|scroll-to-top|back-to-top|fixed-bottom/i.test(cls);
+
+      if (isAnchoredBottom) {
+        const docH = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0, window.innerHeight);
+        const fRect = fixedEl.getBoundingClientRect();
+        const bottomOffset = Math.max(0, window.innerHeight - fRect.bottom);
+        const targetY = docH - fRect.height - bottomOffset;
+        return targetY - fRect.y;
+      }
+    }
+    return 0;
+  }
+
   function isElementOrAncestorRotated(el) {
     let cur = el;
     while (cur && cur !== document.body && cur !== document.documentElement) {
@@ -2314,9 +2484,11 @@
         containingEl = getPositionedContainingBlock(el);
         if (containingEl && containingEl !== el) {
           const clientCbRect = containingEl.getBoundingClientRect();
-          const cbFixed = isElementOrAncestorFixed(containingEl, window.getComputedStyle(containingEl));
+          const containingElCs = window.getComputedStyle(containingEl);
+          const cbFixed = isElementOrAncestorFixed(containingEl, containingElCs);
+          const cbFixedShiftY = cbFixed ? getFixedShiftY(containingEl, containingElCs) : 0;
           const cbScrollX = cbFixed ? 0 : window.scrollX;
-          const cbScrollY = cbFixed ? 0 : window.scrollY;
+          const cbScrollY = (cbFixed ? 0 : window.scrollY) + cbFixedShiftY;
           baseRect = {
             x: clientCbRect.x + cbScrollX,
             y: clientCbRect.y + cbScrollY,
@@ -2549,8 +2721,9 @@
         const parentCs = window.getComputedStyle(el);
         const isFlex = parentCs.display && parentCs.display.includes('flex');
         const isFixed = isElementOrAncestorFixed(el, parentCs);
+        const fixedShiftY = isFixed ? getFixedShiftY(el, parentCs) : 0;
         const scrollX = isFixed ? 0 : window.scrollX;
-        const scrollY = isFixed ? 0 : window.scrollY;
+        const scrollY = (isFixed ? 0 : window.scrollY) + fixedShiftY;
 
         if (isFlex) {
           const isRow = !parentCs.flexDirection || parentCs.flexDirection.startsWith('row');
@@ -2950,7 +3123,7 @@
     return s;
   }
 
-  async function serializeNode(node, assets, fonts, parentStyles) {
+  async function serializeNode(node, assets, fonts, parentStyles, withHover = false) {
     if (captureTimedOut) return null;
     if (node.nodeType === TEXT_NODE) {
       if (node.parentElement) {
@@ -2994,6 +3167,9 @@
       r.detach();
       if (rect.width === 0 && rect.height === 0) return null;
       const isFixed = isElementOrAncestorFixed(node.parentElement, parentStyles);
+      const fixedShiftY = isFixed ? getFixedShiftY(node.parentElement, parentStyles) : 0;
+      const scrollY = (isFixed ? 0 : window.scrollY) + fixedShiftY;
+      const scrollX = isFixed ? 0 : window.scrollX;
 
       // If single line or small inline token (like '$', '13', 'Popular Package'), preserve exact position
       
@@ -3058,8 +3234,8 @@
             content: `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" fill="${hexColor}"${opAttr}><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: parentStyles || {},
             rect: {
-              x: rect.x + (isFixed ? 0 : window.scrollX) - diffX,
-              y: rect.y + (isFixed ? 0 : window.scrollY) - diffY,
+              x: rect.x + scrollX - diffX,
+              y: rect.y + scrollY - diffY,
               width: svgW,
               height: svgH
             }
@@ -3079,8 +3255,8 @@
               attributes: { src: dataUrl, alt: 'icon' },
               styles: { ...(parentStyles || {}), backgroundColor: 'transparent', backgroundImage: 'none' },
               rect: {
-                x: rect.x + (isFixed ? 0 : window.scrollX),
-                y: rect.y + (isFixed ? 0 : window.scrollY),
+                x: rect.x + scrollX,
+                y: rect.y + scrollY,
                 width: iconW,
                 height: iconH
               }
@@ -3118,8 +3294,8 @@
           id: getNodeId('text'),
           text: collapseWs(mainTextPart).trim(),
           rect: {
-            x: textR.x + (isFixed ? 0 : window.scrollX),
-            y: textR.y + (isFixed ? 0 : window.scrollY),
+            x: textR.x + scrollX,
+            y: textR.y + scrollY,
             width: Math.ceil(textR.width),
             height: Math.ceil(textR.height)
           },
@@ -3139,8 +3315,8 @@
             attributes: { src: dataUrl, alt: symbolPart },
             styles: { ...(parentStyles || {}), backgroundColor: 'transparent', backgroundImage: 'none' },
             rect: {
-              x: symbolR.x + (isFixed ? 0 : window.scrollX),
-              y: symbolR.y + (isFixed ? 0 : window.scrollY),
+              x: symbolR.x + scrollX,
+              y: symbolR.y + scrollY,
               width: iconW,
               height: iconH
             }
@@ -3171,8 +3347,8 @@
               textDecorationLine: 'none'
             },
             rect: {
-              x: rect.x + (isFixed ? 0 : window.scrollX),
-              y: rect.y + (isFixed ? 0 : window.scrollY),
+              x: rect.x + scrollX,
+              y: rect.y + scrollY,
               width: Math.ceil(rect.width),
               height: Math.ceil(rect.height)
             },
@@ -3194,7 +3370,7 @@
       // 3. The parent element does not have multiple inline child nodes (no inline spans/links to interleave with)
       if (clientRects.length <= 1 || isRotated || !parentHasMultipleChildren) {
         let text = formatInlineText(rawText);
-        let textX = rect.x + (isFixed ? 0 : window.scrollX);
+        let textX = rect.x + scrollX;
         let textW = Math.ceil(rect.width);
         let textH = Math.ceil(rect.height);
         let unrotW = undefined;
@@ -3222,7 +3398,7 @@
             const pContentW = pRect.width - padL - padR - borderL - borderR;
             if (pContentW > textW) {
               textW = Math.ceil(pContentW);
-              textX = pRect.x + padL + borderL + (isFixed ? 0 : window.scrollX);
+              textX = pRect.x + padL + borderL + scrollX;
             }
           } catch (e) {}
         }
@@ -3232,7 +3408,7 @@
           if (isFirstTextInQ && !text.startsWith(qMarks.open)) {
             text = qMarks.open + text;
             const parentRect = node.parentElement.getBoundingClientRect();
-            const parentLeft = parentRect.x + (isFixed ? 0 : window.scrollX);
+            const parentLeft = parentRect.x + scrollX;
             if (parentLeft < textX) {
               textW += Math.ceil(textX - parentLeft);
               textX = parentLeft;
@@ -3241,7 +3417,7 @@
           if (isLastTextInQ && !text.endsWith(qMarks.close)) {
             text = text + qMarks.close;
             const parentRect = node.parentElement.getBoundingClientRect();
-            const parentRight = parentRect.right + (isFixed ? 0 : window.scrollX);
+            const parentRight = parentRect.right + scrollX;
             if (parentRight > textX + textW) {
               textW = Math.ceil(parentRight - textX);
             }
@@ -3254,7 +3430,7 @@
           text,
           rect: {
             x: textX,
-            y: rect.y + (isFixed ? 0 : window.scrollY),
+            y: rect.y + scrollY,
             width: textW,
             height: textH
           },
@@ -3291,7 +3467,7 @@
           r.setEnd(node, i);
           const lineBox = r.getBoundingClientRect();
           let lineText = collapseWs(rawText.slice(lineStart, i)).trim();
-          let lineX = lineBox.x + (isFixed ? 0 : window.scrollX);
+          let lineX = lineBox.x + scrollX;
           let lineW = Math.ceil(lineBox.width);
 
           if (segments.length === 0 && isFirstTextInQ) {
@@ -3299,7 +3475,7 @@
             if (!lineText.startsWith(qMarks.open)) {
               lineText = qMarks.open + lineText;
               const parentRect = node.parentElement.getBoundingClientRect();
-              const parentLeft = parentRect.x + (isFixed ? 0 : window.scrollX);
+              const parentLeft = parentRect.x + scrollX;
               if (parentLeft < lineX) {
                 lineW += Math.ceil(lineX - parentLeft);
                 lineX = parentLeft;
@@ -3314,7 +3490,7 @@
               text: lineText,
               rect: {
                 x: lineX,
-                y: lineBox.y + (isFixed ? 0 : window.scrollY),
+                y: lineBox.y + scrollY,
                 width: lineW,
                 height: Math.ceil(lineBox.height)
               },
@@ -3332,7 +3508,7 @@
       r.setEnd(node, len);
       const finalBox = r.getBoundingClientRect();
       let finalLineText = collapseWs(rawText.slice(lineStart)).trim();
-      let finalX = finalBox.x + (isFixed ? 0 : window.scrollX);
+      let finalX = finalBox.x + scrollX;
       let finalW = Math.ceil(finalBox.width);
 
       if (segments.length === 0 && isFirstTextInQ) {
@@ -3340,7 +3516,7 @@
         if (!finalLineText.startsWith(qMarks.open)) {
           finalLineText = qMarks.open + finalLineText;
           const parentRect = node.parentElement.getBoundingClientRect();
-          const parentLeft = parentRect.x + (isFixed ? 0 : window.scrollX);
+          const parentLeft = parentRect.x + scrollX;
           if (parentLeft < finalX) {
             finalW += Math.ceil(finalX - parentLeft);
             finalX = parentLeft;
@@ -3353,7 +3529,7 @@
         if (!finalLineText.endsWith(qMarks.close)) {
           finalLineText = finalLineText + qMarks.close;
           const parentRect = node.parentElement.getBoundingClientRect();
-          const parentRight = parentRect.right + (isFixed ? 0 : window.scrollX);
+          const parentRight = parentRect.right + scrollX;
           if (parentRight > finalX + finalW) {
             finalW = Math.ceil(parentRight - finalX);
           }
@@ -3367,7 +3543,7 @@
           text: finalLineText,
           rect: {
             x: finalX,
-            y: finalBox.y + (isFixed ? 0 : window.scrollY),
+            y: finalBox.y + scrollY,
             width: finalW,
             height: Math.ceil(finalBox.height)
           },
@@ -3403,8 +3579,8 @@
             textDecorationLine: 'none'
           },
           rect: {
-            x: rect.x + (isFixed ? 0 : window.scrollX),
-            y: rect.y + (isFixed ? 0 : window.scrollY),
+            x: rect.x + scrollX,
+            y: rect.y + scrollY,
             width: Math.ceil(rect.width),
             height: Math.ceil(rect.height)
           },
@@ -3417,8 +3593,8 @@
         id: getNodeId('text'),
         text: formatInlineText(rawText),
         rect: {
-          x: rect.x + (isFixed ? 0 : window.scrollX),
-          y: rect.y + (isFixed ? 0 : window.scrollY),
+          x: rect.x + scrollX,
+          y: rect.y + scrollY,
           width: Math.ceil(rect.width),
           height: Math.ceil(rect.height)
         },
@@ -3434,18 +3610,46 @@
 
     const styles = getElementStyles(el);
     let isHidden = (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02);
-    
+
+    // Detect hover-related elements
+    const isHoverReveal = (el.className && typeof el.className === 'string' && el.className.includes('hover-reveal')) ||
+                          (el.closest && el.closest('.hover-reveal'));
+    const isHoverBtnIcon = (el.classList && el.classList.contains('btn-icon') && parseInt(styles.order || '0', 10) < 0) ||
+                           (el.closest && el.closest('.btn-hover-animation-switch') && parseInt(styles.order || '0', 10) < 0);
+    const isHoverSpecific = el.classList && (
+      el.classList.contains('hover-content') ||
+      el.classList.contains('hover-overlay') ||
+      el.classList.contains('hover-show') ||
+      el.classList.contains('show-on-hover') ||
+      el.classList.contains('hover-item') ||
+      el.classList.contains('on-hover')
+    ) && (isHidden || styles.pointerEvents === 'none');
+
+    const isHoverItem = !!(isHoverReveal || isHoverBtnIcon || isHoverSpecific);
+
+    if (!withHover && isHoverItem) {
+      return null;
+    }
+
     // Exception for scroll-animated elements and background graphics
     if (isHidden && styles.display !== 'none') {
       const cls = (el.className && typeof el.className === 'string') ? el.className : '';
-      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split|highlight-separator|anime/i.test(cls) ||
-        el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') ||
-        el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"], [data-shadow-animation], .highlight-separator, [data-anime]');
-      
-      if (isAnimTarget) {
-        styles.visibility = 'visible';
-        styles.opacity = '1';
-        isHidden = false;
+      const isHoverRelated = !withHover && (
+        cls.includes('hover') ||
+        (el.closest && el.closest('.hover-reveal, .reveal-item-hover, .hover-box, .btn-hover-animation-switch, [class*="hover"]'))
+      );
+
+      if (!isHoverRelated) {
+        const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|split|highlight-separator|anime/i.test(cls) ||
+          (!cls.includes('hover') && /reveal/i.test(cls)) ||
+          el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') ||
+          el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [data-shadow-animation], .highlight-separator, [data-anime]');
+        
+        if (isAnimTarget) {
+          styles.visibility = 'visible';
+          styles.opacity = '1';
+          isHidden = false;
+        }
       }
     }
 
@@ -3578,12 +3782,13 @@
     }
 
     const isFixed = isElementOrAncestorFixed(el, styles);
+    const fixedShiftY = isFixed ? getFixedShiftY(el, styles) : 0;
     
-    // For position: fixed elements (like floating scroll-to-top buttons in bottom-right),
+    // For position: fixed elements (like floating scroll-to-top buttons in bottom-right or progressive blur at bottom),
     // when document is scrolled to top (0,0), clientRect.y is their exact viewport position.
-    // If anchored to bottom, ensure it renders visibly within the full document frame.
+    // If anchored to bottom, ensure it renders visibly at the bottom of the full document frame.
     let posX = clientRect.x + (isFixed ? 0 : window.scrollX);
-    let posY = clientRect.y + (isFixed ? 0 : window.scrollY);
+    let posY = clientRect.y + (isFixed ? 0 : window.scrollY) + fixedShiftY;
 
     const docRect = {
       x: posX,
@@ -3847,7 +4052,7 @@
     if (!svgContent) {
       const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
       for (const child of sourceNodes) {
-        const sChild = await serializeNode(child, assets, fonts, styles);
+        const sChild = await serializeNode(child, assets, fonts, styles, withHover);
         if (sChild) {
           childNodes.push(sChild);
           
@@ -4086,7 +4291,8 @@
       content: svgContent || undefined,
       svgTexts: svgTexts || undefined,
       placeholderUrl: placeholderUrl || undefined,
-      pseudoElementNodes
+      pseudoElementNodes,
+      isHoverItem: isHoverItem ? true : undefined
     };
   }
 
@@ -4114,11 +4320,15 @@
     }
   }
 
-  async function captureRaw() {
+  async function captureRaw(options = {}) {
     let restorePage = null;
     let savedImageAttrs = [];
     const CAPTURE_TIMEOUT = 90000;
     const captureTimer = setTimeout(() => { captureTimedOut = true; }, CAPTURE_TIMEOUT);
+
+    const withHover = (typeof options === 'object' && options !== null && 'withHover' in options)
+      ? !!options.withHover
+      : true;
 
     try {
       await initFontMap();
@@ -4145,7 +4355,7 @@
 
       // Target document.body directly to avoid double nesting HTML + BODY frames
       const targetElement = document.body || document.documentElement;
-      const root = await serializeNode(targetElement, assets, fonts, null);
+      const root = await serializeNode(targetElement, assets, fonts, null, withHover);
 
       if (targetElement === document.body && document.documentElement) {
         const htmlStyles = window.getComputedStyle(document.documentElement);
@@ -4182,6 +4392,7 @@
       return {
         version: 2,
         generator: 'HTML-2-Fig',
+        withHover: !!withHover,
         documentTitle: document.title || 'Web Import',
         documentRect: {
           x: 0,
@@ -4210,16 +4421,20 @@
     }
   }
 
-  async function startCapture() {
+  async function startCapture(options = {}) {
     if (window.__html2FigRunning) return;
     window.__html2FigRunning = true;
+
+    const withHover = (typeof options === 'object' && options !== null && 'withHover' in options)
+      ? !!options.withHover
+      : true;
 
     let toast = null;
     try {
       try { await navigator.clipboard.writeText(' '); } catch (e) {}
       toast = showToast('⏳ Pre-rendering full webpage…');
 
-      let payload = await captureRaw();
+      let payload = await captureRaw({ withHover });
 
       // Splice all iframes (same-origin and cross-origin) into the captured tree
       if (typeof window.__e2fSpliceFrames === 'function') {
