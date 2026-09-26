@@ -102,6 +102,28 @@
     document.head.appendChild(style);
     cleanupTasks.push(() => { try { style.remove(); } catch {} });
 
+    // Freeze and reset all Swiper carousels so they don't auto-advance or trigger mid-scroll transitions
+    function freezeAndResetSwipers() {
+      try {
+        const swipers = document.querySelectorAll('.swiper, [class*="swiper-container"]');
+        for (const el of swipers) {
+          const s = el.swiper;
+          if (s) {
+            try {
+              s.autoplay?.stop();
+              if (s.params?.autoplay) s.params.autoplay = false;
+              if (typeof s.slideToLoop === 'function' && s.params?.loop) {
+                s.slideToLoop(0, 0);
+              } else if (typeof s.slideTo === 'function') {
+                s.slideTo(0, 0);
+              }
+              s.update();
+            } catch (e) {}
+          }
+        }
+      } catch (e) {}
+    }
+    freezeAndResetSwipers();
 
     // Neutralize GSAP ScrollSmoother — save state for restoration
     try {
@@ -211,7 +233,7 @@
       footer.footer-sticky, .footer-sticky, footer[class*="footer-sticky"], [class*="footer-sticky"], [class*="sticky-footer"] {
         position: static !important;
       }
-      .words, .word, .line, .letter, .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text {
+      .words, .word, .line, .letter, .chars, .char, .splitting, .splitting *, .anime-text, .anime-text *, [data-fancy-text], [data-fancy-text] *, [data-splitting], [data-splitting] *, .swiper-parallax-fancy-text, .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text {
         visibility: visible !important;
         opacity: 1 !important;
         transform: none !important;
@@ -312,7 +334,7 @@
     const savedInlineStyles = [];
     try {
       const animatedEls = document.querySelectorAll(
-        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter, .rs-rotate, [class*="rs-rotate"], [class*="tp-loop-wrap"], [data-shadow-animation], .highlight-separator'
+        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter, .chars, .char, .splitting, .anime-text, [data-fancy-text], [data-splitting], .swiper-parallax-fancy-text, .rs-rotate, [class*="rs-rotate"], [class*="tp-loop-wrap"], [data-shadow-animation], .highlight-separator'
       );
       for (const el of animatedEls) {
         const saved = { el, v: el.style.visibility, o: el.style.opacity, t: el.style.transform, c: el.style.clipPath };
@@ -320,7 +342,7 @@
         if (el.style.visibility === 'hidden') el.style.visibility = 'visible';
         if (el.style.opacity === '0' || (parseFloat(el.style.opacity) || 0) < 0.05) el.style.opacity = '1';
         if (el.style.transform) {
-          if (el.style.transform.includes('translate') || el.style.transform.includes('scale(100') || el.style.transform.includes('scale(100,') || el.style.transform.includes('matrix')) {
+          if (el.style.transform.includes('translate') || el.style.transform.includes('rotate') || el.style.transform.includes('scale(100') || el.style.transform.includes('scale(100,') || el.style.transform.includes('matrix')) {
             el.style.transform = 'none';
           }
         }
@@ -332,7 +354,11 @@
           if (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05) {
             desc.style.opacity = '1';
           }
-          if (desc.style.transform) desc.style.transform = 'none';
+          if (desc.style.transform) {
+            if (desc.style.transform.includes('translate') || desc.style.transform.includes('rotate') || desc.style.transform.includes('scale(100') || desc.style.transform.includes('scale(100,') || desc.style.transform.includes('matrix')) {
+              desc.style.transform = 'none';
+            }
+          }
         }
       }
     } catch {}
@@ -381,6 +407,9 @@
 
     window.scrollTo(0, 0);
     await new Promise(r => setTimeout(r, 200));
+
+    // Ensure all Swipers remain frozen and reset to slide 0 after scrolling completes
+    freezeAndResetSwipers();
 
     // Fast-forward any ScrollTrigger / GSAP animations triggered during scrolling
     try {
@@ -535,15 +564,22 @@
 
         const isMarquee = /marquee|ticker|loop/i.test(cls) || (m.parentElement && /marquee|ticker|loop/i.test(m.parentElement.className || ''));
 
-        if (isMarquee || (hasTransform && cs.display.includes('flex') && m.children.length >= 2)) {
-          const parent = m.parentElement;
-          if (parent && parent.swiper) {
-            try {
-              parent.swiper.autoplay?.stop();
-              parent.swiper.setTranslate(0);
-            } catch (e) {}
-          }
+        const parent = m.parentElement;
+        if (parent && parent.swiper) {
+          try {
+            parent.swiper.autoplay?.stop();
+            if (parent.swiper.params?.autoplay) parent.swiper.params.autoplay = false;
+            if (typeof parent.swiper.slideToLoop === 'function' && parent.swiper.params?.loop) {
+              parent.swiper.slideToLoop(0, 0);
+            } else if (typeof parent.swiper.slideTo === 'function') {
+              parent.swiper.slideTo(0, 0);
+            }
+            parent.swiper.update();
+          } catch (e) {}
+          continue;
+        }
 
+        if (isMarquee || (hasTransform && cs.display.includes('flex') && m.children.length >= 2)) {
           const savedTransform = m.style.transform;
           const savedTransition = m.style.transition;
           const savedAnimation = m.style.animation;
@@ -3640,15 +3676,18 @@
       );
 
       if (!isHoverRelated) {
-        const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|split|highlight-separator|anime/i.test(cls) ||
+        const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|split|highlight-separator|anime|words|word|chars|char|fancy-text/i.test(cls) ||
           (!cls.includes('hover') && /reveal/i.test(cls)) ||
-          el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') ||
-          el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [data-shadow-animation], .highlight-separator, [data-anime]');
+          el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') ||
+          el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [data-shadow-animation], .highlight-separator, [data-anime], [data-fancy-text], [data-splitting], .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text');
         
         if (isAnimTarget) {
           styles.visibility = 'visible';
           styles.opacity = '1';
           isHidden = false;
+          if (styles.transform && (styles.transform.includes('rotate') || styles.transform.includes('matrix'))) {
+            styles.transform = 'none';
+          }
         }
       }
     }
@@ -3657,9 +3696,9 @@
 
     // Filter out visually-hidden / screen-reader-only elements (.sr-only, .visually-hidden)
     const cls = (el.className && typeof el.className === 'string') ? el.className : '';
-    const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split|highlight-separator|anime/i.test(cls) ||
-      el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') ||
-      el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"], [data-shadow-animation], .highlight-separator, [data-anime]');
+    const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split|highlight-separator|anime|words|word|chars|char|fancy-text/i.test(cls) ||
+      el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') ||
+      el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"], [data-shadow-animation], .highlight-separator, [data-anime], [data-fancy-text], [data-splitting], .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text');
 
     const isClipHidden = !isAnimTarget && (
       (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
