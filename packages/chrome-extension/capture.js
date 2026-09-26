@@ -234,6 +234,14 @@
         opacity: 1 !important;
         visibility: visible !important;
       }
+      body .pxn-fade, body .pxn-split-text, body .pxn-chars-up,
+      body .pxn-img-reveal, body .pxn-char,
+      body [class*="pxn-fade"], body [class*="pxn-chars"], body [class*="pxn-split"],
+      .pxn-h2_service_item .service_image,
+      .pxn-h2_process_content_wrapper .process_images img {
+        visibility: visible !important;
+        opacity: 1 !important;
+      }
       #preloader, .preloader, .loader-wrapper, #loading, .page-loader, .site-preloader, .animation-preloader, .loader-section {
         display: none !important;
         visibility: hidden !important;
@@ -262,7 +270,7 @@
     const savedInlineStyles = [];
     try {
       const animatedEls = document.querySelectorAll(
-        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter'
+        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter, .rs-rotate, [class*="rs-rotate"], [class*="tp-loop-wrap"]'
       );
       for (const el of animatedEls) {
         const saved = { el, v: el.style.visibility, o: el.style.opacity, t: el.style.transform, c: el.style.clipPath };
@@ -331,6 +339,148 @@
 
     window.scrollTo(0, 0);
     await new Promise(r => setTimeout(r, 200));
+
+    // Fast-forward any ScrollTrigger / GSAP animations triggered during scrolling
+    try {
+      if (window.ScrollTrigger) {
+        window.ScrollTrigger.getAll().forEach(st => {
+          try {
+            if (st.animation) st.animation.progress(1);
+            if (typeof st.vars?.onEnter === 'function') st.vars.onEnter();
+          } catch (e) {}
+        });
+      }
+      if (window.gsap) {
+        window.gsap.globalTimeline.getChildren().forEach(tween => {
+          try { tween.progress(1); } catch {}
+        });
+      }
+    } catch (e) {}
+
+    // Neutralize sticky-scroll runway containers (e.g. .stack-box, pin-spacers, stacked cards)
+    // where a tall parent (e.g. 300vh) exists only to scroll through sticky/pinned cards.
+    // In static capture, only the active/first state is needed; collapsing the runway eliminates massive blank gaps.
+    try {
+      const stickyRunwayParents = new Set();
+
+      // 1. Explicit classes for stack / pinned sections
+      const candidates = document.querySelectorAll(
+        '.stack-box:not([class*="contain"]):not([class*="item"]), .stack-card:not([class*="contain"]):not([class*="item"]), .pin-spacer, [class*="pin-spacer"], [data-pin], [data-sticky-scroll]'
+      );
+      candidates.forEach(el => {
+        const cs = window.getComputedStyle(el);
+        if (cs.position !== 'sticky') stickyRunwayParents.add(el);
+      });
+
+      // 2. Generic detection: any container whose height is significantly larger than its sticky child
+      const allEls = document.querySelectorAll('*');
+      for (const el of allEls) {
+        const cs = window.getComputedStyle(el);
+        if (cs.position === 'sticky') {
+          let parent = el.parentElement;
+          while (parent && parent !== document.body && parent !== document.documentElement) {
+            const pcs = window.getComputedStyle(parent);
+            if (pcs.position !== 'sticky') {
+              const pH = parent.getBoundingClientRect().height;
+              const eH = el.getBoundingClientRect().height;
+              if (pH >= eH * 1.3 && eH > 100) {
+                const children = Array.from(parent.children);
+                if (children.length === 1) {
+                  stickyRunwayParents.add(parent);
+                } else {
+                  const inFlowChildren = children.filter(c => {
+                    const ccs = window.getComputedStyle(c);
+                    return ccs.position !== 'absolute' && ccs.position !== 'fixed' && c.getBoundingClientRect().height > 20;
+                  });
+                  if (inFlowChildren.length <= 1) {
+                    stickyRunwayParents.add(parent);
+                  }
+                }
+              }
+              break;
+            }
+            parent = parent.parentElement;
+          }
+        }
+      }
+
+      for (const box of stickyRunwayParents) {
+        const bcs = window.getComputedStyle(box);
+        if (bcs.position === 'sticky') continue;
+        if (box.classList.contains('stack-box-contain') || (box.className && String(box.className).includes('-contain'))) continue;
+
+        const contain = box.querySelector('.stack-box-contain, [class*="contain"], [class*="sticky"]') || 
+          Array.from(box.children).find(c => window.getComputedStyle(c).position === 'sticky') || 
+          box.firstElementChild;
+        
+        if (contain && contain !== box) {
+          const cRect = contain.getBoundingClientRect();
+          const targetH = Math.max(1, Math.round(cRect.height));
+          if (targetH <= 50) continue;
+
+          const savedH = box.style.height;
+          const savedMinH = box.style.minHeight;
+          const savedMaxH = box.style.maxHeight;
+          const savedPb = box.style.paddingBottom;
+
+          box.style.setProperty('height', targetH + 'px', 'important');
+          box.style.setProperty('min-height', '0px', 'important');
+          box.style.setProperty('max-height', 'none', 'important');
+          if (box.classList.contains('pin-spacer') || (box.className && String(box.className).includes('pin-spacer'))) {
+            box.style.setProperty('padding-bottom', '0px', 'important');
+          }
+
+          cleanupTasks.push(() => {
+            box.style.height = savedH;
+            box.style.minHeight = savedMinH;
+            box.style.maxHeight = savedMaxH;
+            box.style.paddingBottom = savedPb;
+          });
+
+          // Detect stacked sibling items (e.g. .stack-item or identical absolute sibling cards)
+          // Ensure we only select top-level sibling cards, NEVER nested child wrappers like .stack-item-wrapper!
+          let rawItems = Array.from(box.querySelectorAll('.stack-item:not([class*="-wrapper"]):not([class*="-inner"]), [class*="card-item"]'));
+          let items = rawItems.filter(item => !rawItems.some(other => other !== item && other.contains(item)));
+
+          if (items.length <= 1 && contain) {
+            const absChildren = Array.from(contain.children).filter(c => {
+              const ccs = window.getComputedStyle(c);
+              const cr = c.getBoundingClientRect();
+              return ccs.position === 'absolute' && cr.width >= cRect.width * 0.7 && cr.height >= cRect.height * 0.7;
+            });
+            if (absChildren.length > 1) {
+              items = absChildren;
+            }
+          }
+
+          if (items.length > 0) {
+            const primaryItem = items[0];
+            const savedItemH = primaryItem.style.height;
+            const savedItemMinH = primaryItem.style.minHeight;
+            const savedItemMaxH = primaryItem.style.maxHeight;
+
+            primaryItem.style.setProperty('height', targetH + 'px', 'important');
+            primaryItem.style.setProperty('min-height', targetH + 'px', 'important');
+            primaryItem.style.setProperty('max-height', 'none', 'important');
+
+            cleanupTasks.push(() => {
+              primaryItem.style.height = savedItemH;
+              primaryItem.style.minHeight = savedItemMinH;
+              primaryItem.style.maxHeight = savedItemMaxH;
+            });
+
+            for (let i = 1; i < items.length; i++) {
+              const item = items[i];
+              const savedDisplay = item.style.display;
+              item.style.setProperty('display', 'none', 'important');
+              cleanupTasks.push(() => {
+                item.style.display = savedDisplay;
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {}
 
     // Ensure all web fonts are fully downloaded before computing visual metrics
     try {
@@ -741,6 +891,22 @@
         styles[prop] = convertColors(val);
       }
     }
+
+    if (cs.backgroundImage && cs.backgroundImage !== 'none') {
+      styles.backgroundImage = cs.backgroundImage;
+      styles.backgroundRepeat = cs.backgroundRepeat;
+      styles.backgroundSize = cs.backgroundSize;
+      styles.backgroundPosition = cs.backgroundPosition;
+      styles.backgroundPositionX = cs.backgroundPositionX;
+      styles.backgroundPositionY = cs.backgroundPositionY;
+    }
+
+    if ((cs.maskImage && cs.maskImage !== 'none') || (cs.webkitMaskImage && cs.webkitMaskImage !== 'none')) {
+      if (cs.maskRepeat) styles.maskRepeat = cs.maskRepeat;
+      if (cs.webkitMaskRepeat) styles.webkitMaskRepeat = cs.webkitMaskRepeat;
+      if (cs.maskSize) styles.maskSize = cs.maskSize;
+      if (cs.webkitMaskSize) styles.webkitMaskSize = cs.webkitMaskSize;
+    }
     styles.fontFamily = cs.fontFamily;
     styles.fontSize = cs.fontSize;
     styles.fontStyle = cs.fontStyle;
@@ -1070,7 +1236,39 @@
       const path = font.getPath(char, 0, baselineY, size);
       const bbox = path.getBoundingBox();
       if (!bbox || (bbox.x1 === 0 && bbox.x2 === 0 && bbox.y1 === 0 && bbox.y2 === 0)) return null;
-      return { svgPath: path.toSVG(), bbox };
+
+      // Convert path commands to cubic bezier curves (C) because Figma's SVG engine does not properly
+      // interpolate quadratic bezier curves (Q) used by TrueType fonts, causing curves (like hearts, icons)
+      // to render as faceted straight-line polygons.
+      const r3 = v => Math.round(v * 1000) / 1000;
+      let d = '';
+      let curX = 0, curY = 0;
+      let startX = 0, startY = 0;
+      for (const cmd of path.commands) {
+        if (cmd.type === 'M') {
+          curX = cmd.x; curY = cmd.y;
+          startX = curX; startY = curY;
+          d += `M${r3(curX)} ${r3(curY)}`;
+        } else if (cmd.type === 'L') {
+          curX = cmd.x; curY = cmd.y;
+          d += `L${r3(curX)} ${r3(curY)}`;
+        } else if (cmd.type === 'C') {
+          d += `C${r3(cmd.x1)} ${r3(cmd.y1)} ${r3(cmd.x2)} ${r3(cmd.y2)} ${r3(cmd.x)} ${r3(cmd.y)}`;
+          curX = cmd.x; curY = cmd.y;
+        } else if (cmd.type === 'Q') {
+          const cx1 = curX + (2 / 3) * (cmd.x1 - curX);
+          const cy1 = curY + (2 / 3) * (cmd.y1 - curY);
+          const cx2 = cmd.x + (2 / 3) * (cmd.x1 - cmd.x);
+          const cy2 = cmd.y + (2 / 3) * (cmd.y1 - cmd.y);
+          d += `C${r3(cx1)} ${r3(cy1)} ${r3(cx2)} ${r3(cy2)} ${r3(cmd.x)} ${r3(cmd.y)}`;
+          curX = cmd.x; curY = cmd.y;
+        } else if (cmd.type === 'Z') {
+          d += 'Z';
+          curX = startX; curY = startY;
+        }
+      }
+
+      return { svgPath: `<path d="${d}"/>`, bbox };
     } catch {
       return null;
     }
@@ -1142,6 +1340,39 @@
     while (cur && cur !== document.body && cur !== document.documentElement) {
       try {
         if (window.getComputedStyle(cur).position === 'fixed') return true;
+      } catch {}
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
+  function isElementOrAncestorRotated(el) {
+    let cur = el;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      try {
+        const cs = window.getComputedStyle(cur);
+        const tf = cs.transform;
+        if (tf && tf !== 'none') {
+          const parts = tf.match(/matrix(?:3d)?\(([^)]+)\)/);
+          if (parts) {
+            const vals = parts[1].split(',').map(s => parseFloat(s.trim()));
+            if (vals.length >= 16) {
+              if (Math.abs(vals[1]) > 0.01 || Math.abs(vals[4]) > 0.01 || Math.abs(vals[2]) > 0.01 || Math.abs(vals[6]) > 0.01) {
+                return true;
+              }
+            } else if (vals.length >= 4) {
+              if (Math.abs(vals[1]) > 0.01 || Math.abs(vals[2]) > 0.01) {
+                return true;
+              }
+            }
+          } else if (tf.includes('rotate')) {
+            return true;
+          }
+        }
+        const rot = cs.rotate;
+        if (rot && rot !== 'none' && rot !== '0deg' && rot !== '0rad' && rot !== '0turn') {
+          return true;
+        }
       } catch {}
       cur = cur.parentElement;
     }
@@ -2174,10 +2405,26 @@
           const colGap = parseFloat(parentCs.columnGap || parentCs.gap) || 0;
           const rowGap = parseFloat(parentCs.rowGap || parentCs.gap) || 0;
 
-          const items = Array.from(el.children).map((child, idx) => {
-            const cCs = window.getComputedStyle(child);
-            const cOrder = parseInt(cCs.order, 10) || 0;
-            return { isPseudo: false, order: cOrder, sourceIndex: idx, rect: child.getBoundingClientRect() };
+          const items = [];
+          Array.from(el.childNodes).forEach((child, idx) => {
+            if (child.nodeType === 1 /* Element */) {
+              const cCs = window.getComputedStyle(child);
+              if (cCs.display === 'none' || cCs.position === 'absolute' || cCs.position === 'fixed') return;
+              const cOrder = parseInt(cCs.order, 10) || 0;
+              items.push({ isPseudo: false, order: cOrder, sourceIndex: idx, rect: child.getBoundingClientRect() });
+            } else if (child.nodeType === 3 /* Text */) {
+              const textContent = (child.textContent || '').trim();
+              if (textContent.length > 0) {
+                const r = document.createRange();
+                try {
+                  r.selectNodeContents(child);
+                  const tRect = r.getBoundingClientRect();
+                  if (tRect.width > 0 || tRect.height > 0) {
+                    items.push({ isPseudo: false, order: 0, sourceIndex: idx, rect: tRect });
+                  }
+                } catch (e) {}
+              }
+            }
           });
           const pseudoOrder = parseInt(cs.order, 10) || 0;
           const pseudoItem = { isPseudo: true, order: pseudoOrder, sourceIndex: pseudo === '::before' ? -1 : 999999 };
@@ -2190,9 +2437,9 @@
 
           if (isRow) {
             if (prev) {
-              pseudoRect.x = prev.rect.right + colGap + scrollX;
+              pseudoRect.x = prev.rect.right + colGap + scrollX + (parseFloat(cs.marginLeft) || 0);
             } else {
-              let startX = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+              let startX = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0) + (parseFloat(cs.marginLeft) || 0);
               if (items.length === 1 && !isNaN(pseudoRect.width)) {
                 if (parentCs.justifyContent === 'center') {
                   startX = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
@@ -2204,11 +2451,11 @@
             }
 
             if (next) {
-              const nextLeft = next.rect.left + scrollX;
+              const nextLeft = next.rect.left + scrollX - (parseFloat(cs.marginRight) || 0);
               const availableW = Math.max(0, nextLeft - colGap - pseudoRect.x);
               pseudoRect.width = (!isNaN(w) && cs.width !== 'auto') ? w : availableW;
-            } else if (isNaN(w) || cs.width === 'auto') {
-              pseudoRect.width = Math.max(0, parentRect.x + parentRect.width - pseudoRect.x - (parseFloat(parentCs.paddingRight) || 0));
+            } else if (!text && (isNaN(w) || cs.width === 'auto')) {
+              pseudoRect.width = Math.max(0, parentRect.x + parentRect.width - pseudoRect.x - (parseFloat(parentCs.paddingRight) || 0) - (parseFloat(cs.marginRight) || 0));
             }
 
             const align = cs.alignSelf !== 'auto' ? cs.alignSelf : parentCs.alignItems;
@@ -2225,9 +2472,9 @@
             }
           } else {
             if (prev) {
-              pseudoRect.y = prev.rect.bottom + rowGap + scrollY;
+              pseudoRect.y = prev.rect.bottom + rowGap + scrollY + (parseFloat(cs.marginTop) || 0);
             } else {
-              let startY = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+              let startY = parentRect.y + (parseFloat(parentCs.paddingTop) || 0) + (parseFloat(cs.marginTop) || 0);
               if (items.length === 1 && !isNaN(pseudoRect.height)) {
                 if (parentCs.justifyContent === 'center') {
                   startY = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
@@ -2238,9 +2485,11 @@
               pseudoRect.y = startY;
             }
             if (next) {
-              const nextTop = next.rect.top + scrollY;
+              const nextTop = next.rect.top + scrollY - (parseFloat(cs.marginBottom) || 0);
               const availableH = Math.max(0, nextTop - rowGap - pseudoRect.y);
               pseudoRect.height = (!isNaN(h) && cs.height !== 'auto') ? h : availableH;
+            } else if (!text && (isNaN(h) || cs.height !== 'auto')) {
+              pseudoRect.height = Math.max(0, parentRect.y + parentRect.height - pseudoRect.y - (parseFloat(parentCs.paddingBottom) || 0) - (parseFloat(cs.marginBottom) || 0));
             }
             const align = cs.alignSelf !== 'auto' ? cs.alignSelf : parentCs.alignItems;
             if (align === 'center') {
@@ -2410,10 +2659,26 @@
            const { svgPath, bbox } = fontData;
            const pathW = bbox.x2 - bbox.x1;
            const pathH = bbox.y2 - bbox.y1;
-           const parentW = Math.ceil(pseudoRect.width);
-           const parentH = Math.ceil(pseudoRect.height);
-           const tx = (parentW - pathW) / 2 - bbox.x1;
-           const ty = (parentH - pathH) / 2 - bbox.y1;
+           const containerW = Math.ceil(pseudoRect.width) || 16;
+           const containerH = Math.ceil(pseudoRect.height) || 16;
+
+           // The glyph may have visual overhang extending beyond the font's advance width/height.
+           // Size the SVG canvas and viewBox to fit the full glyph without clipping.
+           const svgW = Math.ceil(Math.max(containerW, pathW));
+           const svgH = Math.ceil(Math.max(containerH, pathH));
+           const tx = (svgW - pathW) / 2 - bbox.x1;
+           const ty = (svgH - pathH) / 2 - bbox.y1;
+
+           const diffX = (svgW - containerW) / 2;
+           const diffY = (svgH - containerH) / 2;
+           const finalRect = {
+             ...pseudoRect,
+             x: pseudoRect.x - diffX,
+             y: pseudoRect.y - diffY,
+             width: svgW,
+             height: svgH
+           };
+
            const fillColor = cs.color || '#000000';
            let fillOpacity = 1;
            let hexColor = fillColor;
@@ -2431,9 +2696,9 @@
             nodeType: ELEMENT_NODE,
             id: getNodeId('svg-icon-pseudo'),
             tag: 'SVG',
-            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${hexColor}"${opAttr}><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+            content: `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" fill="${hexColor}"${opAttr}><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: styles,
-            rect: pseudoRect
+            rect: finalRect
           };
         }
 
@@ -2523,6 +2788,16 @@
     return 0;
   }
 
+  function getTextNodeStyles(parentStyles) {
+    if (!parentStyles) return {};
+    const s = { ...parentStyles };
+    // Opacity in CSS belongs to element boxes (stacking contexts). In Figma, container frames
+    // already have frame.opacity applied. Inheriting opacity onto child text nodes causes Figma
+    // to square the opacity (e.g. 0.3 * 0.3 = 0.09).
+    delete s.opacity;
+    return s;
+  }
+
   async function serializeNode(node, assets, fonts, parentStyles) {
     if (captureTimedOut) return null;
     if (node.nodeType === TEXT_NODE) {
@@ -2600,10 +2875,17 @@
           const { svgPath, bbox } = fontData;
           const pathW = bbox.x2 - bbox.x1;
           const pathH = bbox.y2 - bbox.y1;
-          const parentW = Math.ceil(rect.width);
-          const parentH = Math.ceil(rect.height);
-          const tx = (parentW - pathW) / 2 - bbox.x1;
-          const ty = (parentH - pathH) / 2 - bbox.y1;
+          const containerW = Math.ceil(rect.width) || 16;
+          const containerH = Math.ceil(rect.height) || 16;
+
+          const svgW = Math.ceil(Math.max(containerW, pathW));
+          const svgH = Math.ceil(Math.max(containerH, pathH));
+          const tx = (svgW - pathW) / 2 - bbox.x1;
+          const ty = (svgH - pathH) / 2 - bbox.y1;
+
+          const diffX = (svgW - containerW) / 2;
+          const diffY = (svgH - containerH) / 2;
+
           const fillColor = parentStyles?.webkitTextFillColor || parentStyles?.color || '#000000';
           let fillOpacity = 1;
           let hexColor = fillColor;
@@ -2621,13 +2903,13 @@
             nodeType: ELEMENT_NODE,
             id: getNodeId('svg-icon'),
             tag: 'SVG',
-            content: `<svg width="${parentW}" height="${parentH}" viewBox="0 0 ${parentW} ${parentH}" fill="${hexColor}"${opAttr}><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
+            content: `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" fill="${hexColor}"${opAttr}><g transform="translate(${tx}, ${ty})">${svgPath}</g></svg>`,
             styles: parentStyles || {},
             rect: {
-              x: rect.x + (isFixed ? 0 : window.scrollX),
-              y: rect.y + (isFixed ? 0 : window.scrollY),
-              width: parentW,
-              height: parentH
+              x: rect.x + (isFixed ? 0 : window.scrollX) - diffX,
+              y: rect.y + (isFixed ? 0 : window.scrollY) - diffY,
+              width: svgW,
+              height: svgH
             }
           };
         }
@@ -2689,7 +2971,7 @@
             width: Math.ceil(textR.width),
             height: Math.ceil(textR.height)
           },
-          styles: parentStyles || {},
+          styles: getTextNodeStyles(parentStyles),
           lineCount: 1
         };
 
@@ -2747,10 +3029,51 @@
         }
       }
 
-      if (clientRects.length <= 1) {
+      const isRotated = isElementOrAncestorRotated(node.parentElement);
+      const parentHasMultipleChildren = node.parentElement && Array.from(node.parentElement.childNodes).filter(n => {
+        if (n.nodeType === 3) return (n.textContent || '').trim().length > 0;
+        if (n.nodeType === 1) return true;
+        return false;
+      }).length > 1;
+
+      // Do not slice into character-level line fragments if:
+      // 1. It is already a single line (clientRects.length <= 1)
+      // 2. The text/container is rotated (character-level bounding box drift triggers false linebreaks on every word)
+      // 3. The parent element does not have multiple inline child nodes (no inline spans/links to interleave with)
+      if (clientRects.length <= 1 || isRotated || !parentHasMultipleChildren) {
         let text = formatInlineText(rawText);
         let textX = rect.x + (isFixed ? 0 : window.scrollX);
         let textW = Math.ceil(rect.width);
+        let textH = Math.ceil(rect.height);
+        let unrotW = undefined;
+        let unrotH = undefined;
+
+        if (isRotated && node.parentElement) {
+          const pW = node.parentElement.offsetWidth || node.parentElement.clientWidth;
+          const pH = node.parentElement.offsetHeight || node.parentElement.clientHeight;
+          if (pW > 0) {
+            unrotW = pW;
+            textW = pW;
+          }
+          if (pH > 0) {
+            unrotH = pH;
+          }
+        } else if (clientRects.length > 1 && node.parentElement && !parentHasMultipleChildren) {
+          try {
+            const pEl = node.parentElement;
+            const pCs = window.getComputedStyle(pEl);
+            const padL = parseFloat(pCs.paddingLeft) || 0;
+            const padR = parseFloat(pCs.paddingRight) || 0;
+            const borderL = parseFloat(pCs.borderLeftWidth) || 0;
+            const borderR = parseFloat(pCs.borderRightWidth) || 0;
+            const pRect = pEl.getBoundingClientRect();
+            const pContentW = pRect.width - padL - padR - borderL - borderR;
+            if (pContentW > textW) {
+              textW = Math.ceil(pContentW);
+              textX = pRect.x + padL + borderL + (isFixed ? 0 : window.scrollX);
+            }
+          } catch (e) {}
+        }
 
         if (isParentQ) {
           const qMarks = getQuoteMarks(node.parentElement);
@@ -2773,7 +3096,7 @@
           }
         }
 
-        return {
+        const textNodeObj = {
           nodeType: TEXT_NODE,
           id: getNodeId('text'),
           text,
@@ -2781,11 +3104,19 @@
             x: textX,
             y: rect.y + (isFixed ? 0 : window.scrollY),
             width: textW,
-            height: Math.ceil(rect.height)
+            height: textH
           },
-          styles: parentStyles || {},
-          lineCount: 1
+          styles: getTextNodeStyles(parentStyles),
+          lineCount: clientRects.length || 1
         };
+        if (unrotW > 0) {
+          textNodeObj.rect.offsetWidth = unrotW;
+        } else if (clientRects.length > 1 && textW > 0) {
+          textNodeObj.rect.offsetWidth = textW;
+        }
+        if (unrotH > 0) textNodeObj.rect.offsetHeight = unrotH;
+
+        return textNodeObj;
       }
 
       // For multiline inline text with spans/links, slice text per line by character rects
@@ -2835,7 +3166,7 @@
                 width: lineW,
                 height: Math.ceil(lineBox.height)
               },
-              styles: parentStyles || {},
+              styles: getTextNodeStyles(parentStyles),
               lineCount: 1
             });
           }
@@ -2888,7 +3219,7 @@
             width: finalW,
             height: Math.ceil(finalBox.height)
           },
-          styles: parentStyles || {},
+          styles: getTextNodeStyles(parentStyles),
           lineCount: 1
         });
       }
@@ -2955,9 +3286,9 @@
     // Exception for scroll-animated elements and background graphics
     if (isHidden && styles.display !== 'none') {
       const cls = (el.className && typeof el.className === 'string') ? el.className : '';
-      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave/i.test(cls) ||
+      const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split/i.test(cls) ||
         el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') ||
-        el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos]');
+        el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"]');
       
       if (isAnimTarget) {
         styles.visibility = 'visible';
@@ -2987,12 +3318,24 @@
       const vw = window.innerWidth || document.documentElement.clientWidth || 0;
       const vh = window.innerHeight || document.documentElement.clientHeight || 0;
       if (clientRect.width > 0 && clientRect.height > 0 && (clientRect.bottom <= 0 || clientRect.top >= vh || clientRect.right <= 0 || clientRect.left >= vw)) {
-        return null;
+        // Before discarding, check if any child element extends into the viewport (e.g. drawer tabs, floating demo/feedback buttons)
+        let hasVisibleChild = false;
+        try {
+          const children = el.children;
+          for (let ci = 0; ci < children.length; ci++) {
+            const cr = children[ci].getBoundingClientRect();
+            if (cr.width > 0 && cr.height > 0 && cr.right > 0 && cr.left < vw && cr.bottom > 0 && cr.top < vh) {
+              hasVisibleChild = true;
+              break;
+            }
+          }
+        } catch (e) {}
+        if (!hasVisibleChild) return null;
       }
     }
 
     // Filter out elements positioned completely offscreen (e.g. left: -9999px, top: -9999px)
-    if (clientRect.width > 0 && clientRect.height > 0 && (clientRect.right <= 0 || clientRect.bottom <= 0)) {
+    if (clientRect.width > 0 && clientRect.height > 0 && (clientRect.right <= -3000 || clientRect.bottom <= -3000 || styles.left === '-9999px' || styles.top === '-9999px')) {
       return null;
     }
 
@@ -3336,38 +3679,132 @@
       const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
       for (const child of sourceNodes) {
         const sChild = await serializeNode(child, assets, fonts, styles);
-        if (sChild) childNodes.push(sChild);
+        if (sChild) {
+          childNodes.push(sChild);
+          
+          // Flatten out escaping descendants (CSS stacking context simulation)
+          const cs = sChild.styles || {};
+          const isPositioned = cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'fixed' || cs.position === 'sticky';
+          const hasZ = cs.zIndex && cs.zIndex !== 'auto';
+          
+          let createsSC = false;
+          if (hasZ && isPositioned) createsSC = true;
+          if (cs.opacity && parseFloat(cs.opacity) < 1) createsSC = true;
+          if (cs.transform && cs.transform !== 'none') createsSC = true;
+          if (cs.filter && cs.filter !== 'none') createsSC = true;
+          if (cs.clipPath && cs.clipPath !== 'none') createsSC = true;
+          if (cs.isolation === 'isolate') createsSC = true;
+          if (cs.maskImage && cs.maskImage !== 'none') createsSC = true;
+          if (cs.webkitMaskImage && cs.webkitMaskImage !== 'none') createsSC = true;
+          
+          const isSectionBoundary = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE', 'BODY', 'HTML'].includes(tag);
+          const isInteractive = /btn|button|nav|menu|badge|dropdown|card/i.test(sChild.attributes?.class || '') ||
+            ['A', 'BUTTON', 'LI', 'SPAN', 'LABEL', 'INPUT'].includes(sChild.tag);
+          if (!createsSC && !isSectionBoundary && !isInteractive && sChild.childNodes && sChild.childNodes.length > 0) {
+            let j = 0;
+            while (j < sChild.childNodes.length) {
+              const gc = sChild.childNodes[j];
+              const gcs = gc.styles || {};
+              const zVal = parseInt(gcs.zIndex, 10);
+              const isLayoutContainer = /swiper|carousel|slider|wrapper|section|container|col-|row/i.test(gc.attributes?.class || '') ||
+                ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(gc.tag);
+              const isEscapablePos = gcs.position === 'absolute' || gcs.position === 'fixed';
+              
+              if (!isLayoutContainer && isEscapablePos && zVal >= 3) {
+                const extracted = sChild.childNodes.splice(j, 1)[0];
+                childNodes.push(extracted);
+              } else {
+                j++;
+              }
+            }
+          }
+        }
       }
 
       // Sort child nodes according to CSS stacking order rules while preserving DOM order
       // CSS rules: position:absolute/fixed/relative with z-index:auto stacks ABOVE position:static siblings
-      const hasBackdropChild = childNodes.some(child => {
-        const backdrop = child.styles?.backdropFilter || child.styles?.webkitBackdropFilter || '';
-        return backdrop !== 'none' && backdrop.includes('blur');
-      });
-      if (childNodes.length > 1 && !hasBackdropChild) {
+      if (childNodes.length > 1) {
+        const isPageLayoutOrBody = ['BODY', 'HTML'].includes(tag) || (el.className && typeof el.className === 'string' && /page-layout|page-wrapper|main-wrapper|site-wrapper/i.test(el.className));
+
         childNodes.forEach((child, idx) => {
           child._originalIdx = idx;
           const cs = child.styles || {};
           const isPositioned = cs.position === 'absolute' || cs.position === 'fixed' || cs.position === 'relative' || cs.position === 'sticky';
+          const isBackdrop = (cs.backdropFilter && cs.backdropFilter !== 'none' && cs.backdropFilter.includes('blur')) ||
+                             (cs.webkitBackdropFilter && cs.webkitBackdropFilter !== 'none' && cs.webkitBackdropFilter.includes('blur'));
+          let zVal = 0;
           if (cs.zIndex && cs.zIndex !== 'auto') {
-            // Explicit numeric z-index: scale up by 2 to leave room for the 0.5 slot
-            child._effectiveZIndex = (parseInt(cs.zIndex, 10) || 0) * 2;
-          } else if (isPositioned) {
-            // position:absolute/fixed/relative with z-index:auto — sits above static siblings (z=0) per CSS spec
-            child._effectiveZIndex = 1;
+            const parsed = parseInt(cs.zIndex, 10);
+            if (!isNaN(parsed)) {
+              zVal = parsed === 0 ? 1 : parsed * 2;
+            }
           } else {
-            // position:static with no z-index — lowest stacking level
-            child._effectiveZIndex = 0;
+            if (isPositioned && !isBackdrop) {
+              zVal = 1;
+            }
           }
+
+          // If child contains position:fixed descendants (e.g. fixed nav inside static header), boost its stacking level.
+          // For non-section containers, also check for relative/absolute descendants if the container does not establish an isolated stacking context.
+          const isSection = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(child.tag);
+          const isSectionLevel = isPageLayoutOrBody || isSection;
+          const childCreatesSC = (cs.zIndex && cs.zIndex !== 'auto' && isPositioned) ||
+                                 (cs.opacity && parseFloat(cs.opacity) < 1) ||
+                                 (cs.transform && cs.transform !== 'none') ||
+                                 (cs.filter && cs.filter !== 'none') ||
+                                 (cs.clipPath && cs.clipPath !== 'none') ||
+                                 (cs.isolation === 'isolate');
+          if (!childCreatesSC && child.childNodes) {
+            const getDescZ = (cn) => {
+              let m = 0;
+              if (cn.childNodes) {
+                for (const c of cn.childNodes) {
+                  const s = c.styles || {};
+                  const parsedZ = s.zIndex && s.zIndex !== 'auto' ? (parseInt(s.zIndex, 10) || 0) * 2 : 0;
+                  if (s.position === 'fixed') {
+                    m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
+                  } else if (child.tag === 'HEADER' && (s.position === 'absolute' || s.position === 'relative' || s.position === 'sticky')) {
+                    // Header's positioned children always elevate the header above hero sections
+                    m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
+                  } else if (!isSectionLevel && (s.position === 'absolute' || s.position === 'relative' || s.position === 'sticky')) {
+                    m = Math.max(m, parsedZ > 0 ? parsedZ : 1);
+                  } else if (isSectionLevel && (s.position === 'absolute' || s.position === 'fixed') && parsedZ >= 6) {
+                    m = Math.max(m, parsedZ);
+                  }
+                  // Stop descending if c creates an isolated stacking context (its internal z-index cannot escape)
+                  const cCreatesSC = (s.zIndex && s.zIndex !== 'auto' && (s.position === 'relative' || s.position === 'absolute' || s.position === 'fixed')) ||
+                                     (s.opacity && parseFloat(s.opacity) < 1) ||
+                                     (s.transform && s.transform !== 'none') ||
+                                     (s.filter && s.filter !== 'none') ||
+                                     (s.clipPath && s.clipPath !== 'none') ||
+                                     (s.isolation === 'isolate');
+                  if (!cCreatesSC) {
+                    m = Math.max(m, getDescZ(c));
+                  }
+                }
+              }
+              return m;
+            };
+            const descZ = getDescZ(child);
+            if (descZ > zVal) zVal = descZ;
+          }
+
+          // Section-level flow protection: direct children of page/body or section-level elements
+          // should NEVER be reordered against each other unless one of them has an explicit non-zero z-index or fixed descendant
+          if (isSectionLevel && zVal <= 2 && child.tag !== 'HEADER') {
+            zVal = 0;
+          }
+
+          child._effectiveZIndex = zVal;
         });
         childNodes.sort((a, b) => {
           const diff = a._effectiveZIndex - b._effectiveZIndex;
           return diff !== 0 ? diff : a._originalIdx - b._originalIdx;
         });
         for (const child of childNodes) {
-          delete child._effectiveZIndex;
-          delete child._originalIdx;
+          // delete child._effectiveZIndex;
+          // delete child._maxDescendantZ;
+          // delete child._originalIdx;
         }
       }
     }

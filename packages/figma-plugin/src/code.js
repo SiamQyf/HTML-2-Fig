@@ -359,7 +359,7 @@ function splitByTopLevelCommas(str) {
   return result;
 }
 
-function parseLinearGradient(css) {
+function parseLinearGradient(css, styles = null) {
   if (!css || !css.includes('linear-gradient(')) return null;
   try {
     const start = css.indexOf('linear-gradient(');
@@ -428,7 +428,10 @@ function parseLinearGradient(css) {
       pos = Math.max(pos, maxPos);
       maxPos = pos;
 
-      const col = parseColor(colStr);
+      let col = parseColor(colStr);
+      if (!col && colStr.toLowerCase() === 'transparent') {
+        col = { r: 0, g: 0, b: 0, a: 0 };
+      }
       if (col) {
         stops.push({
           position: clamp01(pos),
@@ -446,6 +449,82 @@ function parseLinearGradient(css) {
     }
     if (stops[stops.length - 1].position < 1) {
       stops.push({ position: 1, color: { ...stops[stops.length - 1].color } });
+    }
+
+    // Adjust stops when background-size and background-position crop or scale the gradient (e.g. background-size: 200% auto)
+    if (styles && styles.backgroundSize) {
+      const sizeParts = styles.backgroundSize.trim().split(/\s+/);
+      let scaleX = 1;
+      let scaleY = 1;
+      if (sizeParts[0] && sizeParts[0].endsWith('%')) {
+        scaleX = parseFloat(sizeParts[0]) / 100;
+      }
+      if (sizeParts[1] && sizeParts[1].endsWith('%')) {
+        scaleY = parseFloat(sizeParts[1]) / 100;
+      }
+
+      let posX = 0;
+      let posY = 0;
+      if (styles.backgroundPosition) {
+        const posParts = styles.backgroundPosition.trim().split(/\s+/);
+        if (posParts[0] && posParts[0].endsWith('%')) {
+          posX = parseFloat(posParts[0]) / 100;
+        } else if (posParts[0] === 'right') {
+          posX = 1;
+        } else if (posParts[0] === 'center') {
+          posX = 0.5;
+        }
+        if (posParts[1] && posParts[1].endsWith('%')) {
+          posY = parseFloat(posParts[1]) / 100;
+        } else if (posParts[1] === 'bottom') {
+          posY = 1;
+        } else if (posParts[1] === 'center') {
+          posY = 0.5;
+        }
+      }
+
+      const isHorizontal = Math.abs(Math.sin(angleDeg * Math.PI / 180)) >= Math.abs(Math.cos(angleDeg * Math.PI / 180));
+      const scale = isHorizontal ? scaleX : scaleY;
+      const pos = isHorizontal ? posX : posY;
+
+      if (scale > 1.05) {
+        const wWin = 1 / scale;
+        const u0 = clamp01(pos * (1 - wWin));
+        const u1 = clamp01(u0 + wWin);
+
+        const getColorAt = (t) => {
+          if (t <= stops[0].position) return stops[0].color;
+          if (t >= stops[stops.length - 1].position) return stops[stops.length - 1].color;
+          for (let si = 0; si < stops.length - 1; si++) {
+            const sA = stops[si], sB = stops[si + 1];
+            if (t >= sA.position && t <= sB.position) {
+              const span = sB.position - sA.position;
+              const f = span > 0 ? (t - sA.position) / span : 0;
+              return {
+                r: sA.color.r + (sB.color.r - sA.color.r) * f,
+                g: sA.color.g + (sB.color.g - sA.color.g) * f,
+                b: sA.color.b + (sB.color.b - sA.color.b) * f,
+                a: sA.color.a + (sB.color.a - sA.color.a) * f
+              };
+            }
+          }
+          return stops[0].color;
+        };
+
+        const newStops = [];
+        newStops.push({ position: 0, color: getColorAt(u0) });
+        for (const st of stops) {
+          if (st.position > u0 + 0.001 && st.position < u1 - 0.001) {
+            newStops.push({
+              position: clamp01((st.position - u0) / (u1 - u0)),
+              color: { ...st.color }
+            });
+          }
+        }
+        newStops.push({ position: 1, color: getColorAt(u1) });
+        stops.length = 0;
+        stops.push(...newStops);
+      }
     }
 
     const rad = ((angleDeg - 90) * Math.PI) / 180;
@@ -484,13 +563,75 @@ function parseRadialGradient(css) {
     }
     if (!inner) return null;
 
+    // Default center and radii (normalized 0-1, relative to node size)
+    let cx = 0.5, cy = 0.5; // center
+    let rx = 0.5, ry = 0.5; // radii
+
     let stopsStr = inner;
-    // Check if first argument is shape / position (e.g. 'circle at center', 'ellipse at center', 'at center')
+
+    // Parse first argument group (shape / size / position)
+    // CSS syntax: [[circle|ellipse]||<extent-keyword>] [at <pos>]?
+    //           | [<length-pct>{2}] [at <pos>]?
+    //           | [at <pos>]
     const firstCommaIdx = inner.indexOf(',');
     if (firstCommaIdx !== -1) {
       const firstArg = inner.substring(0, firstCommaIdx).trim();
-      if (firstArg.includes('at ') || firstArg.includes('circle') || firstArg.includes('ellipse') || firstArg.includes('closest-') || firstArg.includes('farthest-')) {
+      // Detect shape/size/position first arg — includes keywords OR two size values
+      const isShapeArg = firstArg.includes('at ') ||
+                         firstArg.includes('circle') ||
+                         firstArg.includes('ellipse') ||
+                         firstArg.includes('closest-') ||
+                         firstArg.includes('farthest-') ||
+                         /^[\d.]+[%a-z]+\s+[\d.]+[%a-z]+(\s+at\s.*)?$/.test(firstArg);
+
+      if (isShapeArg) {
         stopsStr = inner.substring(firstCommaIdx + 1).trim();
+
+        // Extract position after "at"
+        const atIdx = firstArg.indexOf(' at ');
+        let sizeStr = atIdx !== -1 ? firstArg.substring(0, atIdx).trim() : firstArg;
+        const posStr = atIdx !== -1 ? firstArg.substring(atIdx + 4).trim() : '';
+
+        // Remove shape keyword prefix
+        sizeStr = sizeStr.replace(/^(circle|ellipse)\s*/i, '').trim();
+
+        // Parse position
+        if (posStr) {
+          const parsePosVal = (v, isX) => {
+            if (!v) return 0.5;
+            if (v === 'center') return 0.5;
+            if (v === 'left')   return 0;
+            if (v === 'right')  return 1;
+            if (v === 'top')    return 0;
+            if (v === 'bottom') return 1;
+            if (v.endsWith('%')) return parseFloat(v) / 100;
+            return 0.5; // px not supported without node size
+          };
+          const posParts = posStr.trim().split(/\s+/);
+          if (posParts.length >= 2) {
+            cx = parsePosVal(posParts[0], true);
+            cy = parsePosVal(posParts[1], false);
+          } else if (posParts.length === 1) {
+            cx = parsePosVal(posParts[0], true);
+            cy = 0.5;
+          }
+        }
+
+        // Parse size (extent keyword or two lengths)
+        if (sizeStr && !/^(circle|ellipse)$/i.test(sizeStr)) {
+          const sizeParts = sizeStr.trim().split(/\s+/);
+          if (/closest-side|farthest-side|closest-corner|farthest-corner/.test(sizeStr)) {
+            // Use defaults (0.5); for farthest-corner the gradient reaches beyond mid
+            // but without node dimensions we approximate as 0.5
+            rx = 0.5; ry = 0.5;
+          } else if (sizeParts.length >= 2) {
+            if (sizeParts[0].endsWith('%')) rx = parseFloat(sizeParts[0]) / 100;
+            if (sizeParts[1].endsWith('%')) ry = parseFloat(sizeParts[1]) / 100;
+          } else if (sizeParts.length === 1 && sizeParts[0].endsWith('%')) {
+            rx = parseFloat(sizeParts[0]) / 100;
+            ry = rx;
+          }
+        }
       }
     }
 
@@ -516,7 +657,10 @@ function parseRadialGradient(css) {
       pos = Math.max(pos, maxPos);
       maxPos = pos;
 
-      const col = parseColor(colStr);
+      let col = parseColor(colStr);
+      if (!col && colStr.toLowerCase() === 'transparent') {
+        col = { r: 0, g: 0, b: 0, a: 0 };
+      }
       if (col) {
         stops.push({
           position: clamp01(pos),
@@ -530,11 +674,23 @@ function parseRadialGradient(css) {
       stops.push({ position: 1, color: { ...stops[0].color } });
     }
 
+    // Build Figma gradientTransform for GRADIENT_RADIAL.
+    // Figma's gradientTransform maps FROM node space TO gradient space:
+    //   gx = a*nx + b*ny + c,  gy = d*nx + e*ny + f
+    // We want: CSS ellipse boundary (at gradient pos=1.0) to map to unit circle in gradient space.
+    // CSS ellipse: ((nx-cx)/rx)^2 + ((ny-cy)/ry)^2 = 1
+    // Gradient circle: (gx-0.5)^2 + (gy-0.5)^2 = 0.25
+    // Solving (b=d=0):
+    //   a = 0.5/rx,  c = 0.5 - a*cx
+    //   e = 0.5/ry,  f = 0.5 - e*cy
+    const a = 0.5 / rx, b = 0,          c = 0.5 - a * cx;
+    const d = 0,        e = 0.5 / ry,   f = 0.5 - e * cy;
+
     return {
       type: 'GRADIENT_RADIAL',
       gradientTransform: [
-        [1, 0, 0],
-        [0, 1, 0]
+        [a, b, c],
+        [d, e, f]
       ],
       gradientStops: stops
     };
@@ -610,7 +766,10 @@ function parseAngularGradient(css) {
       pos = Math.max(pos, maxPos);
       maxPos = pos;
 
-      const col = parseColor(colStr);
+      let col = parseColor(colStr);
+      if (!col && colStr.toLowerCase() === 'transparent') {
+        col = { r: 0, g: 0, b: 0, a: 0 };
+      }
       if (col) {
         stops.push({
           position: clamp01(pos),
@@ -659,6 +818,9 @@ function parseBoxShadows(css) {
         const y = parseFloat(m[3]) || 0;
         const radius = parseFloat(m[4]) || 0;
         const spread = parseFloat(m[5]) || 0;
+        
+        if (Math.abs(x) < 0.1 && Math.abs(y) < 0.1 && radius < 0.1 && Math.abs(spread) < 0.1) continue;
+
         effects.push({
           type: isInset ? 'INNER_SHADOW' : 'DROP_SHADOW',
           color: { r: col.r, g: col.g, b: col.b, a: clamp01(col.a) },
@@ -969,6 +1131,11 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
             // If it's a specific size like 100%, we treat it as sprite logic to calculate exact px
             const isSprite = !isContain && !isCover && !isAuto;
 
+            const rawRepeat = (isMask ? (styles.maskRepeat || styles.webkitMaskRepeat) : null) || styles.backgroundRepeat;
+            const bgRepeat = (rawRepeat || 'repeat').toLowerCase().trim();
+            const isNoRepeat = bgRepeat.includes('no-repeat');
+            const isTiling = !isCover && !isContain && !isNoRepeat && (bgRepeat.includes('repeat') || bgRepeat === 'round' || bgRepeat === 'space');
+
             try {
               const size = await img.getSizeAsync();
               let imgW = size.width;
@@ -1012,35 +1179,56 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
                 }
               }
 
-              let pX = posX;
-              let pY = posY;
-              if (pX === 'center') pX = '50%';
-              if (pY === 'center') pY = '50%';
-              if (pX === 'left') pX = '0%';
-              if (pX === 'right') pX = '100%';
-              if (pY === 'top') pY = '0%';
-              if (pY === 'bottom') pY = '100%';
+              if (isTiling) {
+                let scalingFactor = 1;
+                if (size.width > 0 && imgW > 0) {
+                  scalingFactor = imgW / size.width;
+                }
+                if (!isFinite(scalingFactor) || scalingFactor <= 0) {
+                  scalingFactor = 1;
+                }
+                fills.push({
+                  type: 'IMAGE',
+                  imageHash: img.hash,
+                  scaleMode: 'TILE',
+                  scalingFactor: Number(scalingFactor.toFixed(4))
+                });
+              } else {
+                let pX = posX;
+                let pY = posY;
+                if (pX === 'center') pX = '50%';
+                if (pY === 'center') pY = '50%';
+                if (pX === 'left') pX = '0%';
+                if (pX === 'right') pX = '100%';
+                if (pY === 'top') pY = '0%';
+                if (pY === 'bottom') pY = '100%';
 
-              let ox = 0, oy = 0;
-              if (pX.endsWith('%')) ox = (nodeW - imgW) * (parseFloat(pX) / 100);
-              else if (pX.endsWith('px')) ox = parseFloat(pX);
-              
-              if (pY.endsWith('%')) oy = (nodeH - imgH) * (parseFloat(pY) / 100);
-              else if (pY.endsWith('px')) oy = parseFloat(pY);
-              
-              const transform = [
-                [nodeW / imgW, 0, -ox / imgW],
-                [0, nodeH / imgH, -oy / imgH]
-              ];
-              
-              if (transform.flat().some(val => !isFinite(val))) {
-                throw new Error('Invalid transform parameters (Infinity or NaN)');
+                let ox = 0, oy = 0;
+                if (pX.endsWith('%')) ox = (nodeW - imgW) * (parseFloat(pX) / 100);
+                else if (pX.endsWith('px')) ox = parseFloat(pX);
+                
+                if (pY.endsWith('%')) oy = (nodeH - imgH) * (parseFloat(pY) / 100);
+                else if (pY.endsWith('px')) oy = parseFloat(pY);
+                
+                const transform = [
+                  [nodeW / imgW, 0, -ox / imgW],
+                  [0, nodeH / imgH, -oy / imgH]
+                ];
+                
+                if (transform.flat().some(val => !isFinite(val))) {
+                  throw new Error('Invalid transform parameters (Infinity or NaN)');
+                }
+
+                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'CROP', imageTransform: transform });
               }
-
-              fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'CROP', imageTransform: transform });
             } catch (err) {
               // Fallback if sizing fails
-              fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: isContain ? 'FIT' : 'FILL' });
+              fills.push({
+                type: 'IMAGE',
+                imageHash: img.hash,
+                scaleMode: isTiling ? 'TILE' : (isContain ? 'FIT' : 'FILL'),
+                ...(isTiling ? { scalingFactor: 1 } : {})
+              });
             }
           } catch (e) {
             figma.notify(`Failed to create image: ${e.message}`, { error: true });
@@ -1064,7 +1252,7 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
       const bgs = splitByTopLevelCommas(styles.backgroundImage);
       for (const bg of bgs) {
         if (bg.includes('linear-gradient')) {
-          const grad = parseLinearGradient(bg);
+          const grad = parseLinearGradient(bg, styles);
           if (grad) {
             fills.push(grad);
             continue;
@@ -1373,10 +1561,163 @@ function applyCornerRadius(node, styles) {
   } else if (styles.clipPath && styles.clipPath !== 'none') {
     const cp = styles.clipPath.toLowerCase();
     if (cp.includes('circle') || cp.includes('ellipse')) {
-      node.cornerRadius = Math.round(refDim / 2);
-      try { node.clipsContent = true; } catch {}
+      // Only apply full-circle/ellipse corner radius to small icons/avatars (refDim <= 256)
+      if (refDim <= 256 && (w <= 300 && h <= 300)) {
+        node.cornerRadius = Math.round(refDim / 2);
+        try { node.clipsContent = true; } catch {}
+      }
     }
   }
+}
+
+function arcToCubicBezier(cx, cy, rx, ry, startAngle, endAngle) {
+  const totalAngle = endAngle - startAngle;
+  // Maximum step is pi / 3 (~60 deg) for high precision
+  const numSegments = Math.max(1, Math.ceil(Math.abs(totalAngle) / (Math.PI / 3)));
+  const step = totalAngle / numSegments;
+  const curves = [];
+
+  let currentAngle = startAngle;
+  for (let i = 0; i < numSegments; i++) {
+    const nextAngle = currentAngle + step;
+    const alpha = nextAngle - currentAngle;
+    const k = (4 / 3) * Math.tan(alpha / 4);
+
+    const x0 = cx + rx * Math.cos(currentAngle);
+    const y0 = cy + ry * Math.sin(currentAngle);
+    const dx0 = -rx * Math.sin(currentAngle);
+    const dy0 = ry * Math.cos(currentAngle);
+
+    const x3 = cx + rx * Math.cos(nextAngle);
+    const y3 = cy + ry * Math.sin(nextAngle);
+    const dx3 = -rx * Math.sin(nextAngle);
+    const dy3 = ry * Math.cos(nextAngle);
+
+    const cp1x = x0 + k * dx0;
+    const cp1y = y0 + k * dy0;
+    const cp2x = x3 - k * dx3;
+    const cp2y = y3 - k * dy3;
+
+    curves.push({ cp1x, cp1y, cp2x, cp2y, x: x3, y: y3 });
+    currentAngle = nextAngle;
+  }
+  return curves;
+}
+
+function convertClipPathToPathData(cp, w, h) {
+  if (!cp || cp === 'none') return null;
+  const cpLower = cp.toLowerCase().trim();
+
+  function parseVal(v, ref) {
+    if (!v) return 0;
+    if (v.includes('%')) return (parseFloat(v) / 100) * ref;
+    return parseFloat(v) || 0;
+  }
+
+  let result = null;
+
+  // Handle path('...')
+  if (cpLower.includes('path(')) {
+    const match = cp.match(/path\(['"]?(.*?)['"]?\)/);
+    result = match ? match[1] : null;
+  }
+  // Handle polygon(...)
+  else if (cpLower.includes('polygon(')) {
+    const m = cp.match(/polygon\((.*?)\)/i);
+    if (m) {
+      const pts = m[1].split(',').map(p => p.trim()).filter(Boolean);
+      if (pts.length >= 3) {
+        const commands = [];
+        for (let i = 0; i < pts.length; i++) {
+          const parts = pts[i].split(/\s+/).filter(Boolean);
+          if (parts.length >= 2) {
+            const px = parseVal(parts[0], w);
+            const py = parseVal(parts[1], h);
+            commands.push(`${i === 0 ? 'M' : 'L'} ${px.toFixed(4)} ${py.toFixed(4)}`);
+          }
+        }
+        if (commands.length >= 3) {
+          result = commands.join(' ') + ' Z';
+        }
+      }
+    }
+  }
+  // Handle ellipse(...)
+  else if (cpLower.includes('ellipse')) {
+    const m = cp.match(/ellipse\(\s*([^,\s]+)\s+([^,\s]+)\s+at\s+([^,\s]+)\s+([^,\s]+)\s*\)/i);
+    if (m) {
+      const rx = parseVal(m[1], w);
+      const ry = parseVal(m[2], h);
+      const cx = parseVal(m[3], w);
+      const cy = parseVal(m[4], h);
+      if (rx > 0 && ry > 0) {
+        // Top arc: e.g. ellipse(110% 90% at 50% 0%)
+        if (cy <= 0.05 * h) {
+          const cosR = Math.max(-1, Math.min(1, (w - cx) / rx));
+          const cosL = Math.max(-1, Math.min(1, (0 - cx) / rx));
+          const thetaR = Math.acos(cosR);
+          const thetaL = Math.acos(cosL);
+          const yR = cy + ry * Math.sin(thetaR);
+
+          const curves = arcToCubicBezier(cx, cy, rx, ry, thetaR, thetaL);
+          let d = `M 0 0 L ${w} 0 L ${w} ${yR.toFixed(4)}`;
+          for (const c of curves) {
+            d += ` C ${c.cp1x.toFixed(4)} ${c.cp1y.toFixed(4)} ${c.cp2x.toFixed(4)} ${c.cp2y.toFixed(4)} ${c.x.toFixed(4)} ${c.y.toFixed(4)}`;
+          }
+          d += ` Z`;
+          result = d;
+        }
+        // Bottom arc: e.g. ellipse(100% 100% at 50% 100%)
+        else if (cy >= 0.95 * h) {
+          const cosL = Math.max(-1, Math.min(1, (0 - cx) / rx));
+          const cosR = Math.max(-1, Math.min(1, (w - cx) / rx));
+          const thetaL = -Math.acos(cosL);
+          const thetaR = -Math.acos(cosR);
+          const yL = cy + ry * Math.sin(thetaL);
+
+          const curves = arcToCubicBezier(cx, cy, rx, ry, thetaL, thetaR);
+          let d = `M 0 ${h} L 0 ${yL.toFixed(4)}`;
+          for (const c of curves) {
+            d += ` C ${c.cp1x.toFixed(4)} ${c.cp1y.toFixed(4)} ${c.cp2x.toFixed(4)} ${c.cp2y.toFixed(4)} ${c.x.toFixed(4)} ${c.y.toFixed(4)}`;
+          }
+          d += ` L ${w} ${h} Z`;
+          result = d;
+        }
+        // General full ellipse: 4 quarter-ellipse cubic Beziers (space-separated commands, no commas)
+        else {
+          const kx = rx * 0.5522847498;
+          const ky = ry * 0.5522847498;
+          result = `M ${cx.toFixed(4)} ${(cy - ry).toFixed(4)} ` +
+            `C ${(cx + kx).toFixed(4)} ${(cy - ry).toFixed(4)} ${(cx + rx).toFixed(4)} ${(cy - ky).toFixed(4)} ${(cx + rx).toFixed(4)} ${cy.toFixed(4)} ` +
+            `C ${(cx + rx).toFixed(4)} ${(cy + ky).toFixed(4)} ${(cx + kx).toFixed(4)} ${(cy + ry).toFixed(4)} ${cx.toFixed(4)} ${(cy + ry).toFixed(4)} ` +
+            `C ${(cx - kx).toFixed(4)} ${(cy + ry).toFixed(4)} ${(cx - rx).toFixed(4)} ${(cy + ky).toFixed(4)} ${(cx - rx).toFixed(4)} ${cy.toFixed(4)} ` +
+            `C ${(cx - rx).toFixed(4)} ${(cy - ky).toFixed(4)} ${(cx - kx).toFixed(4)} ${(cy - ry).toFixed(4)} ${cx.toFixed(4)} ${(cy - ry).toFixed(4)} Z`;
+        }
+      }
+    }
+  }
+  // Handle circle(...)
+  else if (cpLower.includes('circle')) {
+    const m = cp.match(/circle\(\s*([^,\s]+)(?:\s+at\s+([^,\s]+)\s+([^,\s]+))?\s*\)/i);
+    if (m) {
+      const refDim = Math.sqrt((w * w + h * h) / 2);
+      const r = parseVal(m[1], refDim);
+      const cx = m[2] ? parseVal(m[2], w) : w / 2;
+      const cy = m[3] ? parseVal(m[3], h) : h / 2;
+      if (r > 0) {
+        const k = r * 0.5522847498;
+        result = `M ${cx.toFixed(4)} ${(cy - r).toFixed(4)} ` +
+          `C ${(cx + k).toFixed(4)} ${(cy - r).toFixed(4)} ${(cx + r).toFixed(4)} ${(cy - k).toFixed(4)} ${(cx + r).toFixed(4)} ${cy.toFixed(4)} ` +
+          `C ${(cx + r).toFixed(4)} ${(cy + k).toFixed(4)} ${(cx + k).toFixed(4)} ${(cy + r).toFixed(4)} ${cx.toFixed(4)} ${(cy + r).toFixed(4)} ` +
+          `C ${(cx - k).toFixed(4)} ${(cy + r).toFixed(4)} ${(cx - r).toFixed(4)} ${(cy + k).toFixed(4)} ${(cx - r).toFixed(4)} ${cy.toFixed(4)} ` +
+          `C ${(cx - r).toFixed(4)} ${(cy - k).toFixed(4)} ${(cx - k).toFixed(4)} ${(cy - r).toFixed(4)} ${cx.toFixed(4)} ${(cy - r).toFixed(4)} Z`;
+      }
+    }
+  }
+
+  if (!result) return null;
+  // Figma vectorPaths strictly requires all coordinates and commands to be space-separated with NO commas
+  return result.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function applyOpacity(node, styles) {
@@ -1634,7 +1975,172 @@ function prepareSvgString(svgString, isInverted) {
     return `<${tag}${newAttrs}>`;
   });
 
+  // Convert quadratic bezier curves (Q, q, T, t) to cubic bezier curves (C)
+  // because Figma's SVG engine does not interpolate quadratic curves and renders them as faceted straight lines
+  if (/[QqTt]/.test(clean)) {
+    clean = clean.replace(/\bd\s*=\s*(["'])([\s\S]*?)\1/gi, (m, quote, dContent) => {
+      if (/[QqTt]/.test(dContent)) {
+        return `d=${quote}${convertPathDQuadToCubic(dContent)}${quote}`;
+      }
+      return m;
+    });
+  }
+
   return clean;
+}
+
+function convertPathDQuadToCubic(dStr) {
+  const cmdRegex = /([a-df-z])([^a-df-z]*)/gi;
+  let match;
+  let newD = '';
+  let curX = 0, curY = 0;
+  let startX = 0, startY = 0;
+  let lastControlX = 0, lastControlY = 0;
+  let lastCmd = '';
+
+  const r3 = v => Math.round(v * 1000) / 1000;
+
+  while ((match = cmdRegex.exec(dStr)) !== null) {
+    const cmd = match[1];
+    const argsStr = match[2].trim();
+    const nums = [];
+    if (argsStr) {
+      const numRegex = /[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/g;
+      let nMatch;
+      while ((nMatch = numRegex.exec(argsStr)) !== null) {
+        nums.push(parseFloat(nMatch[0]));
+      }
+    }
+
+    const isRel = cmd === cmd.toLowerCase();
+    const type = cmd.toUpperCase();
+
+    if (type === 'M') {
+      for (let i = 0; i < nums.length; i += 2) {
+        const x = isRel ? curX + nums[i] : nums[i];
+        const y = isRel ? curY + nums[i + 1] : nums[i + 1];
+        if (i === 0) {
+          curX = x; curY = y;
+          startX = x; startY = y;
+          newD += `M${r3(x)} ${r3(y)}`;
+        } else {
+          curX = x; curY = y;
+          newD += `L${r3(x)} ${r3(y)}`;
+        }
+      }
+      lastControlX = curX; lastControlY = curY;
+      lastCmd = 'M';
+    } else if (type === 'L') {
+      for (let i = 0; i < nums.length; i += 2) {
+        curX = isRel ? curX + nums[i] : nums[i];
+        curY = isRel ? curY + nums[i + 1] : nums[i + 1];
+        newD += `L${r3(curX)} ${r3(curY)}`;
+      }
+      lastControlX = curX; lastControlY = curY;
+      lastCmd = 'L';
+    } else if (type === 'H') {
+      for (let i = 0; i < nums.length; i++) {
+        curX = isRel ? curX + nums[i] : nums[i];
+        newD += `H${r3(curX)}`;
+      }
+      lastControlX = curX; lastControlY = curY;
+      lastCmd = 'H';
+    } else if (type === 'V') {
+      for (let i = 0; i < nums.length; i++) {
+        curY = isRel ? curY + nums[i] : nums[i];
+        newD += `V${r3(curY)}`;
+      }
+      lastControlX = curX; lastControlY = curY;
+      lastCmd = 'V';
+    } else if (type === 'C') {
+      for (let i = 0; i < nums.length; i += 6) {
+        const x1 = isRel ? curX + nums[i] : nums[i];
+        const y1 = isRel ? curY + nums[i + 1] : nums[i + 1];
+        const x2 = isRel ? curX + nums[i + 2] : nums[i + 2];
+        const y2 = isRel ? curY + nums[i + 3] : nums[i + 3];
+        const x = isRel ? curX + nums[i + 4] : nums[i + 4];
+        const y = isRel ? curY + nums[i + 5] : nums[i + 5];
+        newD += `C${r3(x1)} ${r3(y1)} ${r3(x2)} ${r3(y2)} ${r3(x)} ${r3(y)}`;
+        lastControlX = x2;
+        lastControlY = y2;
+        curX = x; curY = y;
+      }
+      lastCmd = 'C';
+    } else if (type === 'S') {
+      for (let i = 0; i < nums.length; i += 4) {
+        const x2 = isRel ? curX + nums[i] : nums[i];
+        const y2 = isRel ? curY + nums[i + 1] : nums[i + 1];
+        const x = isRel ? curX + nums[i + 2] : nums[i + 2];
+        const y = isRel ? curY + nums[i + 3] : nums[i + 3];
+        newD += `S${r3(x2)} ${r3(y2)} ${r3(x)} ${r3(y)}`;
+        lastControlX = x2;
+        lastControlY = y2;
+        curX = x; curY = y;
+      }
+      lastCmd = 'S';
+    } else if (type === 'Q') {
+      for (let i = 0; i < nums.length; i += 4) {
+        const qx = isRel ? curX + nums[i] : nums[i];
+        const qy = isRel ? curY + nums[i + 1] : nums[i + 1];
+        const x = isRel ? curX + nums[i + 2] : nums[i + 2];
+        const y = isRel ? curY + nums[i + 3] : nums[i + 3];
+
+        const cx1 = curX + (2 / 3) * (qx - curX);
+        const cy1 = curY + (2 / 3) * (qy - curY);
+        const cx2 = x + (2 / 3) * (qx - x);
+        const cy2 = y + (2 / 3) * (qy - y);
+
+        newD += `C${r3(cx1)} ${r3(cy1)} ${r3(cx2)} ${r3(cy2)} ${r3(x)} ${r3(y)}`;
+        lastControlX = qx;
+        lastControlY = qy;
+        curX = x; curY = y;
+      }
+      lastCmd = 'Q';
+    } else if (type === 'T') {
+      for (let i = 0; i < nums.length; i += 2) {
+        let qx = curX, qy = curY;
+        if (lastCmd === 'Q' || lastCmd === 'T') {
+          qx = 2 * curX - lastControlX;
+          qy = 2 * curY - lastControlY;
+        }
+        const x = isRel ? curX + nums[i] : nums[i];
+        const y = isRel ? curY + nums[i + 1] : nums[i + 1];
+
+        const cx1 = curX + (2 / 3) * (qx - curX);
+        const cy1 = curY + (2 / 3) * (qy - curY);
+        const cx2 = x + (2 / 3) * (qx - x);
+        const cy2 = y + (2 / 3) * (qy - y);
+
+        newD += `C${r3(cx1)} ${r3(cy1)} ${r3(cx2)} ${r3(cy2)} ${r3(x)} ${r3(y)}`;
+        lastControlX = qx;
+        lastControlY = qy;
+        curX = x; curY = y;
+      }
+      lastCmd = 'T';
+    } else if (type === 'A') {
+      for (let i = 0; i < nums.length; i += 7) {
+        const rx = nums[i];
+        const ry = nums[i + 1];
+        const rot = nums[i + 2];
+        const laf = nums[i + 3];
+        const sf = nums[i + 4];
+        const x = isRel ? curX + nums[i + 5] : nums[i + 5];
+        const y = isRel ? curY + nums[i + 6] : nums[i + 6];
+        newD += `A${r3(rx)} ${r3(ry)} ${rot} ${laf} ${sf} ${r3(x)} ${r3(y)}`;
+        curX = x; curY = y;
+      }
+      lastControlX = curX; lastControlY = curY;
+      lastCmd = 'A';
+    } else if (type === 'Z') {
+      newD += 'Z';
+      curX = startX;
+      curY = startY;
+      lastControlX = curX; lastControlY = curY;
+      lastCmd = 'Z';
+    }
+  }
+
+  return newD;
 }
 
 function hydrateSvgPatterns(svgNode, svgString) {
@@ -1781,47 +2287,90 @@ async function renderSvgTexts(svgNode, sNode) {
   }
 }
 
-function getEffectiveZIndex(node) {
+function getEffectiveZIndex(node, isSectionLevel = false) {
   if (!node) return 0;
   const s = node.styles || {};
+  let z = 0;
   const zRaw = s.zIndex;
   if (zRaw && zRaw !== 'auto') {
-    const z = parseInt(zRaw, 10);
-    if (!isNaN(z)) return z * 2; // scale by 2 to leave room for the positioned-auto slot (1)
-  }
-  // CSS spec: positioned elements (absolute/fixed/relative/sticky) with z-index:auto
-  // participate in stacking ABOVE non-positioned (static) siblings at the same level.
-  const isPositioned = s.position === 'absolute' || s.position === 'fixed' || s.position === 'relative' || s.position === 'sticky';
-  if (isPositioned) return 1;
-
-  // Non-positioned element: check if any child/pseudo raises the effective z-index
-  let maxZ = 0;
-  let minZ = 0;
-  if (node.pseudoElementNodes?.before) {
-    const bZ = getEffectiveZIndex(node.pseudoElementNodes.before);
-    if (bZ > maxZ) maxZ = bZ;
-    if (bZ < minZ) minZ = bZ;
-  }
-  if (node.pseudoElementNodes?.after) {
-    const aZ = getEffectiveZIndex(node.pseudoElementNodes.after);
-    if (aZ > maxZ) maxZ = aZ;
-    if (aZ < minZ) minZ = aZ;
-  }
-  if (node.childNodes && node.childNodes.length > 0) {
-    for (const child of node.childNodes) {
-      const cZ = getEffectiveZIndex(child);
-      if (cZ > maxZ) maxZ = cZ;
-      if (cZ < minZ) minZ = cZ;
+    const parsed = parseInt(zRaw, 10);
+    if (!isNaN(parsed)) z = parsed === 0 ? 1 : parsed * 2; // scale by 2 to leave room for the positioned-auto slot (1)
+  } else {
+    const isPositioned = s.position === 'absolute' || s.position === 'fixed' || s.position === 'relative' || s.position === 'sticky';
+    if (isPositioned && !isBackdropNode(node)) {
+      z = 1;
     }
   }
-  return maxZ !== 0 ? maxZ : minZ;
+
+  // If node does not create an isolated stacking context, check if any descendant has higher z-index (e.g. fixed nav inside static header)
+  const isSection = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(node.tag);
+  const childIsSection = isSectionLevel || isSection;
+  const isPos = s.position === 'absolute' || s.position === 'relative' || s.position === 'fixed';
+  const createsSC = (zRaw && zRaw !== 'auto' && isPos) ||
+                    (s.opacity && parseFloat(s.opacity) < 1) ||
+                    (s.transform && s.transform !== 'none') ||
+                    (s.filter && s.filter !== 'none') ||
+                    (s.clipPath && s.clipPath !== 'none') ||
+                    (s.isolation === 'isolate');
+  if (!createsSC && node.childNodes) {
+    const getDescZ = (cn) => {
+      let m = 0;
+      if (cn.childNodes) {
+        for (const c of cn.childNodes) {
+          const cs = c.styles || {};
+          const parsedZ = cs.zIndex && cs.zIndex !== 'auto' ? (parseInt(cs.zIndex, 10) || 0) * 2 : 0;
+          if (cs.position === 'fixed') {
+            m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
+          } else if (node.tag === 'HEADER' && (cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'sticky')) {
+            // Header's positioned children always elevate the header above hero sections
+            m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
+          } else if (!childIsSection && (cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'sticky')) {
+            // A static container that has positioned descendants should be treated as z=1
+            // (same stacking level as other positioned z-index:auto elements) so that
+            // DOM source order is the correct tiebreaker instead of position-type.
+            m = Math.max(m, parsedZ > 0 ? parsedZ : 1);
+          } else if (childIsSection && (cs.position === 'absolute' || cs.position === 'fixed') && parsedZ >= 6) {
+            // Section-level: only high z-index overlays (z >= 3) elevate the section
+            m = Math.max(m, parsedZ);
+          }
+          // Stop descending if c creates an isolated stacking context (its internal z-index cannot escape)
+          const cCreatesSC = (cs.zIndex && cs.zIndex !== 'auto' && (cs.position === 'relative' || cs.position === 'absolute' || cs.position === 'fixed')) ||
+                             (cs.opacity && parseFloat(cs.opacity) < 1) ||
+                             (cs.transform && cs.transform !== 'none') ||
+                             (cs.filter && cs.filter !== 'none') ||
+                             (cs.clipPath && cs.clipPath !== 'none') ||
+                             (cs.isolation === 'isolate');
+          if (!cCreatesSC) {
+            m = Math.max(m, getDescZ(c));
+          }
+        }
+      }
+      return m;
+    };
+    const descZ = getDescZ(node);
+    if (descZ > z) z = descZ;
+  }
+
+  // Section-level flow protection: direct children of page/body or section-level elements
+  // should NEVER be reordered against each other unless one of them has an explicit non-zero z-index or fixed descendant
+  if (childIsSection && z <= 2 && node.tag !== 'HEADER') {
+    z = 0;
+  }
+
+  // Force header to top layer since HTML-to-Figma sometimes misses its fixed/absolute positioning
+  if (node.tag === 'HEADER') {
+    z = Math.max(z, 9999);
+  }
+
+  return z;
 }
 
-async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles, inheritedTextClip = null) {
+
+async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false) {
   if (!sNode) return;
 
   if (sNode.nodeType === 3 /* TEXT */) {
-    await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip);
+    await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip, activeRotation, parentNode, isVerticalInverted);
     reportProgress();
     return;
   }
@@ -1830,6 +2379,14 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   let currentTextClip = inheritedTextClip;
   if (isBackgroundClipText(s)) {
     currentTextClip = s;
+  }
+
+  // Fix for btn-hover-animation-switch showing overlapping icons:
+  // The left icon usually has a negative order and is meant to be hidden by default
+  if (sNode.attributes && sNode.attributes.class && sNode.attributes.class.includes('btn-icon')) {
+    if (s.order && parseInt(s.order) < 0) {
+      return;
+    }
   }
 
   if (sNode.id && (sNode.id.includes('text-symbol-wrap') || sNode.id.includes('text-wrap'))) {
@@ -1845,10 +2402,64 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     s.textDecoration = 'none';
     s.textDecorationLine = 'none';
   }
-  const x = sNode._localRect ? sNode._localRect.x : Math.round((sNode.rect?.x || 0) - parentX);
-  const y = sNode._localRect ? sNode._localRect.y : Math.round((sNode.rect?.y || 0) - parentY);
-  const w = Math.max(1, sNode._localRect ? sNode._localRect.width : Math.round(sNode.rect?.width || 0));
-  const h = Math.max(1, sNode._localRect ? sNode._localRect.height : Math.round(sNode.rect?.height || 0));
+
+  if (!sNode._localRect && activeRotation && parentNode) {
+    const cosR = activeRotation.cosR;
+    const sinR = activeRotation.sinR;
+    const pW = Math.round(parentNode.rect?.offsetWidth || parentNode.rect?.width || parentFrame.width || 0);
+    const pH = Math.round(parentNode.rect?.offsetHeight || parentNode.rect?.height || parentFrame.height || 0);
+    const cW = Math.round(sNode.rect?.offsetWidth || sNode.rect?.width || 0);
+    const cH = Math.round(sNode.rect?.offsetHeight || sNode.rect?.height || 0);
+
+    const childGX = (sNode.rect?.x || 0) + (sNode.rect?.width || 0) / 2;
+    const childGY = (sNode.rect?.y || 0) + (sNode.rect?.height || 0) / 2;
+    const parentGX = (parentNode.rect?.x || parentX || 0) + (parentNode.rect?.width || 0) / 2;
+    const parentGY = (parentNode.rect?.y || parentY || 0) + (parentNode.rect?.height || 0) / 2;
+    const dX = childGX - parentGX;
+    const dY = childGY - parentGY;
+    const localDX = dX * cosR + dY * sinR;
+    const localDY = -dX * sinR + dY * cosR;
+
+    const childLCX = (pW / 2) + localDX;
+    const childLCY = (pH / 2) + localDY;
+    sNode._localRect = {
+      x: Math.round(childLCX - cW / 2),
+      y: Math.round(childLCY - cH / 2),
+      width: cW,
+      height: cH
+    };
+  }
+
+  const origW = Math.round(sNode.rect?.offsetWidth || sNode.rect?.width || 0);
+  const origH = Math.round(sNode.rect?.offsetHeight || sNode.rect?.height || 0);
+  const boxW = Math.round(sNode.rect?.width || origW);
+  const boxH = Math.round(sNode.rect?.height || origH);
+
+  let x, y;
+  let trueGlobalX = Math.round(sNode.rect?.x || 0);
+  let trueGlobalY = Math.round(sNode.rect?.y || 0);
+
+  if (sNode._localRect) {
+    x = sNode._localRect.x;
+    y = sNode._localRect.y;
+  } else {
+    if (origW > 0 && boxW > origW + 1) {
+      const centerX = (sNode.rect?.x || 0) + (sNode.rect?.width || 0) / 2;
+      x = Math.round(centerX - parentX - origW / 2);
+      trueGlobalX = Math.round(centerX - origW / 2);
+    } else {
+      x = Math.round((sNode.rect?.x || 0) - parentX);
+    }
+    if (origH > 0 && boxH > origH + 1) {
+      const centerY = (sNode.rect?.y || 0) + (sNode.rect?.height || 0) / 2;
+      y = Math.round(centerY - parentY - origH / 2);
+      trueGlobalY = Math.round(centerY - origH / 2);
+    } else {
+      y = Math.round((sNode.rect?.y || 0) - parentY);
+    }
+  }
+  const w = Math.max(1, sNode._localRect ? sNode._localRect.width : origW);
+  const h = Math.max(1, sNode._localRect ? sNode._localRect.height : origH);
 
   // SVG Vector element
   if (sNode.content && (sNode.tag === 'SVG' || sNode.content.includes('<svg'))) {
@@ -1871,6 +2482,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       }
       const svgNode = figma.createNodeFromSvg(cleanSvg);
       svgNode.name = (sNode.tag || 'node').toLowerCase();
+      try { svgNode.clipsContent = false; } catch {}
       hydrateSvgPatterns(svgNode, sNode.content);
       if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
         try { svgNode.resize(w, h); } catch {}
@@ -1941,6 +2553,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       console.warn('[HTML-2-Fig] Svg vector parse failed, creating fallback frame:', err);
       const svgFrame = figma.createFrame();
       svgFrame.name = (sNode.tag || 'svg').toLowerCase();
+      svgFrame.fills = [];
+      svgFrame.clipsContent = false;
       parentFrame.appendChild(svgFrame);
       svgFrame.x = x; svgFrame.y = y;
       svgFrame.resize(w, h);
@@ -2061,6 +2675,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             console.warn('[HTML-2-Fig] SVG import failed, creating SVG frame fallback:', svgErr);
             const svgFrame = figma.createFrame();
             svgFrame.name = sNode.attributes?.alt || 'img-svg';
+            svgFrame.fills = [];
+            svgFrame.clipsContent = false;
             parentFrame.appendChild(svgFrame);
             svgFrame.x = x; svgFrame.y = y;
             svgFrame.resize(w, h);
@@ -2357,16 +2973,20 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   // Apply CSS transform rotation (e.g. rotated ribbons, badges, polaroid cards)
   let angleDeg = 0;
   const isVerticalFlow = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr');
+  let has180 = false;
   if (s.transform && s.transform.includes('matrix')) {
     const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
     if (parts) {
       const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
       let a = vals[0], b = vals[1];
       const tAngle = Math.atan2(b, a) * (180 / Math.PI);
+      if (Math.abs(Math.abs(tAngle) - 180) < 1) {
+        has180 = true;
+      }
       // If the container has vertical text flow, vertical-rl already defines its vertical layout box.
       // A 180deg transform on it is the standard web pattern to invert text direction to bottom-to-top.
       // The frame itself must remain axis-aligned; the rotation is applied to the text inside.
-      if (isVerticalFlow && Math.abs(Math.abs(tAngle) - 180) < 1) {
+      if (isVerticalFlow && has180) {
         angleDeg = 0;
       } else {
         angleDeg = tAngle;
@@ -2374,10 +2994,23 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     }
   } else if (!isVerticalFlow && s.rotate && s.rotate !== 'none') {
     const r = s.rotate.trim().toLowerCase();
-    if (r.includes('deg')) angleDeg = parseFloat(r);
-    else if (r.includes('rad')) angleDeg = (parseFloat(r) * 180) / Math.PI;
-    else if (r.includes('turn')) angleDeg = parseFloat(r) * 360;
+    let rDeg = 0;
+    if (r.includes('deg')) rDeg = parseFloat(r);
+    else if (r.includes('rad')) rDeg = (parseFloat(r) * 180) / Math.PI;
+    else if (r.includes('turn')) rDeg = parseFloat(r) * 360;
+    if (Math.abs(Math.abs(rDeg) - 180) < 1) has180 = true;
+    if (isVerticalFlow && has180) {
+      angleDeg = 0;
+    } else {
+      angleDeg = rDeg;
+    }
   }
+
+  if (sNode.attributes?.class && /rs-rotate|tp-loop-wrap|loop-wrap/i.test(sNode.attributes.class)) {
+    angleDeg = 0;
+  }
+
+  const nextVerticalInverted = isVerticalInverted || (isVerticalFlow && has180);
 
   if (Math.abs(angleDeg) > 0.1) {
     const rotDeg = -angleDeg; // Figma rotation is negative of CSS
@@ -2419,8 +3052,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     const halfH = rectH / 2;
     const cosR = Math.cos(rotRad);
     const sinR = Math.sin(rotRad);
-    const deltaX = halfW * cosR + halfH * sinR;
-    const deltaY = -halfW * sinR + halfH * cosR;
+    const deltaX = halfW * cosR - halfH * sinR;
+    const deltaY = halfW * sinR + halfH * cosR;
 
     frame.x = Math.round(centerInParentX - deltaX);
     frame.y = Math.round(centerInParentY - deltaY);
@@ -2435,8 +3068,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       const globalCenterY = (sNode.rect?.y || 0) + (sNode.rect?.height || 0) / 2;
       const dX = childGX - globalCenterX;
       const dY = childGY - globalCenterY;
-      const localDX = dX * cosR - dY * sinR;
-      const localDY = dX * sinR + dY * cosR;
+      const localDX = dX * cosR + dY * sinR;
+      const localDY = -dX * sinR + dY * cosR;
 
       // If parent is a flex container centering its items or has single child/pseudo, check if child is centered in parent
       const pDisplay = (sNode.styles?.display || '');
@@ -2452,8 +3085,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
         childLCY = halfH;
       }
 
-      let cW = Math.round(childNode.rect.width || 0);
-      let cH = Math.round(childNode.rect.height || 0);
+      let cW = Math.round(childNode.rect.offsetWidth || childNode.rect.width || 0);
+      let cH = Math.round(childNode.rect.offsetHeight || childNode.rect.height || 0);
 
       childNode._localRect = {
         x: Math.round(childLCX - cW / 2),
@@ -2516,6 +3149,32 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     if (maxB > 0) rectW = Math.max(1, maxB);
   }
 
+  // Expand zero-height/width structural containers (e.g. <header>, <div> wrappers) that contain children
+  if (rectH < 1 && sNode.childNodes && sNode.childNodes.length > 0) {
+    let maxChildBottom = 0;
+    for (const c of sNode.childNodes) {
+      if (c.rect) {
+        maxChildBottom = Math.max(maxChildBottom, (c.rect.y || 0) + (c.rect.height || 0));
+      }
+    }
+    const childrenSpan = maxChildBottom - (sNode.rect?.y || 0);
+    if (childrenSpan > 0) {
+      rectH = Math.max(rectH, Math.round(childrenSpan));
+    }
+  }
+  if (rectW < 1 && sNode.childNodes && sNode.childNodes.length > 0) {
+    let maxChildRight = 0;
+    for (const c of sNode.childNodes) {
+      if (c.rect) {
+        maxChildRight = Math.max(maxChildRight, (c.rect.x || 0) + (c.rect.width || 0));
+      }
+    }
+    const childrenSpanW = maxChildRight - (sNode.rect?.x || 0);
+    if (childrenSpanW > 0) {
+      rectW = Math.max(rectW, Math.round(childrenSpanW));
+    }
+  }
+
   frame.resize(rectW, rectH);
   const clipValues = ['hidden', 'clip', 'auto', 'scroll'];
   const isPageLevelWrapper = sNode.attributes?.id === 'smooth-wrapper' ||
@@ -2523,7 +3182,10 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
                              (sNode.attributes?.class && /dialog-off-canvas|my-app|page-wrapper|main-wrapper|site-wrapper|root-wrapper/i.test(sNode.attributes.class));
   frame.clipsContent = !isPageLevelWrapper && (clipValues.includes(s.overflow) || clipValues.includes(s.overflowX) || clipValues.includes(s.overflowY));
 
-  const hasChildren = (sNode.childNodes && sNode.childNodes.length > 0) || (sNode.pseudoElementNodes?.after != null);
+  const hasChildren = (sNode.childNodes && sNode.childNodes.length > 0) ||
+                      (sNode.pseudoElementNodes?.before != null) ||
+                      (sNode.pseudoElementNodes?.after != null) ||
+                      (sNode.text && sNode.text.trim().length > 0);
   await applyFills(frame, s, assets, rectW, rectH, hasChildren);
   applyStrokes(frame, s);
   applyEffects(frame, s);
@@ -2536,29 +3198,152 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (sNode.childNodes) { for (let i = 0; i < sNode.childNodes.length; i++) allChildren.push(sNode.childNodes[i]); }
   if (sNode.pseudoElementNodes?.after) allChildren.push(sNode.pseudoElementNodes.after);
 
-  const hasBackdropChild = allChildren.some(isBackdropNode);
-  if (!hasBackdropChild && allChildren.length > 1) {
+  if (allChildren.length > 1) {
+    const isPageLevel = ['BODY', 'HTML'].includes(sNode.tag) || (sNode.attributes?.class && /page-layout|page-wrapper|main-wrapper|site-wrapper/i.test(sNode.attributes.class));
     allChildren.forEach((child, idx) => { child._origIdx = idx; });
     allChildren.sort((a, b) => {
-      const zA = getEffectiveZIndex(a);
-      const zB = getEffectiveZIndex(b);
+      const zA = getEffectiveZIndex(a, isPageLevel);
+      const zB = getEffectiveZIndex(b, isPageLevel);
       const diff = zA - zB;
       return diff !== 0 ? diff : a._origIdx - b._origIdx;
     });
   }
 
+  const nextRotation = (Math.abs(angleDeg) > 0.1)
+    ? { rotRad: -angleDeg * (Math.PI / 180), cosR: Math.cos(-angleDeg * (Math.PI / 180)), sinR: Math.sin(-angleDeg * (Math.PI / 180)) }
+    : activeRotation;
+
   for (const child of allChildren) {
-    await renderNode(child, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, assets, s, currentTextClip);
+    await renderNode(child, frame, trueGlobalX, trueGlobalY, assets, s, currentTextClip, nextRotation, sNode, nextVerticalInverted);
   }
 
   if (sNode.text && sNode.text.trim()) {
-    await renderTextNode(sNode, frame, sNode.rect?.x || 0, sNode.rect?.y || 0, s, currentTextClip);
+    await renderTextNode(sNode, frame, trueGlobalX, trueGlobalY, s, currentTextClip, nextRotation, sNode, nextVerticalInverted);
+  }
+
+  // Handle CSS gradient mask-image (e.g. .feather-shadow left/right text fade)
+  const maskGradientStr = (s.maskImage && s.maskImage !== 'none' && s.maskImage.includes('gradient')) ? s.maskImage
+    : ((s.webkitMaskImage && s.webkitMaskImage !== 'none' && s.webkitMaskImage.includes('gradient')) ? s.webkitMaskImage
+    : ((s.mask && s.mask !== 'none' && s.mask.includes('gradient')) ? s.mask
+    : ((s.webkitMask && s.webkitMask !== 'none' && s.webkitMask.includes('gradient')) ? s.webkitMask : null)));
+
+  if (maskGradientStr && frame.children && frame.children.length > 0) {
+    let maskFill = null;
+    if (maskGradientStr.includes('linear-gradient')) {
+      maskFill = parseLinearGradient(maskGradientStr, s);
+    } else if (maskGradientStr.includes('radial-gradient')) {
+      maskFill = parseRadialGradient(maskGradientStr);
+    } else if (maskGradientStr.includes('conic-gradient')) {
+      maskFill = parseAngularGradient(maskGradientStr);
+    }
+
+    if (maskFill) {
+      try {
+        const maskRect = figma.createRectangle();
+        maskRect.name = 'mask-gradient';
+        maskRect.resize(Math.max(1, Math.round(rectW)), Math.max(1, Math.round(rectH)));
+        maskRect.x = 0;
+        maskRect.y = 0;
+        maskRect.fills = [maskFill];
+        maskRect.isMask = true;
+        try { maskRect.maskType = 'ALPHA'; } catch {}
+        frame.insertChild(0, maskRect);
+        frame.clipsContent = true;
+      } catch (err) {
+        console.warn('[HTML-2-Fig] Failed to apply gradient mask:', err);
+      }
+    }
+  }
+
+  // Handle CSS clip-path shapes (ellipse, circle, polygon, path) using figma.createVector + vectorPaths
+  // Note: we avoid figma.createNodeFromSvg here because it creates a FrameNode wrapper
+  // and extracting/reparenting its child is unreliable. createVector gives us direct control.
+  if (s.clipPath && s.clipPath !== 'none') {
+    const cp = s.clipPath.trim();
+    const cpLower = cp.toLowerCase();
+    const isEllipse = cpLower.includes('ellipse');
+    const isCircle = cpLower.includes('circle');
+    const isPolygon = cpLower.includes('polygon');
+    const isPath = cpLower.includes('path');
+    const isSmallAvatar = isCircle && (rectW <= 300 && rectH <= 300);
+
+    if (isEllipse || isPolygon || isPath || (isCircle && !isSmallAvatar)) {
+      const pathData = convertClipPathToPathData(cp, Math.round(rectW), Math.round(rectH));
+      if (pathData) {
+        try {
+          if (frame.fills && Array.isArray(frame.fills) && frame.fills.length > 0) {
+            const bgRect = figma.createRectangle();
+            bgRect.name = 'bg-fill';
+            bgRect.resize(Math.max(1, Math.round(rectW)), Math.max(1, Math.round(rectH)));
+            bgRect.x = 0;
+            bgRect.y = 0;
+            bgRect.fills = frame.fills;
+            frame.fills = [];
+            frame.appendChild(bgRect);
+          }
+
+          let vecNode = null;
+          // Strategy 1: Create vector from SVG via Figma's native SVG parser (most robust across all Figma versions)
+          try {
+            const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${Math.round(rectW)} ${Math.round(rectH)}" width="${Math.round(rectW)}" height="${Math.round(rectH)}"><path d="${pathData}" fill="#ffffff" /></svg>`;
+            const svgFrame = figma.createNodeFromSvg(svgStr);
+            if (svgFrame.children && svgFrame.children.length === 1) {
+              vecNode = svgFrame.children[0];
+              frame.appendChild(vecNode);
+              try { svgFrame.remove(); } catch {}
+            } else {
+              vecNode = svgFrame;
+              frame.appendChild(vecNode);
+            }
+          } catch (svgErr) {
+            console.warn('[HTML-2-Fig] createNodeFromSvg failed, trying createVector:', svgErr);
+            try {
+              const vectorMask = figma.createVector();
+              vectorMask.vectorPaths = [{ windingRule: 'EVENODD', data: pathData }];
+              frame.appendChild(vectorMask);
+              vecNode = vectorMask;
+            } catch (vecErr) {
+              console.warn('[HTML-2-Fig] createVector also failed:', vecErr);
+            }
+          }
+
+          if (vecNode) {
+            vecNode.name = 'clip-path-mask';
+            // Do not override vecNode.x and vecNode.y, they are correctly positioned by the SVG
+            vecNode.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 }, opacity: 1 }];
+
+            // Unset clipsContent on children so their internal clipping doesn't interfere
+            const disableClipsContentDeep = (node, depth = 0) => {
+              if (!node || depth > 3) return;
+              try { node.clipsContent = false; } catch {}
+              if (node.children) {
+                for (const child of node.children) disableClipsContentDeep(child, depth + 1);
+              }
+            };
+            for (const c of frame.children) {
+              if (c !== vecNode) disableClipsContentDeep(c);
+            }
+
+            // Standard Figma masking: bottom-most layer in a frame masks all layers above it
+            frame.insertChild(0, vecNode);
+            vecNode.isMask = true;
+            try { vecNode.maskType = 'ALPHA'; } catch {}
+
+            // Disable parent frame rectangular clipping so it does not override or conflict with the vector mask
+            frame.clipsContent = false;
+            console.log('[HTML-2-Fig] Applied mask to:', frame.name, 'with pathData length:', pathData.length);
+          }
+        } catch (err) {
+          console.warn('[HTML-2-Fig] Failed to apply clip-path mask to:', frame.name, err);
+        }
+      }
+    }
   }
 
   reportProgress();
 }
 
-async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip = null) {
+async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false) {
   const s = sNode.styles || inheritedStyles || parentFrame.styles || {};
   let text = (sNode.text || '');
   const ws = s.whiteSpace || 'normal';
@@ -2632,7 +3417,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     try { textNode.textDecoration = 'STRIKETHROUGH'; } catch {}
   }
 
-  const isMultiLine = sNode.lineCount && sNode.lineCount > 1;
+  const isMultiLine = (sNode.lineCount && sNode.lineCount > 1) || (sNode.text && sNode.text.includes('\n'));
   let figmaLineHeight = null;
   if (s.lineHeight && s.lineHeight !== 'normal') {
     const lh = parseFloat(s.lineHeight);
@@ -2682,7 +3467,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       const bgs = splitByTopLevelCommas(clipStyle.backgroundImage);
       for (const bg of bgs) {
         if (bg.includes('linear-gradient')) {
-          const grad = parseLinearGradient(bg);
+          const grad = parseLinearGradient(bg, clipStyle);
           if (grad) textFills.push(grad);
         } else if (bg.includes('radial-gradient')) {
           const grad = parseRadialGradient(bg);
@@ -2726,14 +3511,55 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     }
   }
 
-  applyOpacity(textNode, s);
+  // CSS opacity belongs to elements (containers). Each element already creates a Figma frame
+  // with applyOpacity(frame, s) applied. If we also apply opacity to the textNode inside that frame,
+  // Figma will square the opacity (e.g. 0.3 on frame * 0.3 on textNode = 0.09 / #ebebeb instead of 0.3 / #bbbbbb).
+  // Only apply opacity directly to textNode if parentFrame is an unstyled top-level root frame.
+  if (parentFrame && parentFrame.opacity >= 0.999 && (!parentFrame.parent || parentFrame.parent.type === 'PAGE')) {
+    applyOpacity(textNode, s);
+  }
 
   parentFrame.appendChild(textNode);
+
+  if (!sNode._localRect && activeRotation && parentNode) {
+    const cosR = activeRotation.cosR;
+    const sinR = activeRotation.sinR;
+    const pW = Math.round(parentNode.rect?.offsetWidth || parentNode.rect?.width || parentFrame.width || 0);
+    const pH = Math.round(parentNode.rect?.offsetHeight || parentNode.rect?.height || parentFrame.height || 0);
+    const cW = Math.round(sNode.rect?.offsetWidth || sNode.rect?.width || 0);
+    const cH = Math.round(sNode.rect?.offsetHeight || sNode.rect?.height || 0);
+
+    const childGX = (sNode.rect?.x || 0) + (sNode.rect?.width || 0) / 2;
+    const childGY = (sNode.rect?.y || 0) + (sNode.rect?.height || 0) / 2;
+    const parentGX = (parentNode.rect?.x || parentX || 0) + (parentNode.rect?.width || 0) / 2;
+    const parentGY = (parentNode.rect?.y || parentY || 0) + (parentNode.rect?.height || 0) / 2;
+    const dX = childGX - parentGX;
+    const dY = childGY - parentGY;
+    const localDX = dX * cosR + dY * sinR;
+    const localDY = -dX * sinR + dY * cosR;
+
+    const childLCX = (pW / 2) + localDX;
+    const childLCY = (pH / 2) + localDY;
+    sNode._localRect = {
+      x: Math.round(childLCX - cW / 2),
+      y: Math.round(childLCY - cH / 2),
+      width: cW,
+      height: cH
+    };
+  }
+
   const posX = sNode._localRect ? sNode._localRect.x : ((sNode.rect?.x || 0) - parentX);
   let posY = sNode._localRect ? sNode._localRect.y : ((sNode.rect?.y || 0) - parentY);
 
-  const w = sNode._localRect ? sNode._localRect.width : (sNode.rect?.width || 0);
-  const h = sNode._localRect ? sNode._localRect.height : (sNode.rect?.height || 0);
+  let w = sNode._localRect ? sNode._localRect.width : (sNode.rect?.offsetWidth || sNode.rect?.width || 0);
+  const h = sNode._localRect ? sNode._localRect.height : (sNode.rect?.offsetHeight || sNode.rect?.height || 0);
+
+  if (isMultiLine && parentFrame && parentNode && (!parentNode.childNodes || parentNode.childNodes.length <= 1) && !parentNode.pseudoElementNodes?.before && !parentNode.pseudoElementNodes?.after && !activeRotation) {
+    const availW = parentFrame.width - Math.max(0, posX);
+    if (availW > w) {
+      w = availW;
+    }
+  }
 
   // Remove Figma's top half-leading compensation because we use exact centering
   // if (!isMultiLine && h > 0) {
@@ -2744,6 +3570,17 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   textNode.x = posX;
   textNode.y = posY;
   const textStr = finalText.trim();
+
+  const alignVal = s.textAlign || inheritedStyles?.textAlign || (parentNode && parentNode.styles?.textAlign) || '';
+  if (alignVal === 'center') {
+    try { textNode.textAlignHorizontal = 'CENTER'; } catch {}
+  } else if (alignVal === 'right' || alignVal === 'end') {
+    try { textNode.textAlignHorizontal = 'RIGHT'; } catch {}
+  } else if (alignVal === 'justify') {
+    try { textNode.textAlignHorizontal = 'JUSTIFIED'; } catch {}
+  } else {
+    try { textNode.textAlignHorizontal = 'LEFT'; } catch {}
+  }
 
   if (sNode.id && (sNode.id.includes('input-text') || sNode.id.includes('select-text')) && w > 0 && h > 0) {
     try { textNode.textAutoResize = 'TRUNCATE'; } catch { textNode.textAutoResize = 'NONE'; }
@@ -2757,7 +3594,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   } else {
     // Single line text: Let the font be its natural width/height so it never wraps
     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
-    const isVert = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr');
+    const isVert = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr') || isVerticalInverted;
     if (w > 0 && h > 0 && !isVert) {
       
       // Vertical Alignment:
@@ -2770,9 +3607,9 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       // Guarantee that if the website aligned text to center, it is mathematically centered
       // around the DOM node's center, even if the fallback font width differs from the original!
       const figmaW = textNode.width;
-      if (s.textAlign === 'center') {
+      if (alignVal === 'center') {
         textNode.x = posX + (w / 2) - (figmaW / 2);
-      } else if (s.textAlign === 'right' || s.textAlign === 'end') {
+      } else if (alignVal === 'right' || alignVal === 'end') {
         textNode.x = posX + w - figmaW;
       } else {
         textNode.x = posX;
@@ -2781,57 +3618,59 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   }
 
   // Apply rotation directly to textNode if parentFrame is not already rotated
-  let textAngleDeg = 0;
-  const isVerticalText = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr');
+  const isVerticalText = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr') || isVerticalInverted;
 
   let transformAngle = 0;
+  let textHas180 = false;
   if (s.transform && s.transform.includes('matrix')) {
     const parts = s.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
     if (parts) {
       const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
       let a = vals[0], b = vals[1];
       transformAngle = Math.atan2(b, a) * (180 / Math.PI);
+      if (Math.abs(Math.abs(transformAngle) - 180) < 1) textHas180 = true;
     }
   } else if (s.rotate && s.rotate !== 'none') {
     const r = s.rotate.trim().toLowerCase();
     if (r.includes('deg')) transformAngle = parseFloat(r);
     else if (r.includes('rad')) transformAngle = (parseFloat(r) * 180) / Math.PI;
     else if (r.includes('turn')) transformAngle = parseFloat(r) * 360;
+    if (Math.abs(Math.abs(transformAngle) - 180) < 1) textHas180 = true;
   }
 
-  if (isVerticalText) {
+  const is180 = isVerticalInverted || textHas180;
+
+  if (isVerticalText && Math.abs(parentFrame.rotation || 0) < 0.1 && !activeRotation) {
     // In CSS, writing-mode: vertical-rl flows top-to-bottom.
     // Combined with rotate(180deg), it flows bottom-to-top (reading upwards).
-    // In Figma, rotDeg = 90 makes the text read upwards from bottom to top,
-    // positioned at x = posX + height and y = posY (top of frame).
-    const is180 = Math.abs(Math.abs(transformAngle) - 180) < 1;
-    textAngleDeg = is180 ? -90 : 90;
-  } else {
-    textAngleDeg = transformAngle;
-  }
-
-  if (Math.abs(textAngleDeg) > 0.1 && Math.abs(parentFrame.rotation || 0) < 0.1) {
-    const rotDeg = -textAngleDeg;
+    // In Figma API (Cartesian angle):
+    // - rotDeg = 90 rotates counter-clockwise: characters flow upwards from bottom to top, with letterheads pointing to the left.
+    // - rotDeg = -90 rotates clockwise: characters flow downwards from top to bottom, with letterheads pointing to the right.
+    const rotDeg = is180 ? 90 : -90;
     textNode.rotation = rotDeg;
+    const extraX = Math.max(0, (w - textNode.height) / 2);
+    const extraY = Math.max(0, (h - textNode.width) / 2);
     if (rotDeg === 90) {
-      textNode.x = Math.max(0, posX);
-      textNode.y = Math.max(0, posY) + textNode.width;
-    } else if (rotDeg === -90) {
-      textNode.x = Math.max(0, posX);
-      textNode.y = Math.max(0, posY) + textNode.width;
+      textNode.x = posX + extraX;
+      textNode.y = posY + textNode.width + extraY;
     } else {
-      const rotRad = rotDeg * (Math.PI / 180);
-      const cos = Math.cos(rotRad);
-      const sin = Math.sin(rotRad);
-      const w0 = textNode.width;
-      const h0 = textNode.height;
-      const x1 = w0 * cos, y1 = w0 * sin;
-      const x2 = -h0 * sin, y2 = h0 * cos;
-      const minX = Math.min(0, x1, x2, x1 + x2);
-      const minY = Math.min(0, y1, y2, y1 + y2);
-      textNode.x = posX - minX;
-      textNode.y = posY - minY;
+      textNode.x = posX + textNode.height + extraX;
+      textNode.y = posY + extraY;
     }
+  } else if (Math.abs(transformAngle) > 0.1 && Math.abs(parentFrame.rotation || 0) < 0.1 && !activeRotation) {
+    const rotDeg = -transformAngle;
+    textNode.rotation = rotDeg;
+    const rotRad = rotDeg * (Math.PI / 180);
+    const cos = Math.cos(rotRad);
+    const sin = Math.sin(rotRad);
+    const w0 = textNode.width;
+    const h0 = textNode.height;
+    const x1 = w0 * cos, y1 = w0 * sin;
+    const x2 = -h0 * sin, y2 = h0 * cos;
+    const minX = Math.min(0, x1, x2, x1 + x2);
+    const minY = Math.min(0, y1, y2, y1 + y2);
+    textNode.x = posX - minX;
+    textNode.y = posY - minY;
   }
 }
 
@@ -2874,8 +3713,8 @@ async function renderTree(data) {
     const rootChildren = Array.from(data.root.childNodes);
     rootChildren.forEach((child, idx) => { child._origIdx = idx; });
     rootChildren.sort((a, b) => {
-      const zA = getEffectiveZIndex(a);
-      const zB = getEffectiveZIndex(b);
+      const zA = getEffectiveZIndex(a, true);
+      const zB = getEffectiveZIndex(b, true);
       const diff = zA - zB;
       return diff !== 0 ? diff : a._origIdx - b._origIdx;
     });
