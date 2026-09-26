@@ -3555,7 +3555,11 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const h = sNode._localRect ? sNode._localRect.height : (sNode.rect?.offsetHeight || sNode.rect?.height || 0);
 
   if (isMultiLine && parentFrame && parentNode && (!parentNode.childNodes || parentNode.childNodes.length <= 1) && !parentNode.pseudoElementNodes?.before && !parentNode.pseudoElementNodes?.after && !activeRotation) {
-    const availW = parentFrame.width - Math.max(0, posX);
+    let pr = 0;
+    if (parentNode.styles && parentNode.styles.paddingRight) {
+      pr = parseFloat(parentNode.styles.paddingRight) || 0;
+    }
+    const availW = parentFrame.width - Math.max(0, posX) - Math.max(0, pr);
     if (availW > w) {
       w = availW;
     }
