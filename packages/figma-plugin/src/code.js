@@ -3870,7 +3870,13 @@ async function renderTree(data, withHoverOpt) {
   const rootFrame = figma.createFrame();
   rootFrame.name = data.documentTitle || 'HTML 2 Fig Import';
 
-  const dw = Math.round(data.documentRect?.width || data.viewportRect?.width || 1440);
+  // Use the exact rendered content width (data.root.rect.width or clientWidth).
+  // Never allow documentRect.width to exceed viewport width, which creates a huge white void on the right.
+  const contentW = data.root?.rect?.width && data.root.rect.width > 200 ? Math.round(data.root.rect.width) : null;
+  const viewportW = data.viewportRect?.width ? Math.round(data.viewportRect.width) : 1440;
+  const docW = data.documentRect?.width ? Math.round(data.documentRect.width) : viewportW;
+  
+  let dw = contentW || Math.min(docW, viewportW);
   const dh = Math.round(data.documentRect?.height || data.viewportRect?.height || 900);
   rootFrame.resize(dw, dh);
   rootFrame.x = figma.viewport.center.x - dw / 2;
@@ -3906,9 +3912,10 @@ async function renderTree(data, withHoverOpt) {
     await renderNode(data.root, rootFrame, 0, 0, data.assets, data.root.styles);
   }
 
-  // Adjust root frame width as requested by user
-  if (rootFrame.width > 16) {
-    rootFrame.resize(rootFrame.width - 16, rootFrame.height);
+  // Ensure root frame width exactly matches the rendered content width (or trimmed viewport), never leaving trailing whitespace
+  const targetW = contentW || (data.viewportRect?.width ? Math.min(dw, Math.round(data.viewportRect.width) - 16) : (dw > 16 ? dw - 16 : dw));
+  if (targetW > 100 && rootFrame.width !== targetW) {
+    rootFrame.resize(targetW, rootFrame.height);
   }
 
   figma.currentPage.selection = [rootFrame];

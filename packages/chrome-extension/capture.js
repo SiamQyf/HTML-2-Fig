@@ -4583,11 +4583,12 @@
       }
       const assetMap = await assets.getBlobMap();
 
-      let fullDocWidth = Math.max(
-        document.documentElement.scrollWidth,
-        document.body ? document.body.scrollWidth : 0,
-        window.innerWidth
-      );
+      // Canonical webpage width is the layout viewport width (clientWidth).
+      // Never use scrollWidth for document width: offscreen carousel slides, swipers, and hidden flyouts
+      // inflate scrollWidth by hundreds or thousands of pixels, which causes a massive white gap
+      // on the right side of the captured Figma frame.
+      const clientWidth = document.documentElement.clientWidth || document.body?.clientWidth || window.innerWidth;
+      const fullDocWidth = clientWidth;
       const fullDocHeight = Math.max(
         document.documentElement.scrollHeight,
         document.body ? document.body.scrollHeight : 0,
@@ -4610,7 +4611,7 @@
         viewportRect: {
           x: 0,
           y: 0,
-          width: window.innerWidth,
+          width: clientWidth,
           height: window.innerHeight
         },
         devicePixelRatio: window.devicePixelRatio || 1,
