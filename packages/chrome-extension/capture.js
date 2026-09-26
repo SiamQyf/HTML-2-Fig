@@ -104,36 +104,119 @@
 
     // Freeze and reset all Swiper carousels so they don't auto-advance or trigger mid-scroll transitions
     function freezeAndResetSwipers() {
-      try {
-        const swipers = document.querySelectorAll('.swiper, [class*="swiper-container"]');
-        for (const el of swipers) {
-          const s = el.swiper;
-          if (s) {
-            try {
-              s.autoplay?.stop();
-              if (s.params?.autoplay) s.params.autoplay = false;
-              if (typeof s.slideToLoop === 'function' && s.params?.loop) {
-                s.slideToLoop(0, 0);
-              } else if (typeof s.slideTo === 'function') {
-                s.slideTo(0, 0);
+      const script = document.createElement('script');
+      script.textContent = `
+        (function() {
+          try {
+            const swipers = document.querySelectorAll('.swiper, [class*="swiper-container"]');
+            for (const el of swipers) {
+              const s = el.swiper || (window.jQuery && window.jQuery(el).data('swiper'));
+              if (s) {
+                try {
+                  if (s.autoplay && s.autoplay.stop) s.autoplay.stop();
+                  if (s.params && s.params.autoplay) s.params.autoplay = false;
+                  if (typeof s.slideToLoop === 'function' && s.params && s.params.loop) {
+                    s.slideToLoop(0, 0);
+                  } else if (typeof s.slideTo === 'function') {
+                    s.slideTo(0, 0);
+                  }
+                  if (typeof s.update === 'function') s.update();
+                } catch (e) {}
               }
-              s.update();
-            } catch (e) {}
-          }
+            }
+          } catch(e) {}
+        })();
+      `;
+      document.documentElement.appendChild(script);
+      script.remove();
+
+      // Reset parallax transforms on ALL [data-swiper-parallax] elements.
+      // Swiper's parallax module sets transform: translateX(Npx) on these based on the
+      // active slide offset. Inactive slides' parallax children remain shifted (e.g. +1000px),
+      // causing the "half dark / half image" split in captured non-active slides.
+      try {
+        const parallaxEls = document.querySelectorAll('[data-swiper-parallax], [data-swiper-parallax-x], [data-swiper-parallax-y]');
+        for (const el of parallaxEls) {
+          el.style.setProperty('transform', 'none', 'important');
+          el.style.setProperty('transition', 'none', 'important');
         }
-      } catch (e) {}
+      } catch(e) {}
     }
     freezeAndResetSwipers();
 
     // Neutralize GSAP ScrollSmoother — save state for restoration
+    // Neutralize GSAP ScrollSmoother and ScrollTrigger — save state for restoration via injected script
     try {
-      if (window.ScrollSmoother) {
-        const sm = window.ScrollSmoother.get();
-        if (sm) {
-          sm.paused(true);
-          cleanupTasks.push(() => { try { sm.paused(false); } catch {} });
-        }
-      }
+      const injectScript = document.createElement('script');
+      injectScript.textContent = `
+        window.__h2f_cleanup = window.__h2f_cleanup || [];
+        try {
+          if (window.ScrollSmoother) {
+            const sm = window.ScrollSmoother.get();
+            if (sm) {
+              sm.paused(true);
+              window.__h2f_cleanup.push(() => { try { sm.paused(false); } catch(e){} });
+            }
+          }
+          if (window.ScrollTrigger) {
+            const savedTriggers = [];
+            window.ScrollTrigger.getAll().forEach(st => {
+              try {
+                const savedProgress = st.animation ? st.animation.progress() : null;
+                const isCrazyScale = st.vars && st.vars.scrub && st.trigger && (st.trigger.className || '').includes('circle-shape');
+                if (st.animation && !isCrazyScale) {
+                  st.animation.progress(1);
+                }
+                if (typeof st.vars?.onEnter === 'function') {
+                  try { st.vars.onEnter(); } catch(e){}
+                }
+                st.disable(false);
+                savedTriggers.push({ st, savedProgress, isCrazyScale });
+              } catch(e){}
+            });
+            window.__h2f_cleanup.push(() => {
+              for (const item of savedTriggers) {
+                try {
+                  item.st.enable();
+                  if (item.st.animation && item.savedProgress !== null && !item.isCrazyScale) {
+                    item.st.animation.progress(item.savedProgress);
+                  }
+                } catch(e){}
+              }
+              try { window.ScrollTrigger.refresh(); } catch(e){}
+            });
+          }
+          if (window.gsap) {
+            const savedTweens = [];
+            window.gsap.globalTimeline.getChildren().forEach(tween => {
+              try {
+                savedTweens.push({ tween, progress: tween.progress() });
+                tween.progress(1);
+              } catch(e){}
+            });
+            window.__h2f_cleanup.push(() => {
+              for (const item of savedTweens) {
+                try { item.tween.progress(item.progress); } catch(e){}
+              }
+            });
+          }
+        } catch(e){}
+      `;
+      document.documentElement.appendChild(injectScript);
+      injectScript.remove();
+      
+      cleanupTasks.push(() => {
+        const cleanupScript = document.createElement('script');
+        cleanupScript.textContent = `
+          if (window.__h2f_cleanup) {
+            window.__h2f_cleanup.forEach(fn => { try { fn(); } catch(e){} });
+            window.__h2f_cleanup = [];
+          }
+        `;
+        document.documentElement.appendChild(cleanupScript);
+        cleanupScript.remove();
+      });
+
       const sw = document.getElementById('smooth-wrapper');
       const sc = document.getElementById('smooth-content');
       if (sw) {
@@ -149,7 +232,7 @@
           sw.style.overflow = saved.overflow;
         });
 
-        // Unconstrain all ancestors of smooth-wrapper (e.g. .my-app, .dialog-off-canvas-main-canvas)
+        // Unconstrain all ancestors of smooth-wrapper
         let cur = sw.parentElement;
         while (cur && cur !== document.documentElement) {
           const el = cur;
@@ -185,40 +268,6 @@
       }
     } catch (e) {}
 
-    // Fast-forward GSAP ScrollTriggers — save state for restoration
-    try {
-      if (window.ScrollTrigger) {
-        const savedTriggers = [];
-        window.ScrollTrigger.getAll().forEach(st => {
-          try {
-            const savedProgress = st.animation ? st.animation.progress() : null;
-            const isCrazyScale = st.vars?.scrub && st.trigger && (st.trigger.className || '').includes('circle-shape');
-            if (st.animation && !isCrazyScale) {
-              st.animation.progress(1);
-            }
-            if (typeof st.vars?.onEnter === 'function') {
-              try { st.vars.onEnter(); } catch (e) {}
-            }
-            st.disable(false);
-            savedTriggers.push({ st, savedProgress, isCrazyScale });
-          } catch (e) {}
-        });
-        cleanupTasks.push(() => {
-          for (const { st, savedProgress, isCrazyScale } of savedTriggers) {
-            try { st.enable(); if (st.animation && savedProgress !== null && !isCrazyScale) st.animation.progress(savedProgress); } catch {}
-          }
-          try { window.ScrollTrigger.refresh(); } catch {}
-        });
-      }
-      if (window.gsap) {
-        const savedTweens = [];
-        window.gsap.globalTimeline.getChildren().forEach(tween => {
-          try { savedTweens.push({ tween, progress: tween.progress() }); tween.progress(1); } catch {}
-        });
-        cleanupTasks.push(() => { for (const { tween, progress } of savedTweens) { try { tween.progress(progress); } catch {} } });
-      }
-    } catch (e) {}
-
     // Automatically defeat scroll-linked animations and force scroll-reveal elements visible
     const animKiller = document.createElement('style');
     animKiller.id = 'h2f-animation-killer';
@@ -233,6 +282,10 @@
       footer.footer-sticky, .footer-sticky, footer[class*="footer-sticky"], [class*="footer-sticky"], [class*="sticky-footer"] {
         position: static !important;
       }
+      [data-swiper-parallax], [data-swiper-parallax-x], [data-swiper-parallax-y] {
+        transform: none !important;
+        transition: none !important;
+      }
       .words, .word, .line, .letter, .chars, .char, .splitting, .splitting *, .anime-text, .anime-text *, [data-fancy-text], [data-fancy-text] *, [data-splitting], [data-splitting] *, .swiper-parallax-fancy-text, .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text {
         visibility: visible !important;
         opacity: 1 !important;
@@ -243,6 +296,8 @@
       [data-wow-duration], 
       [data-aos], 
       [data-sal], 
+      [data-anime],
+      [data-anime] *,
       .animated, 
       .fadeInUp, .fadeIn, .fadeInLeft, .fadeInRight, .fadeInDown, .bounceIn, .bounceInRight, .zoomIn,
       .title-anim, .text-anim, .hero-text-anim, .start-anim,
@@ -334,7 +389,7 @@
     const savedInlineStyles = [];
     try {
       const animatedEls = document.querySelectorAll(
-        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter, .chars, .char, .splitting, .anime-text, [data-fancy-text], [data-splitting], .swiper-parallax-fancy-text, .rs-rotate, [class*="rs-rotate"], [class*="tp-loop-wrap"], [data-shadow-animation], .highlight-separator'
+        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter, .chars, .char, .splitting, .anime-text, [data-fancy-text], [data-splitting], .swiper-parallax-fancy-text, .rs-rotate, [class*="rs-rotate"], [class*="tp-loop-wrap"], [data-shadow-animation], .highlight-separator, [data-anime]'
       );
       for (const el of animatedEls) {
         const saved = { el, v: el.style.visibility, o: el.style.opacity, t: el.style.transform, c: el.style.clipPath };
@@ -413,19 +468,28 @@
 
     // Fast-forward any ScrollTrigger / GSAP animations triggered during scrolling
     try {
-      if (window.ScrollTrigger) {
-        window.ScrollTrigger.getAll().forEach(st => {
+      const script = document.createElement('script');
+      script.textContent = `
+        (function() {
           try {
-            if (st.animation) st.animation.progress(1);
-            if (typeof st.vars?.onEnter === 'function') st.vars.onEnter();
-          } catch (e) {}
-        });
-      }
-      if (window.gsap) {
-        window.gsap.globalTimeline.getChildren().forEach(tween => {
-          try { tween.progress(1); } catch {}
-        });
-      }
+            if (window.ScrollTrigger) {
+              window.ScrollTrigger.getAll().forEach(st => {
+                try {
+                  if (st.animation) st.animation.progress(1);
+                  if (typeof st.vars?.onEnter === 'function') st.vars.onEnter();
+                } catch (e) {}
+              });
+            }
+            if (window.gsap) {
+              window.gsap.globalTimeline.getChildren().forEach(tween => {
+                try { tween.progress(1); } catch {}
+              });
+            }
+          } catch(e) {}
+        })();
+      `;
+      document.documentElement.appendChild(script);
+      script.remove();
     } catch (e) {}
 
     // Fast-forward animated progress bars (e.g. .progress-bar, [role="progressbar"])
@@ -451,10 +515,19 @@
     // reset back to their initial offscreen state when scrolled back to (0,0).
     // Freezing them at their in-view / active keyframe prevents shrunken background containers and hidden content.
     try {
-      const skr = window.skrollr && window.skrollr.get ? window.skrollr.get() : null;
-      if (skr && typeof skr.destroy === 'function') {
-        try { skr.destroy(); } catch {}
-      }
+      const script = document.createElement('script');
+      script.textContent = `
+        try {
+          if (window.skrollr && window.skrollr.get) {
+            const skr = window.skrollr.get();
+            if (skr && typeof skr.destroy === 'function') {
+              skr.destroy();
+            }
+          }
+        } catch(e) {}
+      `;
+      document.documentElement.appendChild(script);
+      script.remove();
 
       function parseSkrollrCss(cssText) {
         const rules = [];
@@ -514,7 +587,10 @@
             }
             const savedCss = el.style.cssText;
             for (const { prop, val } of midRules) {
-              el.style.setProperty(prop, val, 'important');
+              const isIdentityTransform = prop === 'transform' && /translate(?:3d|X|Y)?\(\s*0(?:px|%|em|rem)?(?:\s*,\s*0(?:px|%|em|rem)?)*\s*\)/i.test(val.trim());
+              if (!isIdentityTransform) {
+                el.style.setProperty(prop, val, 'important');
+              }
             }
             cleanupTasks.push(() => { el.style.cssText = savedCss; });
             continue;
@@ -529,7 +605,10 @@
           const savedCss = el.style.cssText;
           const rules = parseSkrollrCss(targetCss);
           for (const { prop, val } of rules) {
-            el.style.setProperty(prop, val, 'important');
+            const isIdentityTransform = prop === 'transform' && /translate(?:3d|X|Y)?\(\s*0(?:px|%|em|rem)?(?:\s*,\s*0(?:px|%|em|rem)?)*\s*\)/i.test(val.trim());
+            if (!isIdentityTransform) {
+              el.style.setProperty(prop, val, 'important');
+            }
           }
           cleanupTasks.push(() => { el.style.cssText = savedCss; });
         }
@@ -563,6 +642,10 @@
         }
 
         const isMarquee = /marquee|ticker|loop/i.test(cls) || (m.parentElement && /marquee|ticker|loop/i.test(m.parentElement.className || ''));
+
+        if (m.classList && m.classList.contains('swiper-wrapper')) {
+          continue;
+        }
 
         const parent = m.parentElement;
         if (parent && parent.swiper) {
@@ -806,20 +889,87 @@
   /* ======================================================================
    *  4.  UNIVERSAL ASSET & IMAGE CONVERTER
    * ====================================================================== */
-  async function convertToPngBlob(blob) {
+  async function convertToPngBlob(blob, forcePng = false) {
     if (!blob) return null;
     
-    // Preserve SVGs as vectors; never convert to PNG
-    if (blob.type === 'image/svg+xml' || blob.type === 'text/xml' || blob.type === 'image/svg') {
-      return blob;
-    }
+    let isSvg = blob.type === 'image/svg+xml' || blob.type === 'text/xml' || blob.type === 'image/svg';
+    let svgText = '';
     try {
-      const buffer = await blob.slice(0, 60).arrayBuffer();
-      const prefix = new TextDecoder('utf-8').decode(buffer).toLowerCase();
-      if (prefix.includes('<svg') || prefix.includes('<?xml')) {
-        return blob;
+      const buffer = await blob.slice(0, Math.min(blob.size, 65536)).arrayBuffer();
+      svgText = new TextDecoder('utf-8').decode(buffer).toLowerCase();
+      if (svgText.includes('<svg') || svgText.includes('<?xml')) {
+        isSvg = true;
       }
     } catch {}
+
+    if (isSvg) {
+      // Check if SVG has features that Figma's native createNodeFromSvg CANNOT handle:
+      // - <clipPath> or clip-path="url(...)"
+      // - <mask
+      // - <pattern
+      // - <filter
+      // - <image
+      // Or if explicitly requested to force PNG (e.g. repeating background patterns).
+      // Converting them to crisp PNG via browser canvas ensures 100% visual fidelity and enables Figma tiling.
+      const hasUnsupportedFigmaFeatures =
+        svgText.includes('<clippath') ||
+        svgText.includes('clip-path') ||
+        svgText.includes('<mask') ||
+        svgText.includes('mask=') ||
+        svgText.includes('<pattern') ||
+        svgText.includes('<filter') ||
+        svgText.includes('<image');
+
+      if (!forcePng && !hasUnsupportedFigmaFeatures) {
+        return blob;
+      }
+
+      return new Promise(resolve => {
+        try {
+          let renderBlob = blob;
+          if (!svgText.includes('width=') || !svgText.includes('height=')) {
+            const vbMatch = svgText.match(/viewbox\s*=\s*["']\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*["']/i);
+            if (vbMatch) {
+              const vbW = parseFloat(vbMatch[3]);
+              const vbH = parseFloat(vbMatch[4]);
+              if (vbW > 0 && vbH > 0) {
+                const patched = svgText.replace(/<svg\b/i, `<svg width="${vbW}" height="${vbH}" `);
+                renderBlob = new Blob([patched], { type: 'image/svg+xml' });
+              }
+            }
+          }
+
+          const url = URL.createObjectURL(renderBlob);
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            try {
+              const w = img.naturalWidth || img.width || 300;
+              const h = img.naturalHeight || img.height || 150;
+              const c = document.createElement('canvas');
+              c.width = Math.max(1, Math.min(4000, Math.round(w)));
+              c.height = Math.max(1, Math.min(4000, Math.round(h)));
+              const ctx = c.getContext('2d');
+              ctx.drawImage(img, 0, 0, c.width, c.height);
+              c.toBlob(pngBlob => {
+                URL.revokeObjectURL(url);
+                resolve(pngBlob || blob);
+              }, 'image/png');
+            } catch {
+              URL.revokeObjectURL(url);
+              resolve(blob);
+            }
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(url);
+            resolve(blob);
+          };
+          img.src = url;
+        } catch {
+          resolve(blob);
+        }
+      });
+    }
 
     const MAX_SIZE = 4000; // Keep safely under Figma's 4096 absolute limit
 
@@ -943,7 +1093,7 @@
     }
   }
 
-  async function fetchImage(url) {
+  async function fetchImage(url, forcePng = false) {
     if (!url) return null;
     let absoluteUrl = url;
     try {
@@ -958,7 +1108,7 @@
       clearTimeout(timer);
       if (res.ok) {
         let blob = await res.blob();
-        blob = await convertToPngBlob(blob);
+        blob = await convertToPngBlob(blob, forcePng);
         const b64 = await blobToBase64(blob);
         if (b64 && b64.data) return { url: absoluteUrl, blob: b64 };
       }
@@ -979,7 +1129,7 @@
           try {
             const res = await fetch(bgRes.data);
             let blob = await res.blob();
-            blob = await convertToPngBlob(blob);
+            blob = await convertToPngBlob(blob, forcePng);
             const b64 = await blobToBase64(blob);
             if (b64 && b64.data) return { url: absoluteUrl, blob: b64 };
           } catch {
@@ -1064,14 +1214,14 @@
       this.promises = new Map();
       this.rasterizedId = 0;
     }
-    addImage(url) {
+    addImage(url, forcePng = false) {
       if (!url) return;
       let absoluteUrl = url;
       try {
         absoluteUrl = new URL(url, document.baseURI).href;
       } catch {}
       if (this.promises.has(absoluteUrl)) return;
-      this.promises.set(absoluteUrl, fetchImage(absoluteUrl));
+      this.promises.set(absoluteUrl, fetchImage(absoluteUrl, forcePng));
       if (url !== absoluteUrl) {
         this.promises.set(url, this.promises.get(absoluteUrl));
       }
@@ -2648,11 +2798,17 @@
 
       if (assets) {
         const bgAndMask = [cs.backgroundImage, styles.maskImage, styles.webkitMaskImage];
+        const rawRepeat = styles.backgroundRepeat || cs.backgroundRepeat || '';
+        const isRepeatingBg = rawRepeat && !rawRepeat.includes('no-repeat') && (rawRepeat.includes('repeat') || rawRepeat === 'round' || rawRepeat === 'space');
         for (const propVal of bgAndMask) {
           if (propVal && propVal !== 'none') {
             const matches = propVal.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
             for (const m of matches) {
-              if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
+              if (m[1] && !m[1].startsWith('data:')) {
+                const trimmed = m[1].trim();
+                const shouldForcePng = propVal === cs.backgroundImage && isRepeatingBg && /\.svg(\?|$)/i.test(trimmed);
+                assets.addImage(trimmed, shouldForcePng);
+              }
             }
           }
         }
@@ -3773,12 +3929,18 @@
         if (url) assets.addImage(url);
       }
     }
+    const rawRepeat = styles.backgroundRepeat || '';
+    const isRepeatingBg = rawRepeat && !rawRepeat.includes('no-repeat') && (rawRepeat.includes('repeat') || rawRepeat === 'round' || rawRepeat === 'space');
     const allImgProps = [styles.backgroundImage, styles.maskImage, styles.webkitMaskImage];
     for (const p of allImgProps) {
       if (p && p !== 'none') {
         const matches = p.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
         for (const m of matches) {
-          if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
+          if (m[1] && !m[1].startsWith('data:')) {
+            const trimmed = m[1].trim();
+            const shouldForcePng = p === styles.backgroundImage && isRepeatingBg && /\.svg(\?|$)/i.test(trimmed);
+            assets.addImage(trimmed, shouldForcePng);
+          }
         }
       }
     }
@@ -4407,9 +4569,15 @@
           root.styles.backgroundPositionX = htmlStyles.backgroundPositionX;
           root.styles.backgroundPositionY = htmlStyles.backgroundPositionY;
           root.styles.backgroundRepeat = htmlStyles.backgroundRepeat;
+          const rawRepeat = htmlStyles.backgroundRepeat || '';
+          const isRepeatingBg = rawRepeat && !rawRepeat.includes('no-repeat') && (rawRepeat.includes('repeat') || rawRepeat === 'round' || rawRepeat === 'space');
           const matches = htmlStyles.backgroundImage.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g);
           for (const m of matches) {
-            if (m[1] && !m[1].startsWith('data:')) assets.addImage(m[1].trim());
+            if (m[1] && !m[1].startsWith('data:')) {
+              const trimmed = m[1].trim();
+              const shouldForcePng = isRepeatingBg && /\.svg(\?|$)/i.test(trimmed);
+              assets.addImage(trimmed, shouldForcePng);
+            }
           }
         }
       }

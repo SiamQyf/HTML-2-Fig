@@ -1157,7 +1157,7 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
               svgNode.resize(Math.max(1, Math.round(targetW)), Math.max(1, Math.round(targetH)));
             } catch {}
             applyOpacity(svgNode, styles);
-            node.clipsContent = true;
+            try { svgNode.clipsContent = true; } catch {}
 
             if (isMask) {
               if (hasChildren) {
