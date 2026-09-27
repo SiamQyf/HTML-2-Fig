@@ -2563,8 +2563,24 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       svgNode.name = (sNode.tag || 'node').toLowerCase();
       try { svgNode.clipsContent = false; } catch {}
       hydrateSvgPatterns(svgNode, sNode.content);
+      let newW = w;
+      let newH = h;
+      let offsetX = 0;
+      let offsetY = 0;
       if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
-        try { svgNode.resize(w, h); } catch {}
+        try {
+          const hasPreserveNone = /preserveAspectRatio\s*=\s*['"]none['"]/i.test(cleanSvg);
+          if (hasPreserveNone || svgNode.width <= 0 || svgNode.height <= 0) {
+            svgNode.resize(w, h);
+          } else {
+            const scale = Math.min(w / svgNode.width, h / svgNode.height);
+            newW = Math.max(1, svgNode.width * scale);
+            newH = Math.max(1, svgNode.height * scale);
+            svgNode.resize(newW, newH);
+            offsetX = (w - newW) / 2;
+            offsetY = (h - newH) / 2;
+          }
+        } catch {}
       }
       if (s.position === 'absolute' || s.position === 'fixed') {
         try { svgNode.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
@@ -2583,15 +2599,15 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
         const nodeH = svgNode.height;
         const halfW = nodeW / 2;
         const halfH = nodeH / 2;
-        const cX = x + halfW;
-        const cY = y + halfH;
+        const cX = x + Math.round(offsetX) + halfW;
+        const cY = y + Math.round(offsetY) + halfH;
         const dx = halfW * Math.cos(rad) + halfH * Math.sin(rad);
         const dy = -halfW * Math.sin(rad) + halfH * Math.cos(rad);
         svgNode.x = Math.round(cX - dx);
         svgNode.y = Math.round(cY - dy);
       } else {
-        svgNode.x = x;
-        svgNode.y = y;
+        svgNode.x = x + Math.round(offsetX);
+        svgNode.y = y + Math.round(offsetY);
       }
       applyOpacity(svgNode, s);
 
@@ -2610,8 +2626,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           try { bgFrame.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
         }
         parentFrame.appendChild(bgFrame);
-        bgFrame.x = svgNode.x;
-        bgFrame.y = svgNode.y;
+        bgFrame.x = x;
+        bgFrame.y = y;
         bgFrame.resize(Math.max(1, w), Math.max(1, h));
         bgFrame.clipsContent = true;
         await applyFills(bgFrame, s, assets, w, h, true);
@@ -2710,11 +2726,28 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             if (s.position === 'absolute' || s.position === 'fixed') {
               try { svgNode.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
             }
-            parentFrame.appendChild(svgNode);
-            svgNode.x = x; svgNode.y = y;
+            let newW = w;
+            let newH = h;
+            let offsetX = 0;
+            let offsetY = 0;
             if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
-              try { svgNode.resize(w, h); } catch {}
+              try {
+                const hasPreserveNone = /preserveAspectRatio\s*=\s*['"]none['"]/i.test(cleanSvg);
+                if (hasPreserveNone || svgNode.width <= 0 || svgNode.height <= 0) {
+                  svgNode.resize(w, h);
+                } else {
+                  const scale = Math.min(w / svgNode.width, h / svgNode.height);
+                  newW = Math.max(1, svgNode.width * scale);
+                  newH = Math.max(1, svgNode.height * scale);
+                  svgNode.resize(newW, newH);
+                  offsetX = (w - newW) / 2;
+                  offsetY = (h - newH) / 2;
+                }
+              } catch {}
             }
+            parentFrame.appendChild(svgNode);
+            svgNode.x = x + Math.round(offsetX);
+            svgNode.y = y + Math.round(offsetY);
             applyOpacity(svgNode, s);
 
             const hasBg = (s.backgroundColor && s.backgroundColor !== 'transparent' && s.backgroundColor !== 'rgba(0, 0, 0, 0)') ||
@@ -2732,8 +2765,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
                 try { bgFrame.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
               }
               parentFrame.appendChild(bgFrame);
-              bgFrame.x = svgNode.x;
-              bgFrame.y = svgNode.y;
+              bgFrame.x = x;
+              bgFrame.y = y;
               bgFrame.resize(Math.max(1, w), Math.max(1, h));
               bgFrame.clipsContent = true;
               await applyFills(bgFrame, s, assets, w, h, true);
@@ -2899,12 +2932,29 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter));
             const svgNode = figma.createNodeFromSvg(cleanSvg);
             svgNode.name = (sNode.tag || 'node').toLowerCase();
+            let newW = w;
+            let newH = h;
+            let offsetX = 0;
+            let offsetY = 0;
             if (w >= 1 && h >= 1 && !isNaN(w) && !isNaN(h) && (Math.abs(svgNode.width - w) > 1 || Math.abs(svgNode.height - h) > 1)) {
-              try { svgNode.resize(w, h); } catch {}
+              try {
+                const hasPreserveNone = /preserveAspectRatio\s*=\s*['"]none['"]/i.test(cleanSvg);
+                if (hasPreserveNone || svgNode.width <= 0 || svgNode.height <= 0) {
+                  svgNode.resize(w, h);
+                } else {
+                  const scale = Math.min(w / svgNode.width, h / svgNode.height);
+                  newW = Math.max(1, svgNode.width * scale);
+                  newH = Math.max(1, svgNode.height * scale);
+                  svgNode.resize(newW, newH);
+                  offsetX = (w - newW) / 2;
+                  offsetY = (h - newH) / 2;
+                }
+              } catch {}
             }
             await renderSvgTexts(svgNode, sNode);
             parentFrame.appendChild(svgNode);
-            svgNode.x = x; svgNode.y = y;
+            svgNode.x = x + Math.round(offsetX);
+            svgNode.y = y + Math.round(offsetY);
             applyOpacity(svgNode, s);
             reportProgress();
             return;
@@ -3221,9 +3271,10 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     // Unrotated container: center single child or pseudo if parent is an icon container or centers alignment
     const isIconContainer = (rectW <= 64 && rectH <= 64 && Math.abs(rectW - rectH) <= 6 && (parseFloat(s.borderRadius) >= 4 || s.borderRadius === '50%' || s.borderRadius === '500px')) ||
                             (sNode.name && sNode.name.includes('icon')) ||
-                            (sNode.id && sNode.id.includes('icon'));
-    const isCentered = isIconContainer || s.textAlign === 'center' ||
-                       (s.display && s.display.includes('flex') && s.alignItems === 'center' && (s.justifyContent === 'center' || s.justifyContent === 'normal'));
+                            (sNode.id && sNode.id.includes('icon')) ||
+                            (sNode.attributes?.class && /icon-box|btn-icon|social-icon|avatar|badge|rounded-circle/i.test(sNode.attributes.class));
+    const isFlexCenter = s.display && s.display.includes('flex') && s.alignItems === 'center' && (s.justifyContent === 'center' || s.justifyContent === 'normal');
+    const isCentered = isIconContainer || isFlexCenter;
 
     const directChildren = [];
     if (sNode.pseudoElementNodes?.before) directChildren.push(sNode.pseudoElementNodes.before);
@@ -3232,11 +3283,13 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
     if (isCentered && directChildren.length === 1) {
       const onlyChild = directChildren[0];
+      const childPos = onlyChild.styles?.position || '';
+      const isAbsoluteChild = childPos === 'absolute' || childPos === 'fixed';
       const cW = Math.max(1, Math.round(onlyChild.rect?.width || 0));
       const cH = Math.max(1, Math.round(onlyChild.rect?.height || 0));
-      const isChildIcon = (onlyChild.tag === 'I' || onlyChild.tag === 'SVG' || (onlyChild.id && onlyChild.id.includes('icon')) || (onlyChild.attributes?.alt === 'icon'));
+      const isChildIcon = (onlyChild.tag === 'I' || (onlyChild.tag === 'SVG' && cW <= 64 && cH <= 64) || (onlyChild.id && onlyChild.id.includes('icon')) || (onlyChild.attributes?.alt === 'icon'));
 
-      if (isIconContainer || isChildIcon) {
+      if (!isAbsoluteChild && (isIconContainer || (isFlexCenter && isChildIcon))) {
         onlyChild._localRect = {
           x: Math.round((rectW - cW) / 2),
           y: Math.round((rectH - cH) / 2),
