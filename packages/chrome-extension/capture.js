@@ -3347,6 +3347,75 @@
     return s;
   }
 
+  function isNavOrHeader(node) {
+    if (!node) return false;
+    const tag = node.tag;
+    if (tag === 'HEADER' || tag === 'NAV') return true;
+    const cls = (node.attributes?.class || '');
+    const role = (node.attributes?.role || '');
+    if (role === 'banner' || role === 'navigation') return true;
+    if (/\b(?:navbar|site-header|main-header|header-wrapper|top-header|sticky-header|fixed-header)\b/i.test(cls)) {
+      return true;
+    }
+    if (/\bheader\b/i.test(cls) && !/\b(?:accordion|card|modal|table|post|comment|widget|box)-header\b/i.test(cls)) {
+      return true;
+    }
+    return false;
+  }
+
+  function isNavLogo(node, insideNav = false) {
+    if (!node) return false;
+    const cls = (node.attributes?.class || '');
+    const id = (node.attributes?.id || node.id || '');
+    if (/\b(?:navbar-brand|nav-logo|header-logo|brand-logo|site-logo|logo-holder|header-brand)\b/i.test(cls)) return true;
+    if (insideNav && /\b(?:brand|logo)\b/i.test(id)) return true;
+    if (insideNav && node.tag === 'IMG' && /\blogo\b/i.test(node.attributes?.src || '')) return true;
+    return false;
+  }
+
+  function isNavButton(node, insideNav = false) {
+    if (!node) return false;
+    const cls = (node.attributes?.class || '');
+    if (/\b(?:header-button|header-btn|navbar-btn|nav-button|btn-header|navbar-toggler|nav-btn|menu-toggler|menu-btn|hamburger)\b/i.test(cls)) return true;
+    if (insideNav && (node.tag === 'BUTTON' || (node.tag === 'A' && /\bbtn\b/i.test(cls)))) return true;
+    return false;
+  }
+
+  function containsNavLogo(node, insideNav = false) {
+    if (!node) return false;
+    const inNav = insideNav || isNavOrHeader(node);
+    if (isNavLogo(node, inNav)) return true;
+    if (node.childNodes) {
+      for (const c of node.childNodes) {
+        if (containsNavLogo(c, inNav)) return true;
+      }
+    }
+    return false;
+  }
+
+  function containsNavButton(node, insideNav = false) {
+    if (!node) return false;
+    const inNav = insideNav || isNavOrHeader(node);
+    if (isNavButton(node, inNav)) return true;
+    if (node.childNodes) {
+      for (const c of node.childNodes) {
+        if (containsNavButton(c, inNav)) return true;
+      }
+    }
+    return false;
+  }
+
+  function containsNavOrHeader(node) {
+    if (!node) return false;
+    if (isNavOrHeader(node)) return true;
+    if (node.childNodes) {
+      for (const c of node.childNodes) {
+        if (containsNavOrHeader(c)) return true;
+      }
+    }
+    return false;
+  }
+
   async function serializeNode(node, assets, fonts, parentStyles, withHover = false) {
     if (captureTimedOut) return null;
     if (node.nodeType === TEXT_NODE) {
@@ -4421,8 +4490,20 @@
 
           // Section-level flow protection: direct children of page/body or section-level elements
           // should NEVER be reordered against each other unless one of them has an explicit non-zero z-index or fixed descendant
-          if (isSectionLevel && zVal <= 2 && child.tag !== 'HEADER') {
+          if (isSectionLevel && zVal <= 2 && !isNavOrHeader(child) && !containsNavOrHeader(child)) {
             zVal = 0;
+          }
+
+          // Force nav bar / header to top layer above all sections, hero banners, overlays, modals, and cursor wrappers
+          if (isNavOrHeader(child) || containsNavOrHeader(child)) {
+            zVal = Math.max(zVal, 1000000000);
+          }
+
+          // Inside the navigation bar or general layout: Nav Button and Nav Logo must always be on the highest layers
+          if (containsNavButton(child)) {
+            zVal = Math.max(zVal, 1000000600);
+          } else if (containsNavLogo(child)) {
+            zVal = Math.max(zVal, 1000000500);
           }
 
           child._effectiveZIndex = zVal;
@@ -4544,6 +4625,21 @@
       }
       if (maxChildW > docRect.width) {
         docRect.width = maxChildW;
+      }
+    }
+    if (isNavOrHeader({ tag, attributes: getAttributes(el) }) && childNodes.length > 0) {
+      let minY = docRect.y;
+      let maxY = docRect.y + docRect.height;
+      for (const c of childNodes) {
+        if (c.rect && c.rect.height > 0) {
+          minY = Math.min(minY, c.rect.y);
+          maxY = Math.max(maxY, c.rect.y + c.rect.height);
+        }
+      }
+      const targetH = maxY - minY;
+      if (minY < docRect.y || docRect.height < targetH) {
+        docRect.y = minY;
+        docRect.height = Math.max(docRect.height, targetH);
       }
     }
 

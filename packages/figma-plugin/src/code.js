@@ -2317,6 +2317,75 @@ async function renderSvgTexts(svgNode, sNode) {
   }
 }
 
+function isNavOrHeader(node) {
+  if (!node) return false;
+  const tag = node.tag;
+  if (tag === 'HEADER' || tag === 'NAV') return true;
+  const cls = (node.attributes?.class || '');
+  const role = (node.attributes?.role || '');
+  if (role === 'banner' || role === 'navigation') return true;
+  if (/\b(?:navbar|site-header|main-header|header-wrapper|top-header|sticky-header|fixed-header)\b/i.test(cls)) {
+    return true;
+  }
+  if (/\bheader\b/i.test(cls) && !/\b(?:accordion|card|modal|table|post|comment|widget|box)-header\b/i.test(cls)) {
+    return true;
+  }
+  return false;
+}
+
+function isNavLogo(node, insideNav = false) {
+  if (!node) return false;
+  const cls = (node.attributes?.class || '');
+  const id = (node.attributes?.id || node.id || '');
+  if (/\b(?:navbar-brand|nav-logo|header-logo|brand-logo|site-logo|logo-holder|header-brand)\b/i.test(cls)) return true;
+  if (insideNav && /\b(?:brand|logo)\b/i.test(id)) return true;
+  if (insideNav && node.tag === 'IMG' && /\blogo\b/i.test(node.attributes?.src || '')) return true;
+  return false;
+}
+
+function isNavButton(node, insideNav = false) {
+  if (!node) return false;
+  const cls = (node.attributes?.class || '');
+  if (/\b(?:header-button|header-btn|navbar-btn|nav-button|btn-header|navbar-toggler|nav-btn|menu-toggler|menu-btn|hamburger)\b/i.test(cls)) return true;
+  if (insideNav && (node.tag === 'BUTTON' || (node.tag === 'A' && /\bbtn\b/i.test(cls)))) return true;
+  return false;
+}
+
+function containsNavLogo(node, insideNav = false) {
+  if (!node) return false;
+  const inNav = insideNav || isNavOrHeader(node);
+  if (isNavLogo(node, inNav)) return true;
+  if (node.childNodes) {
+    for (const c of node.childNodes) {
+      if (containsNavLogo(c, inNav)) return true;
+    }
+  }
+  return false;
+}
+
+function containsNavButton(node, insideNav = false) {
+  if (!node) return false;
+  const inNav = insideNav || isNavOrHeader(node);
+  if (isNavButton(node, inNav)) return true;
+  if (node.childNodes) {
+    for (const c of node.childNodes) {
+      if (containsNavButton(c, inNav)) return true;
+    }
+  }
+  return false;
+}
+
+function containsNavOrHeader(node) {
+  if (!node) return false;
+  if (isNavOrHeader(node)) return true;
+  if (node.childNodes) {
+    for (const c of node.childNodes) {
+      if (containsNavOrHeader(c)) return true;
+    }
+  }
+  return false;
+}
+
 function getEffectiveZIndex(node, isSectionLevel = false) {
   if (!node) return 0;
   const s = node.styles || {};
@@ -2351,7 +2420,7 @@ function getEffectiveZIndex(node, isSectionLevel = false) {
           const parsedZ = cs.zIndex && cs.zIndex !== 'auto' ? (parseInt(cs.zIndex, 10) || 0) * 2 : 0;
           if (cs.position === 'fixed') {
             m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
-          } else if (node.tag === 'HEADER' && (cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'sticky')) {
+          } else if (isNavOrHeader(node) && (cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'sticky')) {
             // Header's positioned children always elevate the header above hero sections
             m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
           } else if (!childIsSection && (cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'sticky')) {
@@ -2383,13 +2452,20 @@ function getEffectiveZIndex(node, isSectionLevel = false) {
 
   // Section-level flow protection: direct children of page/body or section-level elements
   // should NEVER be reordered against each other unless one of them has an explicit non-zero z-index or fixed descendant
-  if (childIsSection && z <= 2 && node.tag !== 'HEADER') {
+  if (childIsSection && z <= 2 && !isNavOrHeader(node) && !containsNavOrHeader(node)) {
     z = 0;
   }
 
-  // Force header to top layer since HTML-to-Figma sometimes misses its fixed/absolute positioning
-  if (node.tag === 'HEADER') {
-    z = Math.max(z, 9999);
+  // Force nav bar / header to top layer above all sections, hero banners, overlays, modals, and cursor wrappers
+  if (isNavOrHeader(node) || containsNavOrHeader(node)) {
+    z = Math.max(z, 1000000000);
+  }
+
+  // Nav logo and nav button must always be on top of other nav elements
+  if (containsNavButton(node)) {
+    z = Math.max(z, 1000000600);
+  } else if (containsNavLogo(node)) {
+    z = Math.max(z, 1000000500);
   }
 
   return z;
@@ -2504,6 +2580,26 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
         height: unrotRect.height
       };
       myUnrotOrigin = { x: unrotRect.x, y: unrotRect.y };
+    }
+  }
+  // If this is a header or nav wrapper whose height is 0 or less than its visible children (e.g. static <header> wrapping fixed <nav>),
+  // expand its bounding rect to properly encompass its children so it doesn't have 0 height or negative child coordinates.
+  if (isNavOrHeader(sNode) && sNode.childNodes && sNode.childNodes.length > 0) {
+    let minY = sNode.rect?.y != null ? sNode.rect.y : 0;
+    let maxY = (sNode.rect?.y || 0) + (sNode.rect?.height || 0);
+    for (const c of sNode.childNodes) {
+      if (c.rect && c.rect.height > 0) {
+        minY = Math.min(minY, c.rect.y);
+        maxY = Math.max(maxY, c.rect.y + c.rect.height);
+      }
+    }
+    const targetH = maxY - minY;
+    if (minY < (sNode.rect?.y || 0) || (sNode.rect?.height || 0) < targetH) {
+      sNode.rect = {
+        ...sNode.rect,
+        y: minY,
+        height: Math.max(sNode.rect?.height || 0, targetH)
+      };
     }
   }
 
