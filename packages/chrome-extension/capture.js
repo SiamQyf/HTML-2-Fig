@@ -115,10 +115,13 @@
                 try {
                   if (s.autoplay && s.autoplay.stop) s.autoplay.stop();
                   if (s.params && s.params.autoplay) s.params.autoplay = false;
-                  if (typeof s.slideToLoop === 'function' && s.params && s.params.loop) {
-                    s.slideToLoop(0, 0);
-                  } else if (typeof s.slideTo === 'function') {
-                    s.slideTo(0, 0);
+                  const isContinuousTicker = /marquee|ticker/i.test(el.className) || (s.params && s.params.autoplay && s.params.autoplay.delay === 0);
+                  if (isContinuousTicker) {
+                    if (typeof s.slideToLoop === 'function' && s.params && s.params.loop) {
+                      s.slideToLoop(0, 0);
+                    } else if (typeof s.slideTo === 'function') {
+                      s.slideTo(0, 0);
+                    }
                   }
                   if (typeof s.update === 'function') s.update();
                 } catch (e) {}
@@ -310,11 +313,7 @@
         animation: none !important;
         transition: none !important;
       }
-      .feature-box-overlay, .hover-overlay, .hover-reveal, .overlay-hover, .hover-show, .show-on-hover, .hover-content, .btn-switch-text .btn-double-text::before,
-      .swiper-fade .swiper-slide:not(.swiper-slide-active):not(.swiper-slide-visible),
-      .slick-slide:not(.slick-active):not(.slick-current),
-      .owl-item:not(.active),
-      .carousel-item:not(.active) {
+      .feature-box-overlay, .hover-overlay, .hover-reveal, .overlay-hover, .hover-show, .show-on-hover, .hover-content, .btn-switch-text .btn-double-text::before {
         opacity: 0 !important;
       }
       .hero-wave-animation, .hero-wave-animation__static, .hero-wave-animation__static img {
@@ -421,15 +420,17 @@
               continue;
             }
           }
-          const isInactiveSlide = desc.closest && (
-            desc.closest('.swiper-fade .swiper-slide:not(.swiper-slide-active):not(.swiper-slide-visible)') ||
-            desc.closest('.slick-slide:not(.slick-active):not(.slick-current)') ||
-            desc.closest('.owl-item:not(.active)') ||
-            desc.closest('.carousel-item:not(.active)') ||
-            desc.closest('.splide__slide:not(.is-active):not(.is-visible)') ||
-            desc.closest('.tab-pane:not(.active):not(.show)')
-          );
-          if (isInactiveSlide) continue;
+          const isCarouselOrTab = desc.closest && desc.closest('.swiper-slide, .slick-slide, .owl-item, .carousel-item, .splide__slide, .tab-pane');
+          if (isCarouselOrTab) {
+            // Never force opacity to 1 on inactive carousel slides (keeps inactive fade slides naturally hidden)
+            // Never clear transforms on carousel slides or children (preserves fade stacking and slide positioning)
+            if (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05) {
+              continue;
+            }
+            savedInlineStyles.push({ el: desc, v: desc.style.visibility, o: desc.style.opacity, t: desc.style.transform });
+            if (desc.style.visibility === 'hidden') desc.style.visibility = 'visible';
+            continue;
+          }
           savedInlineStyles.push({ el: desc, v: desc.style.visibility, o: desc.style.opacity, t: desc.style.transform });
           if (desc.style.visibility === 'hidden') desc.style.visibility = 'visible';
           if (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05) {
@@ -3873,12 +3874,6 @@
       return null;
     }
 
-    // Filter out inactive slides in fade carousels
-    const isInactiveFadeSlide = el.closest && el.closest('.swiper-fade .swiper-slide:not(.swiper-slide-active):not(.swiper-slide-visible)');
-    if (isInactiveFadeSlide) {
-      return null;
-    }
-
     // Exception for scroll-animated elements and background graphics
     if (isHidden && styles.display !== 'none') {
       const cls = (el.className && typeof el.className === 'string') ? el.className : '';
@@ -3888,19 +3883,9 @@
       );
 
       // Inactive carousel/slider slides or tab panes must never be unhidden by scroll animation overrides
-      const isInactiveSlideOrTab = el.closest && (
-        el.closest('.swiper-fade .swiper-slide:not(.swiper-slide-active):not(.swiper-slide-visible)') ||
-        el.closest('.slick-slide:not(.slick-active):not(.slick-current)') ||
-        el.closest('.owl-item:not(.active)') ||
-        el.closest('.carousel-item:not(.active)') ||
-        el.closest('.splide__slide:not(.is-active):not(.is-visible)') ||
-        el.closest('.tab-pane:not(.active):not(.show)') ||
-        (el.closest('.swiper-slide') && !el.closest('.swiper-slide-active, .swiper-slide-visible') && (
-          parseFloat(styles.opacity) < 0.05 || styles.visibility === 'hidden'
-        ))
-      );
+      const isCarouselOrTab = !!(el.closest && el.closest('.swiper-slide, .slick-slide, .owl-item, .carousel-item, .splide__slide, .tab-pane'));
 
-      if (!isHoverRelated && !isInactiveSlideOrTab) {
+      if (!isHoverRelated && !isCarouselOrTab) {
         const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|split|highlight-separator|anime|words|word|chars|char|fancy-text/i.test(cls) ||
           (!cls.includes('hover') && /reveal/i.test(cls)) ||
           el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') ||
