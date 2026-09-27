@@ -904,6 +904,31 @@ function isBackgroundClipText(styles) {
   return bc.includes('text') || wbc.includes('text');
 }
 
+// Parse CSS backgroundPositionX/Y with support for percentages, px, and 3/4-value CSS offsets (e.g. 'right 12px')
+function parseBgCoord(posStr, containerDim, targetDim) {
+  if (!posStr) return 0;
+  const p = posStr.trim();
+  const tokens = p.split(/\s+/);
+  if (tokens.length >= 2) {
+    const keyword = tokens[0].toLowerCase();
+    const offsetVal = parseFloat(tokens[1]) * (tokens[1].endsWith('rem') ? 16 : 1);
+    if (keyword === 'right' || keyword === 'bottom') {
+      return containerDim - targetDim - (isNaN(offsetVal) ? 0 : offsetVal);
+    }
+    if (keyword === 'left' || keyword === 'top') {
+      return isNaN(offsetVal) ? 0 : offsetVal;
+    }
+  }
+  if (p === 'center') return (containerDim - targetDim) / 2;
+  if (p === 'left' || p === 'top') return 0;
+  if (p === 'right' || p === 'bottom') return containerDim - targetDim;
+  if (p.endsWith('%')) return (containerDim - targetDim) * (parseFloat(p) / 100);
+  if (p.endsWith('px')) return parseFloat(p);
+  if (p.endsWith('rem')) return parseFloat(p) * 16;
+  const num = parseFloat(p);
+  return isNaN(num) ? 0 : num;
+}
+
 /* ======================================================================
  *  4.  STYLE APPLIERS
  * ====================================================================== */
@@ -1123,31 +1148,6 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
               targetH = nodeH;
             }
 
-            // Parse CSS backgroundPositionX/Y with support for percentages, px, and 3/4-value CSS offsets (e.g. 'right 12px')
-            function parseBgCoord(posStr, containerDim, targetDim) {
-              if (!posStr) return 0;
-              const p = posStr.trim();
-              const tokens = p.split(/\s+/);
-              if (tokens.length >= 2) {
-                const keyword = tokens[0].toLowerCase();
-                const offsetVal = parseFloat(tokens[1]) * (tokens[1].endsWith('rem') ? 16 : 1);
-                if (keyword === 'right' || keyword === 'bottom') {
-                  return containerDim - targetDim - (isNaN(offsetVal) ? 0 : offsetVal);
-                }
-                if (keyword === 'left' || keyword === 'top') {
-                  return isNaN(offsetVal) ? 0 : offsetVal;
-                }
-              }
-              if (p === 'center') return (containerDim - targetDim) / 2;
-              if (p === 'left' || p === 'top') return 0;
-              if (p === 'right' || p === 'bottom') return containerDim - targetDim;
-              if (p.endsWith('%')) return (containerDim - targetDim) * (parseFloat(p) / 100);
-              if (p.endsWith('px')) return parseFloat(p);
-              if (p.endsWith('rem')) return parseFloat(p) * 16;
-              const num = parseFloat(p);
-              return isNaN(num) ? 0 : num;
-            }
-
             let ox = parseBgCoord(rawPosX, nodeW, targetW);
             let oy = parseBgCoord(rawPosY, nodeH, targetH);
 
@@ -1256,35 +1256,33 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
                 });
               } else if (isContain) {
                 fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FIT' });
-              } else if (isCover || !isSprite) {
+              } else if (isCover) {
                 fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
-              } else {
-                let pX = posX;
-                let pY = posY;
-                if (pX === 'center') pX = '50%';
-                if (pY === 'center') pY = '50%';
-                if (pX === 'left') pX = '0%';
-                if (pX === 'right') pX = '100%';
-                if (pY === 'top') pY = '0%';
-                if (pY === 'bottom') pY = '100%';
-
-                let ox = 0, oy = 0;
-                if (pX.endsWith('%')) ox = (nodeW - imgW) * (parseFloat(pX) / 100);
-                else if (pX.endsWith('px')) ox = parseFloat(pX);
-                
-                if (pY.endsWith('%')) oy = (nodeH - imgH) * (parseFloat(pY) / 100);
-                else if (pY.endsWith('px')) oy = parseFloat(pY);
-                
-                const transform = [
-                  [nodeW / imgW, 0, -ox / imgW],
-                  [0, nodeH / imgH, -oy / imgH]
-                ];
-                
-                if (transform.flat().some(val => !isFinite(val))) {
-                  throw new Error('Invalid transform parameters (Infinity or NaN)');
+              } else if (!isMask && isNoRepeat && typeof node.insertChild === 'function' && (imgW < nodeW || imgH < nodeH || isSprite)) {
+                // Non-repeating positioned background image (e.g. corner illustrations, accent graphics, or CSS sprites).
+                // Do NOT stretch it to FILL the entire container!
+                // Create a dedicated child rectangle node at the exact CSS background-position and size,
+                // inserted at index 0 behind frame contents so it preserves the frame's background color and content layout.
+                const ox = parseBgCoord(posX, nodeW, imgW);
+                const oy = parseBgCoord(posY, nodeH, imgH);
+                const bgImgNode = figma.createRectangle();
+                bgImgNode.name = 'bg-image';
+                bgImgNode.x = Math.round(ox);
+                bgImgNode.y = Math.round(oy);
+                bgImgNode.resize(Math.max(1, Math.round(imgW)), Math.max(1, Math.round(imgH)));
+                bgImgNode.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+                try {
+                  node.insertChild(0, bgImgNode);
+                } catch {
+                  try { node.appendChild(bgImgNode); } catch {
+                    fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
+                  }
                 }
-
-                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'CROP', imageTransform: transform });
+                if (ox < 0 || oy < 0 || ox + imgW > nodeW || oy + imgH > nodeH) {
+                  try { node.clipsContent = true; } catch {}
+                }
+              } else {
+                fills.push({ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' });
               }
             } catch (err) {
               // Fallback if sizing fails
