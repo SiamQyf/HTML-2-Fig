@@ -3596,19 +3596,33 @@
             unrotW = Math.ceil(rect.height);
             unrotH = Math.ceil(rect.width);
           }
-        } else if (clientRects.length > 1 && node.parentElement && !parentHasMultipleChildren) {
+        } else if (clientRects.length > 1 && node.parentElement) {
           try {
-            const pEl = node.parentElement;
-            const pCs = window.getComputedStyle(pEl);
-            const padL = parseFloat(pCs.paddingLeft) || 0;
-            const padR = parseFloat(pCs.paddingRight) || 0;
-            const borderL = parseFloat(pCs.borderLeftWidth) || 0;
-            const borderR = parseFloat(pCs.borderRightWidth) || 0;
-            const pRect = pEl.getBoundingClientRect();
-            const pContentW = pRect.width - padL - padR - borderL - borderR;
-            if (pContentW > textW) {
-              textW = Math.ceil(pContentW);
-              textX = pRect.x + padL + borderL + scrollX;
+            let blockEl = node.parentElement;
+            while (blockEl && blockEl !== document.body && blockEl !== document.documentElement) {
+              const d = window.getComputedStyle(blockEl).display;
+              if (d && d !== 'inline' && d !== 'contents') break;
+              blockEl = blockEl.parentElement;
+            }
+            if (blockEl) {
+              const bCs = window.getComputedStyle(blockEl);
+              const padL = parseFloat(bCs.paddingLeft) || 0;
+              const padR = parseFloat(bCs.paddingRight) || 0;
+              const borderL = parseFloat(bCs.borderLeftWidth) || 0;
+              const borderR = parseFloat(bCs.borderRightWidth) || 0;
+              const bRect = blockEl.getBoundingClientRect();
+              const bContentW = bRect.width - padL - padR - borderL - borderR;
+              const contentRight = bRect.x + padL + borderL + bContentW;
+              const availW = contentRight - rect.x;
+              if (availW > textW) {
+                const isAtLeftEdge = Math.abs(rect.x - (bRect.x + padL + borderL)) < 4;
+                if (!parentHasMultipleChildren || isAtLeftEdge) {
+                  textW = Math.ceil(availW);
+                  if (isAtLeftEdge && !parentHasMultipleChildren) {
+                    textX = bRect.x + padL + borderL + scrollX;
+                  }
+                }
+              }
             }
           } catch (e) {}
         }
@@ -4501,6 +4515,18 @@
           styles: { ...styles },
           lineCount: 1
         });
+      }
+    }
+
+    if (styles.display === 'inline' || styles.display === 'contents') {
+      let maxChildW = 0;
+      for (const c of childNodes) {
+        if (c.rect && c.rect.width) {
+          maxChildW = Math.max(maxChildW, c.rect.width);
+        }
+      }
+      if (maxChildW > docRect.width) {
+        docRect.width = maxChildW;
       }
     }
 

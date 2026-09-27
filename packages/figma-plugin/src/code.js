@@ -3780,17 +3780,26 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const posX = sNode._localRect ? sNode._localRect.x : ((sNode.rect?.x || 0) - parentX);
   let posY = sNode._localRect ? sNode._localRect.y : ((sNode.rect?.y || 0) - parentY);
 
-  let w = sNode._localRect ? sNode._localRect.width : (sNode.rect?.offsetWidth || sNode.rect?.width || 0);
-  const h = sNode._localRect ? sNode._localRect.height : (sNode.rect?.offsetHeight || sNode.rect?.height || 0);
+  let w = sNode._localRect ? sNode._localRect.width : (sNode.rect?.width || sNode.rect?.offsetWidth || 0);
+  const h = sNode._localRect ? sNode._localRect.height : (sNode.rect?.height || sNode.rect?.offsetHeight || 0);
 
   if (isMultiLine && parentFrame && parentNode && (!parentNode.childNodes || parentNode.childNodes.length <= 1) && !parentNode.pseudoElementNodes?.before && !parentNode.pseudoElementNodes?.after && !activeRotation) {
     let pr = 0;
     if (parentNode.styles && parentNode.styles.paddingRight) {
       pr = parseFloat(parentNode.styles.paddingRight) || 0;
     }
-    const availW = parentFrame.width - Math.max(0, posX) - Math.max(0, pr);
+    let effectiveParentFrame = parentFrame;
+    let effectivePosX = posX;
+    if ((!parentNode.styles?.display || parentNode.styles.display === 'inline' || parentNode.styles.display === 'contents') && parentFrame.parent && parentFrame.parent.type !== 'PAGE' && parentFrame.parent.type !== 'DOCUMENT') {
+      effectiveParentFrame = parentFrame.parent;
+      effectivePosX = (parentFrame.x || 0) + posX;
+    }
+    const availW = effectiveParentFrame.width - Math.max(0, effectivePosX) - Math.max(0, pr);
     if (availW > w) {
       w = availW;
+      if (parentFrame !== effectiveParentFrame && parentFrame.width < w) {
+        try { parentFrame.resize(Math.max(parentFrame.width, Math.ceil(w)), parentFrame.height); } catch {}
+      }
     }
   }
 
@@ -3820,8 +3829,12 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     textNode.resize(Math.ceil(w), Math.ceil(h));
     textNode.textAlignVertical = 'CENTER';
   } else if (isMultiLine && w > 0) {
+    let layoutW = Math.max(1, Math.ceil(w));
+    if (parentFrame && parentFrame.width > layoutW) {
+      layoutW = Math.min(parentFrame.width - Math.max(0, posX), layoutW + 2);
+    }
     textNode.textAutoResize = 'HEIGHT';
-    textNode.resize(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
+    textNode.resize(layoutW, Math.max(1, Math.ceil(h)));
     textNode.x = posX;
     textNode.y = posY;
   } else {
