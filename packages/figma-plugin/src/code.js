@@ -2538,15 +2538,21 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     currentTextClip = s;
   }
 
-  // Fix for btn-hover-animation-switch showing overlapping icons and hover overlays:
-  // When without hover items is active (default), skip secondary hover icons and hover-reveal items
+  // When without hover items is active (default), skip secondary hover icons, hover-reveal items, and custom cursors
+  if (sNode.tag !== 'BODY' && sNode.attributes && sNode.attributes.class) {
+    const cls = sNode.attributes.class;
+    if (/\b(?:circle-cursor|cursor-page-inner|cursor-inner|cursor-outer|custom-cursor-inner|custom-cursor-outer|mouse-cursor|magic-cursor)\b/i.test(cls)) {
+      return;
+    }
+  }
+
   if (!currentWithHover) {
     if (sNode.isHoverItem) {
       return;
     }
     if (sNode.attributes && sNode.attributes.class) {
       const cls = sNode.attributes.class;
-      if (cls.includes('hover-reveal') || cls.includes('hover-overlay') || cls.includes('feature-box-overlay') || cls.includes('overlay-hover') || cls.includes('show-on-hover') || cls.includes('hover-show') || cls.includes('hover-content')) {
+      if (/\b(?:hover-reveal|hover-overlay|feature-box-overlay|overlay-hover|show-on-hover|hover-show|hover-content|hover-img|portfolio-hover|hover-item|on-hover|hover-box-content)\b/i.test(cls)) {
         return;
       }
       if (cls.includes('btn-icon') && s.order && parseInt(s.order) < 0) {

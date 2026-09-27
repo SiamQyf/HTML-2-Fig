@@ -96,6 +96,26 @@
   async function prepareAndScrollPage(withHover = false) {
     const cleanupTasks = [];
 
+    // When without hover (default), snapshot naturally hidden hover elements before any scroll/animation overrides
+    if (!withHover) {
+      try {
+        document.querySelectorAll('*').forEach(el => {
+          const cls = (el.className && typeof el.className === 'string') ? el.className : '';
+          if (/hover|overlay|reveal/i.test(cls)) {
+            const cs = window.getComputedStyle(el);
+            if (cs.opacity === '0' || parseFloat(cs.opacity) < 0.05 || cs.visibility === 'hidden' || cs.display === 'none') {
+              el.setAttribute('data-h2f-hover-hidden', 'true');
+            }
+          }
+        });
+        cleanupTasks.push(() => {
+          try {
+            document.querySelectorAll('[data-h2f-hover-hidden]').forEach(el => el.removeAttribute('data-h2f-hover-hidden'));
+          } catch (e) {}
+        });
+      } catch (e) {}
+    }
+
     const style = document.createElement('style');
     style.id = 'h2f-scroll-fix';
     style.innerHTML = 'html, body { scroll-behavior: auto !important; }';
@@ -313,8 +333,18 @@
         animation: none !important;
         transition: none !important;
       }
-      .feature-box-overlay, .hover-overlay, .hover-reveal, .overlay-hover, .hover-show, .show-on-hover, .hover-content, .btn-switch-text .btn-double-text::before {
+      .feature-box-overlay, .hover-overlay, .hover-reveal, .overlay-hover, .hover-show, .show-on-hover, .hover-content, .hover-item, .on-hover,
+      .hover-img, [class*="hover-img"], .portfolio-hover, [class*="portfolio-hover"], [class*="hover-box-content"], [data-h2f-hover-hidden],
+      .btn-switch-text .btn-double-text::before, .btn-switch-text .btn-double-text::after {
         opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+      .circle-cursor, .cursor-page-inner, .cursor-inner, .cursor-outer, [class*="circle-cursor"], [class*="mouse-cursor"], [class*="cursor-helper"] {
+        display: none !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
       }
       .hero-wave-animation, .hero-wave-animation__static, .hero-wave-animation__static img {
         opacity: 1 !important;
@@ -416,7 +446,8 @@
           if (!withHover) {
             const descCls = (desc.className && typeof desc.className === 'string') ? desc.className : '';
             if (/hover|overlay|dropdown|tooltip|popup|modal/i.test(descCls) ||
-                (desc.closest && desc.closest('.hover-reveal, .reveal-item-hover, .hover-box, .btn-hover-animation-switch, .feature-box-overlay, [class*="hover"], [class*="overlay"]'))) {
+                desc.hasAttribute('data-h2f-hover-hidden') ||
+                (desc.closest && desc.closest('.hover-reveal, .reveal-item-hover, .hover-box, .btn-hover-animation-switch, .feature-box-overlay, [class*="hover"], [class*="overlay"], [data-h2f-hover-hidden]'))) {
               continue;
             }
           }
@@ -3931,7 +3962,16 @@
     const styles = getElementStyles(el);
     let isHidden = (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02);
 
+    // Filter out custom mouse cursor widgets (circle-cursor, custom-cursor, cursor followers)
+    const isCustomCursor = tag !== 'BODY' && tag !== 'HTML' && (
+      /\b(?:circle-cursor|cursor-page-inner|cursor-inner|cursor-outer|custom-cursor-inner|custom-cursor-outer|mouse-cursor|magic-cursor)\b/i.test(el.className || '') ||
+      ((el.className && typeof el.className === 'string' && el.className.includes('cursor')) && (el.className.includes('circle') || el.className.includes('dot') || el.className.includes('follower') || el.className.includes('inner') || el.className.includes('outer')))
+    );
+    if (isCustomCursor) return null;
+
     // Detect hover-related elements
+    const isHoverTagged = el.hasAttribute && el.hasAttribute('data-h2f-hover-hidden');
+    const isHoverTaggedAncestor = el.closest && !!el.closest('[data-h2f-hover-hidden]');
     const isHoverReveal = (el.className && typeof el.className === 'string' && el.className.includes('hover-reveal')) ||
                           (el.closest && el.closest('.hover-reveal'));
     const isHoverBtnIcon = (el.classList && el.classList.contains('btn-icon') && parseInt(styles.order || '0', 10) < 0) ||
@@ -3944,13 +3984,17 @@
       el.className.includes('hover-show') ||
       el.className.includes('show-on-hover') ||
       el.className.includes('hover-item') ||
-      el.className.includes('on-hover')
+      el.className.includes('on-hover') ||
+      el.className.includes('hover-img') ||
+      el.className.includes('portfolio-hover')
     ));
     const isHoverSpecific = isHoverOverlay || (
       /hover|overlay/i.test(el.className || '') && (isHidden || styles.pointerEvents === 'none' || parseFloat(styles.opacity || '1') < 0.05)
     );
+    const isExplicitHoverClass = /\b(?:hover-img|portfolio-hover|hover-reveal|hover-overlay|feature-box-overlay|overlay-hover|show-on-hover|hover-show|hover-content|hover-item|on-hover)\b/i.test(el.className || '') ||
+      (el.closest && !!el.closest('.hover-reveal, .portfolio-hover, .feature-box-overlay, .hover-overlay, .overlay-hover, [class*="hover-img"], [class*="portfolio-hover"]'));
 
-    const isHoverItem = !!(isHoverReveal || isHoverBtnIcon || isHoverSpecific);
+    const isHoverItem = !!(isHoverReveal || isHoverBtnIcon || isHoverSpecific || isHoverTagged || isHoverTaggedAncestor || isExplicitHoverClass);
 
     if (!withHover && isHoverItem) {
       return null;
