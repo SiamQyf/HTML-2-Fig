@@ -274,68 +274,8 @@
       }
     } catch (e) {}
 
-    // Automatically defeat scroll-linked animations and force scroll-reveal elements visible
-    const animKiller = document.createElement('style');
-    animKiller.id = 'h2f-animation-killer';
-    animKiller.innerHTML = `
-      * { transition: none !important; animation: none !important; }
-      #smooth-wrapper, #smooth-content {
-        position: static !important;
-        height: auto !important;
-        overflow: visible !important;
-        transform: none !important;
-      }
-      footer.footer-sticky, .footer-sticky, footer[class*="footer-sticky"], [class*="footer-sticky"], [class*="sticky-footer"] {
-        position: static !important;
-      }
-      [data-swiper-parallax], [data-swiper-parallax-x], [data-swiper-parallax-y] {
-        transform: none !important;
-        transition: none !important;
-      }
-      .words, .word, .line, .letter, .chars, .char, .splitting, .splitting *, .anime-text, .anime-text *, [data-fancy-text], [data-fancy-text] *, [data-splitting], [data-splitting] *, .swiper-parallax-fancy-text, .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text {
-        visibility: visible !important;
-        opacity: 1 !important;
-        transform: none !important;
-      }
-      .title-anim, .text-anim, .hero-text-anim, .start-anim,
-      .title-anim *, .text-anim *, .hero-text-anim *,
-      .right-swipe, .left-swipe,
-      .split-line, .split-word, .split-char {
-        visibility: visible !important;
-        opacity: 1 !important;
-        animation: none !important;
-        transition: none !important;
-      }
-
-      .hero-wave-animation, .hero-wave-animation__static, .hero-wave-animation__static img {
-        opacity: 1 !important;
-        visibility: visible !important;
-      }
-      [data-shadow-animation], [data-shadow-animation] *,
-      .highlight-separator, .highlight-separator * {
-        opacity: 1 !important;
-        visibility: visible !important;
-        clip-path: none !important;
-        animation: none !important;
-        transition: none !important;
-      }
-      body .pxn-fade, body .pxn-split-text, body .pxn-chars-up,
-      body .pxn-img-reveal, body .pxn-char,
-      body [class*="pxn-fade"], body [class*="pxn-chars"], body [class*="pxn-split"],
-      .pxn-h2_service_item .service_image,
-      .pxn-h2_process_content_wrapper .process_images img {
-        visibility: visible !important;
-        opacity: 1 !important;
-      }
-      #preloader, .preloader, .loader-wrapper, #loading, .page-loader, .site-preloader, .animation-preloader, .loader-section {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-      }
-    `;
-    document.head.appendChild(animKiller);
-    cleanupTasks.push(() => { try { animKiller.remove(); } catch {} });
+    // The h2f-animation-killer heuristics have been removed. 
+    // We now rely entirely on the native scroll loop and the browser's getComputedStyle.
 
     // Neutralize sticky footers and bottom-sticky elements
     // In CSS, position: sticky with bottom forces the footer to stick to the bottom of the viewport
@@ -382,45 +322,8 @@
       }
     } catch (e) {}
 
-    // Save and modify inline styles on animated elements
-    const savedInlineStyles = [];
-    try {
-      const animatedEls = document.querySelectorAll(
-        '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter, .chars, .char, .splitting, .anime-text, [data-fancy-text], [data-splitting], .swiper-parallax-fancy-text, .rs-rotate, [class*="rs-rotate"], [class*="tp-loop-wrap"], [data-shadow-animation], .highlight-separator, [data-anime]'
-      );
-      for (const el of animatedEls) {
-        if (el === document.body || el === document.documentElement) continue;
-        if (el.className && typeof el.className === 'string' && /no-anim/i.test(el.className)) continue;
-        const saved = { el, v: el.style.visibility, o: el.style.opacity, t: el.style.transform, c: el.style.clipPath };
-        savedInlineStyles.push(saved);
-        if (el.style.visibility === 'hidden') el.style.visibility = 'visible';
-        if (el.style.opacity === '0' || (parseFloat(el.style.opacity) || 0) < 0.05) el.style.opacity = '1';
-        if (el.style.transform) {
-          if (el.style.transform.includes('translate') || el.style.transform.includes('rotate') || el.style.transform.includes('scale(100') || el.style.transform.includes('scale(100,') || el.style.transform.includes('matrix')) {
-            el.style.transform = 'none';
-          }
-        }
-        if (el.style.clipPath) el.style.clipPath = 'none';
-        
-        for (const desc of el.querySelectorAll('.words, .word, .line, .letter, .chars, .char, .splitting, [data-fancy-text], [data-splitting], .anime-text')) {
-          if (desc === document.body || desc === document.documentElement) continue;
-          savedInlineStyles.push({ el: desc, v: desc.style.visibility, o: desc.style.opacity, t: desc.style.transform });
-          if (desc.style.visibility === 'hidden') desc.style.visibility = 'visible';
-          if (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05) {
-            desc.style.opacity = '1';
-          }
-          if (desc.style.transform && (desc.style.transform.includes('translate') || desc.style.transform.includes('matrix'))) {
-            desc.style.transform = 'none';
-          }
-        }
-      }
-    } catch {}
-
-    cleanupTasks.push(() => {
-      for (const s of savedInlineStyles) {
-        try { s.el.style.visibility = s.v; s.el.style.opacity = s.o; s.el.style.transform = s.t; if (s.c !== undefined) s.el.style.clipPath = s.c; } catch {}
-      }
-    });
+    // The animatedEls inline style mutations have been removed.
+    // We now rely natively on the scrolling mechanisms above to trigger IntersectionObservers natively.
 
     // Hide preloaders — save state
     try {
@@ -434,7 +337,27 @@
 
 
     // Now that virtual smooth scroll wrappers and scroll-linked animations are neutralized, scroll natively to trigger lazy images
+    const scrollableContainers = [window];
+    try {
+      const allEls = document.querySelectorAll('*');
+      for (const el of allEls) {
+        if (el === document.documentElement || el === document.body) continue;
+        if (el.scrollHeight > el.clientHeight) {
+          const style = window.getComputedStyle(el);
+          if (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflowY === 'overlay') {
+            scrollableContainers.push(el);
+          }
+        }
+      }
+    } catch(e) {}
+
     let scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+    for (const container of scrollableContainers) {
+      if (container !== window) {
+        scrollHeight = Math.max(scrollHeight, container.scrollHeight);
+      }
+    }
+
     const MAX_SCROLL_HEIGHT = 50000;
     const MAX_SCROLL_TIME = 15000;
     const step = 32;
@@ -443,22 +366,39 @@
 
     for (let y = 0; y < scrollHeight; y += step) {
       if (captureTimedOut) break;
-      window.scrollTo(0, y);
+      for (const container of scrollableContainers) {
+        if (container === window) {
+          window.scrollTo(0, y);
+        } else {
+          container.scrollTo(0, y);
+        }
+      }
       await new Promise(r => setTimeout(r, delay));
-      const newHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+      let newHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+      for (const container of scrollableContainers) {
+        if (container !== window) newHeight = Math.max(newHeight, container.scrollHeight);
+      }
       scrollHeight = Math.min(newHeight, MAX_SCROLL_HEIGHT);
       if (performance.now() - scrollStart > MAX_SCROLL_TIME) break;
     }
     
-    window.scrollTo(0, scrollHeight);
+    for (const container of scrollableContainers) {
+      if (container === window) window.scrollTo(0, scrollHeight);
+      else container.scrollTo(0, container.scrollHeight);
+    }
     await new Promise(r => setTimeout(r, 600));
     
     for (let y = scrollHeight; y > 0; y -= (step * 8)) {
-      window.scrollTo(0, y);
+      for (const container of scrollableContainers) {
+        if (container === window) window.scrollTo(0, y);
+        else container.scrollTo(0, y);
+      }
       await new Promise(r => setTimeout(r, 16));
     }
 
-    window.scrollTo(0, 0);
+    for (const container of scrollableContainers) {
+      container.scrollTo(0, 0);
+    }
     await new Promise(r => setTimeout(r, 200));
 
     // Ensure all Swipers remain frozen and reset to slide 0 after scrolling completes
@@ -886,6 +826,46 @@
       }
     } catch (e) {}
 
+    // Unconstrain main scrollable containers so their full height is captured instead of being clipped to the viewport
+    try {
+      const unconstrained = new Set();
+      for (const container of scrollableContainers) {
+        if (container === window || container === document.documentElement || container === document.body) continue;
+        
+        // Only unconstrain large scroll containers (e.g. main content area, sidebars), not tiny dropdowns or code blocks
+        if (container.clientHeight < window.innerHeight * 0.3) continue;
+
+        let cur = container;
+        while (cur && cur !== document.documentElement) {
+          if (unconstrained.has(cur)) {
+            cur = cur.parentElement;
+            continue;
+          }
+          unconstrained.add(cur);
+
+          const s = {
+            height: cur.style.height,
+            maxHeight: cur.style.maxHeight,
+            overflow: cur.style.overflow,
+            overflowX: cur.style.overflowX,
+            overflowY: cur.style.overflowY
+          };
+          cur.style.setProperty('height', 'auto', 'important');
+          cur.style.setProperty('max-height', 'none', 'important');
+          cur.style.setProperty('overflow', 'visible', 'important');
+          cur.style.setProperty('overflow-x', 'visible', 'important');
+          cur.style.setProperty('overflow-y', 'visible', 'important');
+          cleanupTasks.push(() => {
+            cur.style.height = s.height;
+            cur.style.maxHeight = s.maxHeight;
+            cur.style.overflow = s.overflow;
+            cur.style.overflowX = s.overflowX;
+            cur.style.overflowY = s.overflowY;
+          });
+          cur = cur.parentElement;
+        }
+      }
+    } catch (e) {}
     // Ensure all web fonts are fully downloaded before computing visual metrics
     try {
       if (document.fonts && document.fonts.ready) {
@@ -1322,6 +1302,7 @@
     if (cssColor.startsWith('rgba') || (cssColor.startsWith('rgb(') && cssColor.includes(',')) || cssColor.startsWith('#')) return cssColor;
     if (colorCache.has(cssColor)) return colorCache.get(cssColor);
     
+    if (typeof document === 'undefined') return cssColor;
     if (!colorCanvas) {
       colorCanvas = document.createElement('canvas');
       colorCanvas.width = 1;
@@ -1338,23 +1319,24 @@
     colorCtx.clearRect(0, 0, 1, 1);
     colorCtx.fillRect(0, 0, 1, 1);
     const data = colorCtx.getImageData(0, 0, 1, 1).data;
-    const rgba = 'rgba(' + data[0] + ', ' + data[1] + ', ' + data[2] + ', ' + (data[3] / 255) + ')';
+    const a = +(data[3] / 255).toFixed(3);
+    const rgba = 'rgba(' + data[0] + ', ' + data[1] + ', ' + data[2] + ', ' + a + ')';
     colorCache.set(cssColor, rgba);
     return rgba;
+  }
+
+  function convertColors(str) {
+    if (!str || typeof str !== 'string') return str;
+    if (!str.includes('okl') && !str.includes('lab') && !str.includes('lch') && !str.includes('color(') && !str.includes('/')) return str;
+    return str.replace(/(?:oklch|oklab|lab|lch|color|rgba?)\([^)]+\)/gi, match => {
+      const normalized = normalizeColor(match);
+      return normalized !== match ? normalized : match;
+    });
   }
 
   function getElementStyles(el) {
     const cs = window.getComputedStyle(el);
     const styles = {};
-
-    const convertColors = (str) => {
-      if (!str || typeof str !== 'string') return str;
-      if (!str.includes('okl') && !str.includes('lab') && !str.includes('lch') && !str.includes('color(')) return str;
-      return str.replace(/(?:oklch|oklab|lab|lch|color)\([^)]+\)/g, match => {
-        const normalized = normalizeColor(match);
-        return normalized !== match ? normalized : match;
-      });
-    };
 
     for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
       const val = cs[prop];
@@ -1364,7 +1346,7 @@
     }
 
     if (cs.backgroundImage && cs.backgroundImage !== 'none') {
-      styles.backgroundImage = cs.backgroundImage;
+      styles.backgroundImage = convertColors(cs.backgroundImage);
       styles.backgroundRepeat = cs.backgroundRepeat;
       styles.backgroundSize = cs.backgroundSize;
       styles.backgroundPosition = cs.backgroundPosition;
@@ -1464,7 +1446,7 @@
       }
     }
     // Always capture background and border radius for frame fills
-    styles.backgroundColor = cs.backgroundColor;
+    styles.backgroundColor = convertColors(cs.backgroundColor);
 
     // If an element has a box-shadow and transparent background, in CSS the box-shadow
     // is cast by the element's border box and clipped out from behind the element.
@@ -1477,8 +1459,8 @@
       while (p && p !== document.documentElement) {
         const pcs = window.getComputedStyle(p);
         if (pcs.backgroundColor && !isTransparentColor(pcs.backgroundColor)) {
-          styles.backgroundColor = pcs.backgroundColor;
-          styles._effectiveBgColor = pcs.backgroundColor;
+          styles.backgroundColor = convertColors(pcs.backgroundColor);
+          styles._effectiveBgColor = convertColors(pcs.backgroundColor);
           break;
         }
         p = p.parentElement;
@@ -1494,8 +1476,9 @@
                     (cs.mask && cs.mask !== 'none') ? cs.mask :
                     (cs.webkitMask && cs.webkitMask !== 'none') ? cs.webkitMask : null;
     if (maskVal) {
-      styles.maskImage = maskVal;
-      styles.webkitMaskImage = maskVal;
+      const convMask = convertColors(maskVal);
+      styles.maskImage = convMask;
+      styles.webkitMaskImage = convMask;
       styles.maskSize = cs.maskSize || cs.webkitMaskSize;
       styles.webkitMaskSize = cs.webkitMaskSize || cs.maskSize;
       styles.maskPositionX = cs.maskPositionX || cs.webkitMaskPositionX;
@@ -1531,10 +1514,10 @@
     styles.borderBottomWidth = cs.borderBottomWidth;
     styles.borderLeftWidth = cs.borderLeftWidth;
     styles.borderRightWidth = cs.borderRightWidth;
-    styles.borderTopColor = cs.borderTopColor;
-    styles.borderBottomColor = cs.borderBottomColor;
-    styles.borderLeftColor = cs.borderLeftColor;
-    styles.borderRightColor = cs.borderRightColor;
+    styles.borderTopColor = convertColors(cs.borderTopColor);
+    styles.borderBottomColor = convertColors(cs.borderBottomColor);
+    styles.borderLeftColor = convertColors(cs.borderLeftColor);
+    styles.borderRightColor = convertColors(cs.borderRightColor);
 
     return styles;
   }
@@ -2384,8 +2367,9 @@
     const isRepeating = repeat.includes('repeat') && !repeat.includes('no-repeat');
     if (bgSize && bgSize !== 'auto' && bgSize !== 'cover' && bgSize !== 'contain') {
       const parts = bgSize.trim().split(/\s+/);
+      const isPercent = parts[0].endsWith('%');
       const w = parseFloat(parts[0]);
-      if (w > 0 && (isRepeating || w <= 160) && (lower.includes('radial-gradient') || lower.includes('linear-gradient'))) {
+      if (!isPercent && w > 0 && (isRepeating || w <= 160) && (lower.includes('radial-gradient') || lower.includes('linear-gradient'))) {
         return true;
       }
     }
@@ -2541,7 +2525,8 @@
    * ====================================================================== */
   function isTransparentColor(c) {
     if (!c || c === 'transparent' || c === 'none') return true;
-    const m = c.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)/i);
+    const norm = normalizeColor(c);
+    const m = norm.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)/i);
     if (m && m[4] !== undefined) return parseFloat(m[4]) <= 0.01;
     return false;
   }
@@ -2801,8 +2786,9 @@
                          (cs.mask && cs.mask !== 'none') ? cs.mask :
                          (cs.webkitMask && cs.webkitMask !== 'none') ? cs.webkitMask : null;
       if (pseudoMask) {
-        styles.maskImage = pseudoMask;
-        styles.webkitMaskImage = pseudoMask;
+        const convPseudoMask = convertColors(pseudoMask);
+        styles.maskImage = convPseudoMask;
+        styles.webkitMaskImage = convPseudoMask;
         styles.maskSize = cs.maskSize || cs.webkitMaskSize;
         styles.webkitMaskSize = cs.webkitMaskSize || cs.maskSize;
         styles.maskPositionX = cs.maskPositionX || cs.webkitMaskPositionX;
@@ -3082,7 +3068,10 @@
         }
       }
 
-      if (styles.backgroundImage && styles.backgroundImage !== 'none') {
+      const isTextClip = (styles.backgroundClip && styles.backgroundClip.includes('text')) ||
+                         (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'));
+
+      if (styles.backgroundImage && styles.backgroundImage !== 'none' && !isTextClip) {
         const w = Math.max(1, Math.round(pseudoRect.width || 100));
         const h = Math.max(1, Math.round(pseudoRect.height || 100));
         if (isPatternGradient(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat)) {
@@ -3097,15 +3086,6 @@
           let changed = false;
           const newBgs = [];
           for (const bg of bgs) {
-            if (bg.includes('conic-gradient')) {
-              const dataUrl = renderConicGradientToDataUrl(bg, w, h);
-              if (dataUrl) {
-                if (assets) assets.addDataUrl(dataUrl);
-                newBgs.push(`url("${dataUrl}")`);
-                changed = true;
-                continue;
-              }
-            }
             if (isPatternGradient(bg, styles.backgroundSize, styles.backgroundRepeat)) {
               const dataUrl = await renderPatternToDataUrl(bg, styles.backgroundSize, styles.backgroundRepeat, w, h);
               if (dataUrl) {
@@ -4103,7 +4083,10 @@
       docRect.offsetHeight = el.offsetHeight;
     }
 
-    if (styles.backgroundImage && styles.backgroundImage !== 'none') {
+    const isTextClip = (styles.backgroundClip && styles.backgroundClip.includes('text')) ||
+                       (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'));
+
+    if (styles.backgroundImage && styles.backgroundImage !== 'none' && !isTextClip) {
       const w = Math.max(1, Math.round(docRect.width || el.offsetWidth || 100));
       const h = Math.max(1, Math.round(docRect.height || el.offsetHeight || 100));
       if (isPatternGradient(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat)) {
@@ -4118,15 +4101,6 @@
         let changed = false;
         const newBgs = [];
         for (const bg of bgs) {
-          if (bg.includes('conic-gradient')) {
-            const dataUrl = renderConicGradientToDataUrl(bg, w, h);
-            if (dataUrl) {
-              if (assets) assets.addDataUrl(dataUrl);
-              newBgs.push(`url("${dataUrl}")`);
-              changed = true;
-              continue;
-            }
-          }
           if (isPatternGradient(bg, styles.backgroundSize, styles.backgroundRepeat)) {
             const dataUrl = await renderPatternToDataUrl(bg, styles.backgroundSize, styles.backgroundRepeat, w, h);
             if (dataUrl) {

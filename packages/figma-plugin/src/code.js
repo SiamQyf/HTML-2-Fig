@@ -72,23 +72,99 @@ function parseColor(css) {
     if (h.length === 8) return { r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: parseInt(h.slice(6, 8), 16) / 255 };
   }
 
-  // color(display-p3 r g b)
-  m = css.match(/^color\([^ ]+\s+([\d.-]+)[,%\s]+([\d.-]+)[,%\s]+([\d.-]+)(?:[,/\s]+([\d.-]+)[%]?\s*)?\)$/);
-  if (m) return { r: +m[1] > 1 ? clamp01(+m[1] / 255) : clamp01(+m[1]), g: +m[2] > 1 ? clamp01(+m[2] / 255) : clamp01(+m[2]), b: +m[3] > 1 ? clamp01(+m[3] / 255) : clamp01(+m[3]), a: m[4] !== undefined ? clamp01(+m[4]) : 1 };
-
-  // oklch/oklab/lab/lch extraction fallback (extracts lightness/grey approximation to prevent completely dropping the color)
-  m = css.match(/^(?:oklch|oklab|lab|lch)\(\s*([\d.-]+)%?\s+([\d.-]+)%?\s+([\d.-]+)%?(?:\s*\/\s*([\d.-]+)%?)?\s*\)$/);
+  // lab / lch
+  m = css.match(/^(lab|lch)\(\s*([\d.-]+)(%?)\s+([\d.-]+)%?\s+([\d.-]+)(?:deg)?(?:\s*[/,\s]\s*([\d.-]+)%?)?\s*\)$/i);
   if (m) {
-    let l = parseFloat(m[1]);
-    if (css.includes('ok') || css.includes('%')) {
-      if (l > 1) l = l / 100; // oklab/oklch L is usually 0-1, but sometimes 0-100%
-    } else {
-      l = l / 100; // lab/lch L is 0-100
+    const isLch = m[1].toLowerCase() === 'lch';
+    const L = parseFloat(m[2]);
+    const aOrC = parseFloat(m[4]);
+    const bOrH = parseFloat(m[5]);
+    const alpha = m[6] !== undefined ? (m[6].endsWith('%') ? parseFloat(m[6]) / 100 : parseFloat(m[6])) : 1;
+    const rgb = isLch ? lchToRgb(L, aOrC, bOrH) : labToRgb(L, aOrC, bOrH);
+    return { ...rgb, a: clamp01(alpha) };
+  }
+
+  // oklab / oklch
+  m = css.match(/^(oklab|oklch)\(\s*([\d.-]+)(%?)\s+([\d.-]+)%?\s+([\d.-]+)(?:deg)?(?:\s*[/,\s]\s*([\d.-]+)%?)?\s*\)$/i);
+  if (m) {
+    const isOklch = m[1].toLowerCase() === 'oklch';
+    let L = parseFloat(m[2]);
+    if (m[3] === '%' || L > 1.0) L = L / 100;
+    const aOrC = parseFloat(m[4]);
+    const bOrH = parseFloat(m[5]);
+    const alpha = m[6] !== undefined ? (m[6].endsWith('%') ? parseFloat(m[6]) / 100 : parseFloat(m[6])) : 1;
+    const rgb = isOklch ? oklchToRgb(L, aOrC, bOrH) : oklabToRgb(L, aOrC, bOrH);
+    return { ...rgb, a: clamp01(alpha) };
+  }
+
+  // color(display-p3 ...) or color(srgb ...)
+  m = css.match(/^color\(\s*([\w-]+)\s+([\d.-]+)%?\s+([\d.-]+)%?\s+([\d.-]+)%?(?:\s*[/,\s]\s*([\d.-]+)%?)?\s*\)$/i);
+  if (m) {
+    const space = m[1].toLowerCase();
+    const r = parseFloat(m[2]), g = parseFloat(m[3]), b = parseFloat(m[4]);
+    const alpha = m[5] !== undefined ? (m[5].endsWith('%') ? parseFloat(m[5]) / 100 : parseFloat(m[5])) : 1;
+    if (space === 'display-p3') {
+      const rgb = displayP3ToRgb(r, g, b);
+      return { ...rgb, a: clamp01(alpha) };
     }
-    return { r: clamp01(l), g: clamp01(l), b: clamp01(l), a: m[4] !== undefined ? clamp01(+m[4]) : 1 };
+    return { r: clamp01(r), g: clamp01(g), b: clamp01(b), a: clamp01(alpha) };
   }
 
   return null;
+}
+
+// CIE LAB -> sRGB (D65)
+function labToRgb(L, a, b) {
+  const fy = (L + 16) / 116;
+  const fx = a / 500 + fy;
+  const fz = fy - b / 200;
+  const eps = 216 / 24389;
+  const kap = 24389 / 27;
+  const xr = Math.pow(fx, 3) > eps ? Math.pow(fx, 3) : (116 * fx - 16) / kap;
+  const yr = L > kap * eps ? Math.pow((L + 16) / 116, 3) : L / kap;
+  const zr = Math.pow(fz, 3) > eps ? Math.pow(fz, 3) : (116 * fz - 16) / kap;
+  const X = xr * 0.95047, Y = yr * 1.00000, Z = zr * 1.08883;
+  const rLin =  3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z;
+  const gLin = -0.9692660 * X + 1.8760108 * Y + 0.0415560 * Z;
+  const bLin =  0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z;
+  const gamma = (c) => c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
+  return { r: clamp01(gamma(rLin)), g: clamp01(gamma(gLin)), b: clamp01(gamma(bLin)) };
+}
+
+// CIE LCH -> CIE LAB -> sRGB
+function lchToRgb(L, C, H) {
+  const hRad = (H * Math.PI) / 180;
+  return labToRgb(L, C * Math.cos(hRad), C * Math.sin(hRad));
+}
+
+// OKLab -> sRGB
+function oklabToRgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+  const rLin = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const gLin = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const bLin = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+  const gamma = (c) => c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
+  return { r: clamp01(gamma(rLin)), g: clamp01(gamma(gLin)), b: clamp01(gamma(bLin)) };
+}
+
+// OKLCH -> OKLab -> sRGB
+function oklchToRgb(L, C, H) {
+  const hRad = (H * Math.PI) / 180;
+  return oklabToRgb(L, C * Math.cos(hRad), C * Math.sin(hRad));
+}
+
+// display-p3 -> sRGB
+function displayP3ToRgb(rP3, gP3, bP3) {
+  const toLin = (c) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  const rL = toLin(rP3), gL = toLin(gP3), bL = toLin(bP3);
+  const rLin =  1.2249402 * rL - 0.2249402 * gL;
+  const gLin = -0.0420569 * rL + 1.0420569 * gL;
+  const bLin = -0.0196375 * rL - 0.0786361 * gL + 1.0982736 * bL;
+  const gamma = (c) => c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
+  return { r: clamp01(gamma(rLin)), g: clamp01(gamma(gLin)), b: clamp01(gamma(bLin)) };
 }
 
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
@@ -730,6 +806,12 @@ function parseRadialGradient(css) {
     if (stops.length === 1) {
       stops.push({ position: 1, color: { ...stops[0].color } });
     }
+    if (stops[0].position > 0) {
+      stops.unshift({ position: 0, color: { ...stops[0].color } });
+    }
+    if (stops[stops.length - 1].position < 1) {
+      stops.push({ position: 1, color: { ...stops[stops.length - 1].color } });
+    }
 
     // Build Figma gradientTransform for GRADIENT_RADIAL.
     // Figma's gradientTransform maps FROM node space TO gradient space:
@@ -838,6 +920,12 @@ function parseAngularGradient(css) {
     if (stops.length === 0) return null;
     if (stops.length === 1) {
       stops.push({ position: 1, color: { ...stops[0].color } });
+    }
+    if (stops[0].position > 0) {
+      stops.unshift({ position: 0, color: { ...stops[0].color } });
+    }
+    if (stops[stops.length - 1].position < 1) {
+      stops.push({ position: 1, color: { ...stops[stops.length - 1].color } });
     }
 
     // In Figma, GRADIENT_ANGULAR rotates around center (0.5, 0.5)
@@ -1310,30 +1398,27 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
   }
 
   if (!isTextClip && !isZeroSize) {
-    // CSS Gradients go ON TOP of background images in Figma
+    // CSS Gradients go ON TOP of background images in Figma.
+    // In CSS, the first gradient in the comma-separated list is the top-most layer.
+    // In Figma, fills are drawn from back to front (fills[0] is bottom, last fill is on top).
+    // Therefore, we iterate from bottom to top (last to first) so the first CSS layer is on top in Figma!
     if (styles.backgroundImage && styles.backgroundImage.includes('gradient')) {
       const bgs = splitByTopLevelCommas(styles.backgroundImage);
-      for (const bg of bgs) {
+      const gradFills = [];
+      for (let i = bgs.length - 1; i >= 0; i--) {
+        const bg = bgs[i];
         if (bg.includes('linear-gradient')) {
           const grad = parseLinearGradient(bg, styles);
-          if (grad) {
-            fills.push(grad);
-            continue;
-          }
+          if (grad) gradFills.push(grad);
         } else if (bg.includes('radial-gradient')) {
           const grad = parseRadialGradient(bg);
-          if (grad) {
-            fills.push(grad);
-            continue;
-          }
+          if (grad) gradFills.push(grad);
         } else if (bg.includes('conic-gradient')) {
           const grad = parseAngularGradient(bg);
-          if (grad) {
-            fills.push(grad);
-            continue;
-          }
+          if (grad) gradFills.push(grad);
         }
       }
+      fills.push(...gradFills);
     }
   }
 
@@ -3577,7 +3662,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     : ((s.mask && s.mask !== 'none' && s.mask.includes('gradient')) ? s.mask
     : ((s.webkitMask && s.webkitMask !== 'none' && s.webkitMask.includes('gradient')) ? s.webkitMask : null)));
 
-  if (maskGradientStr && frame.children && frame.children.length > 0) {
+  if (maskGradientStr) {
     let maskFill = null;
     if (maskGradientStr.includes('linear-gradient')) {
       maskFill = parseLinearGradient(maskGradientStr, s);
@@ -3597,8 +3682,25 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
         maskRect.fills = [maskFill];
         maskRect.isMask = true;
         try { maskRect.maskType = 'ALPHA'; } catch {}
-        frame.insertChild(0, maskRect);
-        frame.clipsContent = true;
+
+        if (frame.children && frame.children.length > 0) {
+          frame.insertChild(0, maskRect);
+          frame.clipsContent = true;
+        } else if (frame.fills && frame.fills.length > 0) {
+          // Leaf node with fill(s) (e.g. ::before / ::after pseudo-element or styled leaf):
+          // In Figma, a mask must be a child that masks other children above it.
+          // Move the frame's fills to a child bgRect so Figma's maskRect masks it!
+          const bgRect = figma.createRectangle();
+          bgRect.name = 'bg-fill';
+          bgRect.resize(Math.max(1, Math.round(rectW)), Math.max(1, Math.round(rectH)));
+          bgRect.x = 0;
+          bgRect.y = 0;
+          bgRect.fills = frame.fills;
+          frame.fills = [];
+          frame.appendChild(maskRect); // child 0: mask
+          frame.appendChild(bgRect);   // child 1: masked content
+          frame.clipsContent = true;
+        }
       } catch (err) {
         console.warn('[HTML-2-Fig] Failed to apply gradient mask:', err);
       }
@@ -3805,7 +3907,8 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     if (bg && bg.a > 0.005) textFills.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: clamp01(bg.a) });
     if (clipStyle.backgroundImage && clipStyle.backgroundImage.includes('gradient')) {
       const bgs = splitByTopLevelCommas(clipStyle.backgroundImage);
-      for (const bg of bgs) {
+      for (let i = bgs.length - 1; i >= 0; i--) {
+        const bg = bgs[i];
         if (bg.includes('linear-gradient')) {
           const grad = parseLinearGradient(bg, clipStyle);
           if (grad) textFills.push(grad);
