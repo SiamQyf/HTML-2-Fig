@@ -3579,10 +3579,11 @@
           lineCount: 1
         };
 
-        const iconW = Math.ceil(symbolR.width) || scaledFontSize || parseFloat(parentStyles?.fontSize) || 16;
-        const iconH = Math.ceil(symbolR.height) || scaledFontSize || parseFloat(parentStyles?.fontSize) || 16;
+        const symbolFontSize = parseFloat(parentStyles?.fontSize) || 16;
+        const iconW = Math.ceil(symbolR.width) || symbolFontSize;
+        const iconH = Math.ceil(symbolR.height) || symbolFontSize;
         let iconChild = null;
-        const dataUrl = renderGlyphToImage(symbolPart, { ...parentStyles, fontSize: scaledFontSize ? `${scaledFontSize}px` : parentStyles?.fontSize }, iconW, iconH);
+        const dataUrl = renderGlyphToImage(symbolPart, { ...parentStyles, fontSize: `${symbolFontSize}px` }, iconW, iconH);
         if (dataUrl) {
           iconChild = {
             nodeType: ELEMENT_NODE,
