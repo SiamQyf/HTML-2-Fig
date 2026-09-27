@@ -2472,7 +2472,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     }
     if (sNode.attributes && sNode.attributes.class) {
       const cls = sNode.attributes.class;
-      if (cls.includes('hover-reveal') || cls.includes('hover-overlay')) {
+      if (cls.includes('hover-reveal') || cls.includes('hover-overlay') || cls.includes('feature-box-overlay') || cls.includes('overlay-hover') || cls.includes('show-on-hover') || cls.includes('hover-show') || cls.includes('hover-content')) {
         return;
       }
       if (cls.includes('btn-icon') && s.order && parseInt(s.order) < 0) {

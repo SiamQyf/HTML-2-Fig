@@ -93,7 +93,7 @@
   /* ======================================================================
    *  3.  PAGE PRE-SCROLLER (Triggers lazy-loaded images & animations)
    * ====================================================================== */
-  async function prepareAndScrollPage() {
+  async function prepareAndScrollPage(withHover = false) {
     const cleanupTasks = [];
 
     const style = document.createElement('style');
@@ -304,11 +304,14 @@
       .title-anim *, .text-anim *, .hero-text-anim *,
       .right-swipe, .left-swipe,
       .split-line, .split-word, .split-char,
-      [class*="wow"], [class*="fadeIn"], [class*="-anim"] {
+      [class*="wow"], [class*="fadeIn"], :is([class*="-anim"]):not([class*="no-anim"]):not([class*="without-anim"]):not(body):not(html) {
         visibility: visible !important;
         opacity: 1 !important;
         animation: none !important;
         transition: none !important;
+      }
+      .feature-box-overlay, .hover-overlay, .hover-reveal, .overlay-hover, .hover-show, .show-on-hover, .hover-content, .btn-switch-text .btn-double-text::before {
+        opacity: 0 !important;
       }
       .hero-wave-animation, .hero-wave-animation__static, .hero-wave-animation__static img {
         opacity: 1 !important;
@@ -392,6 +395,8 @@
         '.wow, [data-wow-delay], [data-aos], [data-sal], .animated, .title-anim, .text-anim, .hero-text-anim, .right-swipe, .left-swipe, [class*="wow"], [class*="-anim"], .bw-reveal-text, .bw-reveal-text-2, .bw-title-anim, .bw-split-text, .words, .word, .line, .letter, .chars, .char, .splitting, .anime-text, [data-fancy-text], [data-splitting], .swiper-parallax-fancy-text, .rs-rotate, [class*="rs-rotate"], [class*="tp-loop-wrap"], [data-shadow-animation], .highlight-separator, [data-anime]'
       );
       for (const el of animatedEls) {
+        if (el === document.body || el === document.documentElement) continue;
+        if (el.className && typeof el.className === 'string' && /no-anim/i.test(el.className)) continue;
         const saved = { el, v: el.style.visibility, o: el.style.opacity, t: el.style.transform, c: el.style.clipPath };
         savedInlineStyles.push(saved);
         if (el.style.visibility === 'hidden') el.style.visibility = 'visible';
@@ -404,6 +409,14 @@
         if (el.style.clipPath) el.style.clipPath = 'none';
         
         for (const desc of el.querySelectorAll('*')) {
+          if (desc === document.body || desc === document.documentElement) continue;
+          if (!withHover) {
+            const descCls = (desc.className && typeof desc.className === 'string') ? desc.className : '';
+            if (/hover|overlay|dropdown|tooltip|popup|modal/i.test(descCls) ||
+                (desc.closest && desc.closest('.hover-reveal, .reveal-item-hover, .hover-box, .btn-hover-animation-switch, .feature-box-overlay, [class*="hover"], [class*="overlay"]'))) {
+              continue;
+            }
+          }
           savedInlineStyles.push({ el: desc, v: desc.style.visibility, o: desc.style.opacity, t: desc.style.transform });
           if (desc.style.visibility === 'hidden') desc.style.visibility = 'visible';
           if (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05) {
@@ -2652,9 +2665,14 @@
     return document.body || document.documentElement;
   }
 
-  async function serializePseudo(el, pseudo, assets, fonts, parentRect) {
+  async function serializePseudo(el, pseudo, assets, fonts, parentRect, withHover = false) {
     if (captureTimedOut) return null;
     try {
+      if (!withHover) {
+        if (el.closest && el.closest('.btn-switch-text, .btn-double-text, .btn-hover-animation-switch')) {
+          return null;
+        }
+      }
       const cs = window.getComputedStyle(el, pseudo);
       const content = cs.content;
       if (!content || content === 'none' || content === 'normal') return null;
@@ -3808,14 +3826,19 @@
                           (el.closest && el.closest('.hover-reveal'));
     const isHoverBtnIcon = (el.classList && el.classList.contains('btn-icon') && parseInt(styles.order || '0', 10) < 0) ||
                            (el.closest && el.closest('.btn-hover-animation-switch') && parseInt(styles.order || '0', 10) < 0);
-    const isHoverSpecific = el.classList && (
-      el.classList.contains('hover-content') ||
-      el.classList.contains('hover-overlay') ||
-      el.classList.contains('hover-show') ||
-      el.classList.contains('show-on-hover') ||
-      el.classList.contains('hover-item') ||
-      el.classList.contains('on-hover')
-    ) && (isHidden || styles.pointerEvents === 'none');
+    const isHoverOverlay = (el.className && typeof el.className === 'string' && (
+      el.className.includes('feature-box-overlay') ||
+      el.className.includes('hover-content') ||
+      el.className.includes('hover-overlay') ||
+      el.className.includes('overlay-hover') ||
+      el.className.includes('hover-show') ||
+      el.className.includes('show-on-hover') ||
+      el.className.includes('hover-item') ||
+      el.className.includes('on-hover')
+    ));
+    const isHoverSpecific = isHoverOverlay || (
+      /hover|overlay/i.test(el.className || '') && (isHidden || styles.pointerEvents === 'none' || parseFloat(styles.opacity || '1') < 0.05)
+    );
 
     const isHoverItem = !!(isHoverReveal || isHoverBtnIcon || isHoverSpecific);
 
@@ -3827,8 +3850,8 @@
     if (isHidden && styles.display !== 'none') {
       const cls = (el.className && typeof el.className === 'string') ? el.className : '';
       const isHoverRelated = !withHover && (
-        cls.includes('hover') ||
-        (el.closest && el.closest('.hover-reveal, .reveal-item-hover, .hover-box, .btn-hover-animation-switch, [class*="hover"]'))
+        /hover|overlay/i.test(cls) ||
+        (el.closest && el.closest('.hover-reveal, .reveal-item-hover, .hover-box, .btn-hover-animation-switch, .feature-box-overlay, [class*="hover"], [class*="overlay"]'))
       );
 
       if (!isHoverRelated) {
@@ -4231,8 +4254,8 @@
       }
     }
 
-    const before = await serializePseudo(el, '::before', assets, fonts, docRect);
-    const after = await serializePseudo(el, '::after', assets, fonts, docRect);
+    const before = await serializePseudo(el, '::before', assets, fonts, docRect, withHover);
+    const after = await serializePseudo(el, '::after', assets, fonts, docRect, withHover);
     const pseudoElementNodes = (before || after) ? { before, after } : undefined;
 
     const childNodes = [];
@@ -4529,13 +4552,13 @@
 
     const withHover = (typeof options === 'object' && options !== null && 'withHover' in options)
       ? !!options.withHover
-      : true;
+      : false;
 
     try {
       await initFontMap();
 
       // 1. Scroll through page to activate lazy-loaded elements & image sources
-      restorePage = await prepareAndScrollPage();
+      restorePage = await prepareAndScrollPage(withHover);
 
       // 2. Decode all visible and lazy-loaded images (save original attributes for restoration)
       const images = Array.from(document.images || []);
@@ -4635,7 +4658,7 @@
 
     const withHover = (typeof options === 'object' && options !== null && 'withHover' in options)
       ? !!options.withHover
-      : true;
+      : false;
 
     let toast = null;
     try {
