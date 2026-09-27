@@ -799,19 +799,32 @@
               const sibH = sib.getBoundingClientRect().height;
 
               if (sibChildren.length >= 2 && stickyH > 100 && sibH >= stickyH * 1.3) {
-                const firstH = sibChildren[0].getBoundingClientRect().height;
-                const hasLargeSteps = sibChildren.every(c => c.getBoundingClientRect().height >= 200) ||
-                                     sibChildren.some(c => (c.className && typeof c.className === 'string' && /h-100vh|100vh|screen/i.test(c.className)) || (c.style.height && c.style.height.includes('vh')));
+                const containerRect = stepContainer.getBoundingClientRect();
+                const firstRect = sibChildren[0].getBoundingClientRect();
+                const secondRect = sibChildren[1].getBoundingClientRect();
 
-                if (hasLargeSteps || firstH >= 250) {
-                  processedSplitContainers.add(layoutContainer);
-                  for (let i = 1; i < sibChildren.length; i++) {
-                    const stepEl = sibChildren[i];
-                    const savedDisplay = stepEl.style.display;
-                    stepEl.style.setProperty('display', 'none', 'important');
-                    cleanupTasks.push(() => {
-                      stepEl.style.display = savedDisplay;
-                    });
+                // Multi-column or grid check:
+                // If items sit horizontally side-by-side or occupy less than 75% container width,
+                // this is a content grid/row (e.g. 2x2 counter cards, feature boxes, services), NOT sequential scrollytelling steps!
+                const isSideBySide = Math.abs(firstRect.y - secondRect.y) < 30 || Math.abs(firstRect.x - secondRect.x) > 40;
+                const isMultiColumn = sibChildren.some(c => c.getBoundingClientRect().width < containerRect.width * 0.75);
+                const isContentGrid = isSideBySide || isMultiColumn || (stepContainer.className && typeof stepContainer.className === 'string' && /counter|card|feature|pricing|service|team|blog|portfolio|grid/i.test(stepContainer.className));
+
+                if (!isContentGrid) {
+                  const hasExplicitStepClass = sibChildren.some(c => c.className && typeof c.className === 'string' && /step|scrolly|story|chapter|timeline/i.test(c.className));
+                  const isViewportScaleSteps = sibChildren.every(c => c.getBoundingClientRect().height >= 400) ||
+                                              sibChildren.some(c => (c.className && typeof c.className === 'string' && /h-100vh|100vh|screen/i.test(c.className)) || (c.style.height && c.style.height.includes('vh')));
+
+                  if (hasExplicitStepClass || isViewportScaleSteps) {
+                    processedSplitContainers.add(layoutContainer);
+                    for (let i = 1; i < sibChildren.length; i++) {
+                      const stepEl = sibChildren[i];
+                      const savedDisplay = stepEl.style.display;
+                      stepEl.style.setProperty('display', 'none', 'important');
+                      cleanupTasks.push(() => {
+                        stepEl.style.display = savedDisplay;
+                      });
+                    }
                   }
                 }
               }
