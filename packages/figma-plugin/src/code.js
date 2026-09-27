@@ -1737,8 +1737,17 @@ function convertClipPathToSvg(cp, w, h) {
 }
 
 function applyOpacity(node, styles) {
+  if (!node || !styles) return;
   const op = parseFloat(styles.opacity);
-  if (!isNaN(op) && op < 1) node.opacity = clamp01(op);
+  if (!isNaN(op) && op < 1) {
+    node.opacity = clamp01(op);
+    if (op <= 0.01) {
+      try { node.visible = false; } catch {}
+    }
+  }
+  if (styles.visibility === 'hidden' || styles.display === 'none') {
+    try { node.visible = false; } catch {}
+  }
 }
 
 const CSS_TO_FIGMA_BLEND_MODES = {
@@ -2538,26 +2547,13 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     currentTextClip = s;
   }
 
-  // When without hover items is active (default), skip secondary hover icons, hover-reveal items, and custom cursors
-  if (sNode.tag !== 'BODY' && sNode.attributes && sNode.attributes.class) {
-    const cls = sNode.attributes.class;
-    if (/\b(?:circle-cursor|cursor-page-inner|cursor-inner|cursor-outer|custom-cursor-inner|custom-cursor-outer|mouse-cursor|magic-cursor)\b/i.test(cls)) {
-      return;
-    }
-  }
-
+  // Fix for btn-hover-animation-switch showing overlapping icons and hover overlays:
+  // When without hover items is active (default), mark secondary hover icons and hover-reveal items as hidden
   if (!currentWithHover) {
-    if (sNode.isHoverItem) {
-      return;
-    }
-    if (sNode.attributes && sNode.attributes.class) {
-      const cls = sNode.attributes.class;
-      if (/\b(?:hover-reveal|hover-overlay|feature-box-overlay|overlay-hover|show-on-hover|hover-show|hover-content|hover-img|portfolio-hover|hover-item|on-hover|hover-box-content)\b/i.test(cls)) {
-        return;
-      }
-      if (cls.includes('btn-icon') && s.order && parseInt(s.order) < 0) {
-        return;
-      }
+    const cls = (sNode.attributes && sNode.attributes.class) ? sNode.attributes.class : '';
+    if (sNode.isHoverItem || cls.includes('hover-reveal') || cls.includes('hover-overlay') || (cls.includes('btn-icon') && s.order && parseInt(s.order) < 0)) {
+      sNode._isHoverHidden = true;
+      s.opacity = '0';
     }
   }
 
@@ -2587,6 +2583,11 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       };
       myUnrotOrigin = { x: unrotRect.x, y: unrotRect.y };
     }
+  } else if (sNode._localRect && activeRotation) {
+    myUnrotOrigin = {
+      x: (parentUnrotOrigin?.x || 0) + sNode._localRect.x,
+      y: (parentUnrotOrigin?.y || 0) + sNode._localRect.y
+    };
   }
   // If this is a header or nav wrapper whose height is 0 or less than its visible children (e.g. static <header> wrapping fixed <nav>),
   // expand its bounding rect to properly encompass its children so it doesn't have 0 height or negative child coordinates.
@@ -3192,6 +3193,10 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (sNode.attributes && sNode.attributes.class) {
     frame.name += `.${sNode.attributes.class.replace(/\s+/g, '.')}`;
   }
+  if (sNode._isHoverHidden) {
+    frame.name = `[Hover] ${frame.name}`;
+    frame.visible = false;
+  }
   parentFrame.appendChild(frame);
 
   // If a marquee / ticker slider was captured mid-flight with a large negative translate,
@@ -3326,38 +3331,29 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     // Map children from global screen coordinates into this frame's unrotated local coordinate system
     const mapToLocal = (childNode) => {
       if (!childNode || !childNode.rect) return;
-      const childGX = (childNode.rect.x || 0) + (childNode.rect.width || 0) / 2;
-      const childGY = (childNode.rect.y || 0) + (childNode.rect.height || 0) / 2;
-      const globalCenterX = (sNode.rect?.x || 0) + (sNode.rect?.width || 0) / 2;
-      const globalCenterY = (sNode.rect?.y || 0) + (sNode.rect?.height || 0) / 2;
-      const dX = childGX - globalCenterX;
-      const dY = childGY - globalCenterY;
-      const localDX = dX * cosR - dY * sinR;
-      const localDY = dX * sinR + dY * cosR;
+      const unrotRect = getUnrotatedRectInRotationRoot(childNode.rect, nextRotation);
+      if (unrotRect) {
+        // If parent is a flex container centering its items or has single child/pseudo, check if child is centered in parent
+        const pDisplay = (sNode.styles?.display || '');
+        const pAlign = (sNode.styles?.alignItems || '');
+        const pJustify = (sNode.styles?.justifyContent || '');
+        const isCenteredParent = (pDisplay.includes('flex') && (pAlign === 'center' || pAlign === '') && (pJustify === 'center' || pJustify === '')) ||
+                                 (sNode.styles?.textAlign === 'center');
 
-      // If parent is a flex container centering its items or has single child/pseudo, check if child is centered in parent
-      const pDisplay = (sNode.styles?.display || '');
-      const pAlign = (sNode.styles?.alignItems || '');
-      const pJustify = (sNode.styles?.justifyContent || '');
-      const isCenteredParent = (pDisplay.includes('flex') && (pAlign === 'center' || pAlign === '') && (pJustify === 'center' || pJustify === '')) ||
-                               (sNode.styles?.textAlign === 'center');
-      
-      let childLCX = halfW + localDX;
-      let childLCY = halfH + localDY;
-      if (isCenteredParent && (!sNode.childNodes || sNode.childNodes.length === 0)) {
-        childLCX = halfW;
-        childLCY = halfH;
+        let cX = unrotRect.x;
+        let cY = unrotRect.y;
+        if (isCenteredParent && (!sNode.childNodes || sNode.childNodes.length === 0)) {
+          cX = Math.round(halfW - unrotRect.width / 2);
+          cY = Math.round(halfH - unrotRect.height / 2);
+        }
+
+        childNode._localRect = {
+          x: cX,
+          y: cY,
+          width: unrotRect.width,
+          height: unrotRect.height
+        };
       }
-
-      let cW = Math.round(childNode.rect.offsetWidth || childNode.rect.width || 0);
-      let cH = Math.round(childNode.rect.offsetHeight || childNode.rect.height || 0);
-
-      childNode._localRect = {
-        x: Math.round(childLCX - cW / 2),
-        y: Math.round(childLCY - cH / 2),
-        width: cW,
-        height: cH
-      };
     };
 
     if (sNode.pseudoElementNodes?.before) mapToLocal(sNode.pseudoElementNodes.before);

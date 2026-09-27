@@ -93,28 +93,9 @@
   /* ======================================================================
    *  3.  PAGE PRE-SCROLLER (Triggers lazy-loaded images & animations)
    * ====================================================================== */
-  async function prepareAndScrollPage(withHover = false) {
+  async function prepareAndScrollPage() {
     const cleanupTasks = [];
 
-    // When without hover (default), snapshot naturally hidden hover elements before any scroll/animation overrides
-    if (!withHover) {
-      try {
-        document.querySelectorAll('*').forEach(el => {
-          const cls = (el.className && typeof el.className === 'string') ? el.className : '';
-          if (/hover|overlay|reveal/i.test(cls)) {
-            const cs = window.getComputedStyle(el);
-            if (cs.opacity === '0' || parseFloat(cs.opacity) < 0.05 || cs.visibility === 'hidden' || cs.display === 'none') {
-              el.setAttribute('data-h2f-hover-hidden', 'true');
-            }
-          }
-        });
-        cleanupTasks.push(() => {
-          try {
-            document.querySelectorAll('[data-h2f-hover-hidden]').forEach(el => el.removeAttribute('data-h2f-hover-hidden'));
-          } catch (e) {}
-        });
-      } catch (e) {}
-    }
 
     const style = document.createElement('style');
     style.id = 'h2f-scroll-fix';
@@ -213,8 +194,10 @@
             const savedTweens = [];
             window.gsap.globalTimeline.getChildren().forEach(tween => {
               try {
-                savedTweens.push({ tween, progress: tween.progress() });
-                tween.progress(1);
+                if (tween.scrollTrigger || !tween.paused()) {
+                  savedTweens.push({ tween, progress: tween.progress() });
+                  tween.progress(1);
+                }
               } catch(e){}
             });
             window.__h2f_cleanup.push(() => {
@@ -314,38 +297,16 @@
         opacity: 1 !important;
         transform: none !important;
       }
-      .wow, 
-      [data-wow-delay], 
-      [data-wow-duration], 
-      [data-aos], 
-      [data-sal], 
-      [data-anime],
-      [data-anime] *,
-      .animated, 
-      .fadeInUp, .fadeIn, .fadeInLeft, .fadeInRight, .fadeInDown, .bounceIn, .bounceInRight, .zoomIn,
       .title-anim, .text-anim, .hero-text-anim, .start-anim,
       .title-anim *, .text-anim *, .hero-text-anim *,
       .right-swipe, .left-swipe,
-      .split-line, .split-word, .split-char,
-      [class*="wow"], [class*="fadeIn"], :is([class*="-anim"]):not([class*="no-anim"]):not([class*="without-anim"]):not(body):not(html) {
+      .split-line, .split-word, .split-char {
         visibility: visible !important;
         opacity: 1 !important;
         animation: none !important;
         transition: none !important;
       }
-      .feature-box-overlay, .hover-overlay, .hover-reveal, .overlay-hover, .hover-show, .show-on-hover, .hover-content, .hover-item, .on-hover,
-      .hover-img, [class*="hover-img"], .portfolio-hover, [class*="portfolio-hover"], [class*="hover-box-content"], [data-h2f-hover-hidden],
-      .btn-switch-text .btn-double-text::before, .btn-switch-text .btn-double-text::after {
-        opacity: 0 !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-      }
-      .circle-cursor, .cursor-page-inner, .cursor-inner, .cursor-outer, [class*="circle-cursor"], [class*="mouse-cursor"], [class*="cursor-helper"] {
-        display: none !important;
-        opacity: 0 !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-      }
+
       .hero-wave-animation, .hero-wave-animation__static, .hero-wave-animation__static img {
         opacity: 1 !important;
         visibility: visible !important;
@@ -441,36 +402,15 @@
         }
         if (el.style.clipPath) el.style.clipPath = 'none';
         
-        for (const desc of el.querySelectorAll('*')) {
+        for (const desc of el.querySelectorAll('.words, .word, .line, .letter, .chars, .char, .splitting, [data-fancy-text], [data-splitting], .anime-text')) {
           if (desc === document.body || desc === document.documentElement) continue;
-          if (!withHover) {
-            const descCls = (desc.className && typeof desc.className === 'string') ? desc.className : '';
-            if (/hover|overlay|dropdown|tooltip|popup|modal/i.test(descCls) ||
-                desc.hasAttribute('data-h2f-hover-hidden') ||
-                (desc.closest && desc.closest('.hover-reveal, .reveal-item-hover, .hover-box, .btn-hover-animation-switch, .feature-box-overlay, [class*="hover"], [class*="overlay"], [data-h2f-hover-hidden]'))) {
-              continue;
-            }
-          }
-          const isCarouselOrTab = desc.closest && desc.closest('.swiper-slide, .slick-slide, .owl-item, .carousel-item, .splide__slide, .tab-pane');
-          if (isCarouselOrTab) {
-            // Never force opacity to 1 on inactive carousel slides (keeps inactive fade slides naturally hidden)
-            // Never clear transforms on carousel slides or children (preserves fade stacking and slide positioning)
-            if (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05) {
-              continue;
-            }
-            savedInlineStyles.push({ el: desc, v: desc.style.visibility, o: desc.style.opacity, t: desc.style.transform });
-            if (desc.style.visibility === 'hidden') desc.style.visibility = 'visible';
-            continue;
-          }
           savedInlineStyles.push({ el: desc, v: desc.style.visibility, o: desc.style.opacity, t: desc.style.transform });
           if (desc.style.visibility === 'hidden') desc.style.visibility = 'visible';
           if (desc.style.opacity === '0' || (parseFloat(desc.style.opacity) || 0) < 0.05) {
             desc.style.opacity = '1';
           }
-          if (desc.style.transform) {
-            if (desc.style.transform.includes('translate') || desc.style.transform.includes('rotate') || desc.style.transform.includes('scale(100') || desc.style.transform.includes('scale(100,') || desc.style.transform.includes('matrix')) {
-              desc.style.transform = 'none';
-            }
+          if (desc.style.transform && (desc.style.transform.includes('translate') || desc.style.transform.includes('matrix'))) {
+            desc.style.transform = 'none';
           }
         }
       }
@@ -540,7 +480,11 @@
             }
             if (window.gsap) {
               window.gsap.globalTimeline.getChildren().forEach(tween => {
-                try { tween.progress(1); } catch {}
+                try {
+                  if (tween.scrollTrigger || !tween.paused()) {
+                    tween.progress(1);
+                  }
+                } catch {}
               });
             }
           } catch(e) {}
@@ -2723,14 +2667,9 @@
     return document.body || document.documentElement;
   }
 
-  async function serializePseudo(el, pseudo, assets, fonts, parentRect, withHover = false) {
+  async function serializePseudo(el, pseudo, assets, fonts, parentRect) {
     if (captureTimedOut) return null;
     try {
-      if (!withHover) {
-        if (el.closest && el.closest('.btn-switch-text, .btn-double-text, .btn-hover-animation-switch')) {
-          return null;
-        }
-      }
       const cs = window.getComputedStyle(el, pseudo);
       const content = cs.content;
       if (!content || content === 'none' || content === 'normal') return null;
@@ -3962,39 +3901,21 @@
     const styles = getElementStyles(el);
     let isHidden = (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02);
 
-    // Filter out custom mouse cursor widgets (circle-cursor, custom-cursor, cursor followers)
-    const isCustomCursor = tag !== 'BODY' && tag !== 'HTML' && (
-      /\b(?:circle-cursor|cursor-page-inner|cursor-inner|cursor-outer|custom-cursor-inner|custom-cursor-outer|mouse-cursor|magic-cursor)\b/i.test(el.className || '') ||
-      ((el.className && typeof el.className === 'string' && el.className.includes('cursor')) && (el.className.includes('circle') || el.className.includes('dot') || el.className.includes('follower') || el.className.includes('inner') || el.className.includes('outer')))
-    );
-    if (isCustomCursor) return null;
-
     // Detect hover-related elements
-    const isHoverTagged = el.hasAttribute && el.hasAttribute('data-h2f-hover-hidden');
-    const isHoverTaggedAncestor = el.closest && !!el.closest('[data-h2f-hover-hidden]');
     const isHoverReveal = (el.className && typeof el.className === 'string' && el.className.includes('hover-reveal')) ||
                           (el.closest && el.closest('.hover-reveal'));
     const isHoverBtnIcon = (el.classList && el.classList.contains('btn-icon') && parseInt(styles.order || '0', 10) < 0) ||
                            (el.closest && el.closest('.btn-hover-animation-switch') && parseInt(styles.order || '0', 10) < 0);
-    const isHoverOverlay = (el.className && typeof el.className === 'string' && (
-      el.className.includes('feature-box-overlay') ||
-      el.className.includes('hover-content') ||
-      el.className.includes('hover-overlay') ||
-      el.className.includes('overlay-hover') ||
-      el.className.includes('hover-show') ||
-      el.className.includes('show-on-hover') ||
-      el.className.includes('hover-item') ||
-      el.className.includes('on-hover') ||
-      el.className.includes('hover-img') ||
-      el.className.includes('portfolio-hover')
-    ));
-    const isHoverSpecific = isHoverOverlay || (
-      /hover|overlay/i.test(el.className || '') && (isHidden || styles.pointerEvents === 'none' || parseFloat(styles.opacity || '1') < 0.05)
-    );
-    const isExplicitHoverClass = /\b(?:hover-img|portfolio-hover|hover-reveal|hover-overlay|feature-box-overlay|overlay-hover|show-on-hover|hover-show|hover-content|hover-item|on-hover)\b/i.test(el.className || '') ||
-      (el.closest && !!el.closest('.hover-reveal, .portfolio-hover, .feature-box-overlay, .hover-overlay, .overlay-hover, [class*="hover-img"], [class*="portfolio-hover"]'));
+    const isHoverSpecific = el.classList && (
+      el.classList.contains('hover-content') ||
+      el.classList.contains('hover-overlay') ||
+      el.classList.contains('hover-show') ||
+      el.classList.contains('show-on-hover') ||
+      el.classList.contains('hover-item') ||
+      el.classList.contains('on-hover')
+    ) && (isHidden || styles.pointerEvents === 'none');
 
-    const isHoverItem = !!(isHoverReveal || isHoverBtnIcon || isHoverSpecific || isHoverTagged || isHoverTaggedAncestor || isExplicitHoverClass);
+    const isHoverItem = !!(isHoverReveal || isHoverBtnIcon || isHoverSpecific);
 
     if (!withHover && isHoverItem) {
       return null;
@@ -4004,18 +3925,17 @@
     if (isHidden && styles.display !== 'none') {
       const cls = (el.className && typeof el.className === 'string') ? el.className : '';
       const isHoverRelated = !withHover && (
-        /hover|overlay/i.test(cls) ||
-        (el.closest && el.closest('.hover-reveal, .reveal-item-hover, .hover-box, .btn-hover-animation-switch, .feature-box-overlay, [class*="hover"], [class*="overlay"]'))
+        cls.includes('hover') ||
+        (el.closest && el.closest('.hover-reveal, .reveal-item-hover, .hover-box, .btn-hover-animation-switch, [class*="hover"]'))
       );
 
       // Inactive carousel/slider slides or tab panes must never be unhidden by scroll animation overrides
       const isCarouselOrTab = !!(el.closest && el.closest('.swiper-slide, .slick-slide, .owl-item, .carousel-item, .splide__slide, .tab-pane'));
 
       if (!isHoverRelated && !isCarouselOrTab) {
-        const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|split|highlight-separator|anime|words|word|chars|char|fancy-text/i.test(cls) ||
-          (!cls.includes('hover') && /reveal/i.test(cls)) ||
-          el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') ||
-          el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [data-shadow-animation], .highlight-separator, [data-anime], [data-fancy-text], [data-splitting], .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text');
+        const isAnimTarget = /title-anim|text-anim|hero-text-anim|hero-wave|hero-section|developers-wave|pxn-|highlight-separator|words|word|chars|char|splitting|fancy-text/i.test(cls) ||
+          el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') ||
+          el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, [class*="pxn-"], [data-shadow-animation], .highlight-separator, [data-anime], [data-fancy-text], [data-splitting], .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text');
         
         if (isAnimTarget) {
           styles.visibility = 'visible';
@@ -4032,9 +3952,9 @@
 
     // Filter out visually-hidden / screen-reader-only elements (.sr-only, .visually-hidden)
     const cls = (el.className && typeof el.className === 'string') ? el.className : '';
-    const isAnimTarget = /wow|animated|fadeIn|title-anim|text-anim|-anim|aos|hero-wave|hero-section|developers-wave|pxn-|reveal|split|highlight-separator|anime|words|word|chars|char|fancy-text/i.test(cls) ||
-      el.hasAttribute('data-wow-delay') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') ||
-      el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, .wow, [data-wow-delay], [data-aos], [class*="pxn-"], [class*="reveal"], [data-shadow-animation], .highlight-separator, [data-anime], [data-fancy-text], [data-splitting], .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text');
+    const isAnimTarget = /title-anim|text-anim|hero-text-anim|hero-wave|hero-section|developers-wave|pxn-|highlight-separator|words|word|chars|char|splitting|fancy-text/i.test(cls) ||
+      el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') ||
+      el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, [class*="pxn-"], [data-shadow-animation], .highlight-separator, [data-anime], [data-fancy-text], [data-splitting], .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text');
 
     const isClipHidden = !isAnimTarget && (
       (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
@@ -4411,8 +4331,8 @@
       }
     }
 
-    const before = await serializePseudo(el, '::before', assets, fonts, docRect, withHover);
-    const after = await serializePseudo(el, '::after', assets, fonts, docRect, withHover);
+    const before = await serializePseudo(el, '::before', assets, fonts, docRect);
+    const after = await serializePseudo(el, '::after', assets, fonts, docRect);
     const pseudoElementNodes = (before || after) ? { before, after } : undefined;
 
     const childNodes = [];
@@ -4754,7 +4674,7 @@
       await initFontMap();
 
       // 1. Scroll through page to activate lazy-loaded elements & image sources
-      restorePage = await prepareAndScrollPage(withHover);
+      restorePage = await prepareAndScrollPage();
 
       // 2. Decode all visible and lazy-loaded images (save original attributes for restoration)
       const images = Array.from(document.images || []);
