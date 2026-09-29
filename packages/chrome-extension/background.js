@@ -359,7 +359,7 @@ async function executeCaptureOnTab(tabId, withHover = false) {
   });
 }
 
-// ── Toolbar Click Handler ───────────────────────────────────────────────────
+// ── Toolbar Click Handler (Fallback when no popup or shortcut) ───────────────
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id || isRestrictedUrl(tab.url)) {
     console.warn('[HTML-2-Fig] Cannot capture restricted URL:', tab.url);
@@ -367,7 +367,12 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 
   try {
-    await executeCaptureOnTab(tab.id);
+    let withHover = false;
+    if (chrome.storage && chrome.storage.local) {
+      const stored = await chrome.storage.local.get(['withHover']);
+      withHover = !!stored.withHover;
+    }
+    await executeCaptureOnTab(tab.id, withHover);
   } catch (err) {
     console.error('[HTML-2-Fig] Failed to run capture pipeline:', err);
   }
@@ -378,17 +383,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'START_CAPTURE') {
     (async () => {
       try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab || !tab.id) {
-          sendResponse({ success: false, error: 'No active tab found' });
-          return;
+        let tab = null;
+        if (request.tabId) {
+          try { tab = await chrome.tabs.get(request.tabId); } catch (e) {}
         }
-        if (isRestrictedUrl(tab.url)) {
-          sendResponse({ success: false, error: 'Cannot capture restricted browser internal page' });
+        if (!tab || !tab.id || isRestrictedUrl(tab.url)) {
+          const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          tab = tabs.find(t => t.url && !isRestrictedUrl(t.url));
+        }
+        if (!tab || !tab.id || isRestrictedUrl(tab.url)) {
+          const tabs = await chrome.tabs.query({ active: true });
+          tab = tabs.find(t => t.url && !isRestrictedUrl(t.url));
+        }
+        if (!tab || !tab.id || isRestrictedUrl(tab.url)) {
+          const tabs = await chrome.tabs.query({});
+          tab = tabs.find(t => t.url && !isRestrictedUrl(t.url));
+        }
+        if (!tab || !tab.id) {
+          sendResponse({ success: false, error: 'No active webpage tab found' });
           return;
         }
         await executeCaptureOnTab(tab.id, !!request.withHover);
-        sendResponse({ success: true });
+        sendResponse({ success: true, tabId: tab.id });
       } catch (err) {
         sendResponse({ success: false, error: err.message || String(err) });
       }
@@ -448,3 +464,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 });
+

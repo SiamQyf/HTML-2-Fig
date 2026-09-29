@@ -7,7 +7,8 @@
     "activeTab",
     "scripting",
     "tabs",
-    "clipboardWrite"
+    "clipboardWrite",
+    "storage"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -18,7 +19,8 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "Capture page for Figma"
+    "default_title": "HTML 2 Fig Capture",
+    "default_popup": "popup.html"
   },
   "background": {
     "service_worker": "background.js"

@@ -1823,11 +1823,18 @@ function convertClipPathToSvg(cp, w, h) {
 
 function applyOpacity(node, styles) {
   if (!node || !styles) return;
-  const op = parseFloat(styles.opacity);
-  if (!isNaN(op) && op < 1) {
-    node.opacity = clamp01(op);
-    if (op <= 0.01) {
-      try { node.visible = false; } catch {}
+  let op = parseFloat(styles.opacity);
+  if (!isNaN(op)) {
+    // If this is an animated text node/word/char whose opacity was dimmed by scroll-scrub, force full opacity:
+    const isWordOrChar = (styles.attributes?.class && /word|char|split|line/i.test(styles.attributes.class)) || (styles.id && /text-anim|split/i.test(styles.id));
+    if (isWordOrChar && op < 0.95 && op > 0.01) {
+      op = 1;
+    }
+    if (op < 1) {
+      node.opacity = clamp01(op);
+      if (op <= 0.01) {
+        try { node.visible = false; } catch {}
+      }
     }
   }
   if (styles.visibility === 'hidden' || styles.display === 'none') {
@@ -2632,16 +2639,6 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     currentTextClip = s;
   }
 
-  // Fix for btn-hover-animation-switch showing overlapping icons and hover overlays:
-  // When without hover items is active (default), mark secondary hover icons and hover-reveal items as hidden
-  if (!currentWithHover) {
-    const cls = (sNode.attributes && sNode.attributes.class) ? sNode.attributes.class : '';
-    if (sNode.isHoverItem || cls.includes('hover-reveal') || cls.includes('hover-overlay') || (cls.includes('btn-icon') && s.order && parseInt(s.order) < 0)) {
-      sNode._isHoverHidden = true;
-      s.opacity = '0';
-    }
-  }
-
   if (sNode.id && (sNode.id.includes('text-symbol-wrap') || sNode.id.includes('text-wrap'))) {
     s.borderTopWidth = '0px';
     s.borderRightWidth = '0px';
@@ -3278,10 +3275,6 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (sNode.attributes && sNode.attributes.class) {
     frame.name += `.${sNode.attributes.class.replace(/\s+/g, '.')}`;
   }
-  if (sNode._isHoverHidden) {
-    frame.name = `[Hover] ${frame.name}`;
-    frame.visible = false;
-  }
   parentFrame.appendChild(frame);
 
   // If a marquee / ticker slider was captured mid-flight with a large negative translate,
@@ -3786,6 +3779,63 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   reportProgress();
 }
 
+// Brightens scroll-reveal / scrub text gradients so text is always captured in its brightened state
+function brightenGradientForText(grad) {
+  if (!grad || !grad.gradientStops || grad.gradientStops.length === 0) return grad;
+  const stops = grad.gradientStops;
+
+  let maxAlpha = 0;
+  let maxLum = -1;
+  let bestColor = stops[0].color;
+
+  for (const st of stops) {
+    const c = st.color;
+    const a = (c.a !== undefined) ? c.a : 1;
+    if (a > maxAlpha) maxAlpha = a;
+    const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    if (lum > maxLum) {
+      maxLum = lum;
+      bestColor = c;
+    }
+  }
+
+  const hasMutedStop = stops.some(st => {
+    const a = (st.color.a !== undefined) ? st.color.a : 1;
+    return a < 0.75;
+  });
+  const hasContrastDifference = (maxLum > 0.5 && stops.some(st => {
+    const lum = 0.2126 * st.color.r + 0.7152 * st.color.g + 0.0722 * st.color.b;
+    return (maxLum - lum) > 0.35;
+  }));
+
+  if (hasMutedStop || hasContrastDifference) {
+    for (const st of stops) {
+      st.color.a = 1;
+      if (hasContrastDifference) {
+        const lum = 0.2126 * st.color.r + 0.7152 * st.color.g + 0.0722 * st.color.b;
+        if (maxLum - lum > 0.35) {
+          st.color.r = bestColor.r;
+          st.color.g = bestColor.g;
+          st.color.b = bestColor.b;
+        }
+      }
+    }
+  }
+
+  const first = stops[0].color;
+  const allSame = stops.every(st => 
+    Math.abs(st.color.r - first.r) < 0.02 &&
+    Math.abs(st.color.g - first.g) < 0.02 &&
+    Math.abs(st.color.b - first.b) < 0.02 &&
+    Math.abs(st.color.a - first.a) < 0.02
+  );
+  if (allSame) {
+    return { type: 'SOLID', color: { r: first.r, g: first.g, b: first.b }, opacity: clamp01(first.a) };
+  }
+
+  return grad;
+}
+
 async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false, parentUnrotOrigin = { x: 0, y: 0 }) {
   const s = sNode.styles || inheritedStyles || parentFrame.styles || {};
   let text = (sNode.text || '');
@@ -3911,13 +3961,13 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
         const bg = bgs[i];
         if (bg.includes('linear-gradient')) {
           const grad = parseLinearGradient(bg, clipStyle);
-          if (grad) textFills.push(grad);
+          if (grad) textFills.push(brightenGradientForText(grad));
         } else if (bg.includes('radial-gradient')) {
           const grad = parseRadialGradient(bg);
-          if (grad) textFills.push(grad);
+          if (grad) textFills.push(brightenGradientForText(grad));
         } else if (bg.includes('conic-gradient')) {
           const grad = parseAngularGradient(bg);
-          if (grad) textFills.push(grad);
+          if (grad) textFills.push(brightenGradientForText(grad));
         }
       }
     }
@@ -3937,7 +3987,12 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     textNode.fills = [];
   } else {
     if (fillColor) {
-      textNode.fills = [{ type: 'SOLID', color: { r: fillColor.r, g: fillColor.g, b: fillColor.b }, opacity: clamp01(fillColor.a) }];
+      let finalA = clamp01(fillColor.a);
+      const isWordOrChar = (sNode.attributes?.class && /word|char|split|line/i.test(sNode.attributes.class)) || (sNode.id && /text-anim|split/i.test(sNode.id));
+      if (isWordOrChar && finalA < 0.95 && finalA > 0.01) {
+        finalA = 1;
+      }
+      textNode.fills = [{ type: 'SOLID', color: { r: fillColor.r, g: fillColor.g, b: fillColor.b }, opacity: finalA }];
     }
   }
 
