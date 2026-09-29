@@ -1,51 +1,16 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const hoverToggle = document.getElementById('hoverToggle');
-  const toggleRow = document.getElementById('toggleRow');
-  const hoverDesc = document.getElementById('hoverDesc');
-  const infoMsg = document.getElementById('infoMsg');
   const btnCapture = document.getElementById('btnCapture');
+  const btnText = document.getElementById('btnText');
   const statusBox = document.getElementById('statusBox');
 
-  function updateUI(withHover) {
-    if (withHover) {
-      hoverDesc.textContent = 'With hover (revealed)';
-      hoverDesc.classList.add('active');
-      infoMsg.textContent = 'Captures active hover states, secondary hover icons, and overlay cards.';
+  function setButtonState(loading, text) {
+    btnCapture.disabled = loading;
+    if (btnText) {
+      btnText.textContent = text;
     } else {
-      hoverDesc.textContent = 'Without hover (default)';
-      hoverDesc.classList.remove('active');
-      infoMsg.textContent = 'Captures clean baseline design — hover states & animations suppressed.';
+      btnCapture.textContent = text;
     }
   }
-
-  // Load saved preference (default to false = without hover)
-  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get(['withHover'], (res) => {
-      const withHover = res && typeof res.withHover === 'boolean' ? res.withHover : false;
-      hoverToggle.checked = withHover;
-      updateUI(withHover);
-    });
-  } else {
-    hoverToggle.checked = false;
-    updateUI(false);
-  }
-
-  // Switch change listener
-  hoverToggle.addEventListener('change', () => {
-    const isChecked = hoverToggle.checked;
-    updateUI(isChecked);
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ withHover: isChecked });
-    }
-  });
-
-  // Clicking row toggles the switch
-  toggleRow.addEventListener('click', (e) => {
-    if (e.target !== hoverToggle && !e.target.closest('.apple-switch')) {
-      hoverToggle.checked = !hoverToggle.checked;
-      hoverToggle.dispatchEvent(new Event('change'));
-    }
-  });
 
   function showStatus(text, type = 'success') {
     statusBox.textContent = text;
@@ -53,31 +18,53 @@ document.addEventListener('DOMContentLoaded', () => {
     statusBox.style.display = 'block';
   }
 
+  function isRestricted(url) {
+    if (!url) return true;
+    return (
+      url.startsWith('chrome://') ||
+      url.startsWith('chrome-extension://') ||
+      url.startsWith('chrome-search://') ||
+      url.startsWith('edge://') ||
+      url.startsWith('about:') ||
+      url.startsWith('https://chrome.google.com/webstore/') ||
+      url.startsWith('https://chromewebstore.google.com/')
+    );
+  }
+
   // Capture Button Action
   btnCapture.addEventListener('click', async () => {
-    btnCapture.disabled = true;
-    btnCapture.textContent = 'Capturing…';
+    setButtonState(true, 'Capturing…');
     statusBox.style.display = 'none';
 
-    const withHover = hoverToggle.checked;
-
     try {
-      let targetTabId = null;
-      if (chrome.tabs && chrome.tabs.query) {
+      let targetTab = null;
+      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
         try {
-          const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-          const validTab = tabs && tabs.find(t => t.url && !t.url.startsWith('chrome-extension://') && !t.url.startsWith('chrome://'));
-          if (validTab && validTab.id) targetTabId = validTab.id;
+          let tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (!tabs || !tabs.length) {
+            tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          }
+          if (!tabs || !tabs.length) {
+            tabs = await chrome.tabs.query({ active: true });
+          }
+          targetTab = tabs && tabs.find(t => t.url && !isRestricted(t.url));
+          if (!targetTab && tabs && tabs[0]) {
+            targetTab = tabs[0];
+          }
         } catch (e) {}
+      }
+
+      if (targetTab && isRestricted(targetTab.url)) {
+        setButtonState(false, 'Capture Page');
+        showStatus('⚠️ Cannot capture Chrome system or store pages. Please open a regular website tab.', 'error');
+        return;
       }
 
       chrome.runtime.sendMessage({
         type: 'START_CAPTURE',
-        tabId: targetTabId,
-        withHover: withHover
+        tabId: targetTab ? targetTab.id : null
       }, (response) => {
-        btnCapture.disabled = false;
-        btnCapture.textContent = 'Capture Page';
+        setButtonState(false, 'Capture Page');
 
         if (chrome.runtime.lastError) {
           showStatus(chrome.runtime.lastError.message || 'Capture failed', 'error');
@@ -95,8 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 800);
       });
     } catch (err) {
-      btnCapture.disabled = false;
-      btnCapture.textContent = 'Capture Page';
+      setButtonState(false, 'Capture Page');
       showStatus(err.message || 'Failed to start capture', 'error');
     }
   });

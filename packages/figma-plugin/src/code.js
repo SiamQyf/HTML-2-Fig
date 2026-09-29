@@ -1,8 +1,6 @@
 
 figma.showUI(__html__, { width: 360, height: 480, themeColors: true });
 
-let currentWithHover = false;
-
 
 const NAMED_COLORS = {
   transparent: { r: 0, g: 0, b: 0, a: 0 },
@@ -2070,6 +2068,10 @@ function prepareSvgString(svgString, isInverted) {
   }
   // Remove xmlns:xlink
   clean = clean.replace(/\s*xmlns:xlink=["'][^"']*["']/gi, '');
+  // Figma's SVG engine doesn't resolve "currentColor". Convert any remaining currentColor to black (or inverted white):
+  const fallbackCurrentColor = isInverted ? '#ffffff' : '#000000';
+  clean = clean.replace(/\bfill=["']currentColor["']/gi, `fill="${fallbackCurrentColor}"`);
+  clean = clean.replace(/\bstroke=["']currentColor["']/gi, `stroke="${fallbackCurrentColor}"`);
   // Fix number formats without leading zero (e.g. scale(.0104167) -> scale(0.0104167))
   clean = clean.replace(/([(\s,])-?\.(\d+)/g, '$10.$2');
   // Ensure xmlns is present on <svg>
@@ -2598,14 +2600,12 @@ function getUnrotatedRectInRotationRoot(nodeRect, activeRotation) {
 
   let nodeUnrotW = nodeRect.offsetWidth || 0;
   let nodeUnrotH = nodeRect.offsetHeight || 0;
-  if (nodeUnrotW <= 0 || nodeUnrotH <= 0) {
-    if (Math.abs(Math.abs(activeRotation.angleDeg) - 90) < 1) {
-      nodeUnrotW = nodeRect.height || 0;
-      nodeUnrotH = nodeRect.width || 0;
-    } else {
-      nodeUnrotW = nodeRect.width || 0;
-      nodeUnrotH = nodeRect.height || 0;
-    }
+  const is90Or270Deg = Math.abs(Math.abs(activeRotation.angleDeg) - 90) < 1 || Math.abs(Math.abs(activeRotation.angleDeg) - 270) < 1;
+  if (nodeUnrotW <= 0) {
+    nodeUnrotW = is90Or270Deg ? (nodeRect.height || 0) : (nodeRect.width || 0);
+  }
+  if (nodeUnrotH <= 0) {
+    nodeUnrotH = is90Or270Deg ? (nodeRect.width || 0) : (nodeRect.height || 0);
   }
 
   return {
@@ -3028,6 +3028,20 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             try { rect.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
           }
           parentFrame.appendChild(rect);
+
+          // Parallax / Jarallax image guard:
+          // If an oversized image inside an overflow-clipped container is shifted so far off-axis
+          // that it fails to cover the container (e.g. jarallax scroll offset pushing the image up),
+          // vertically center it so it fully covers the frame without leaving blank voids.
+          const isParallaxImg = (sNode.attributes?.class && sNode.attributes.class.includes('jarallax')) ||
+                                (sNode.id && sNode.id.includes('jarallax')) ||
+                                (parentFrame.name && (parentFrame.name.includes('jarallax') || parentFrame.name.includes('parallax')));
+          if ((isParallaxImg || (parentFrame.clipsContent && h > parentFrame.height)) && parentFrame.height > 10) {
+            if (y + h < parentFrame.height || y > 0) {
+              y = Math.round((parentFrame.height - h) / 2);
+            }
+          }
+
           rect.x = x; rect.y = y;
           rect.resize(w, h);
           const img = figma.createImage(bytes);
@@ -4181,8 +4195,7 @@ function countNodes(node) {
   return c;
 }
 
-async function renderTree(data, withHoverOpt) {
-  currentWithHover = (withHoverOpt !== undefined) ? !!withHoverOpt : (data.withHover ?? false);
+async function renderTree(data) {
   const startTime = Date.now();
   totalNodes = countNodes(data.root);
   renderedNodes = 0;
@@ -4204,10 +4217,29 @@ async function renderTree(data, withHoverOpt) {
   
   if (data.root?.styles) {
     await applyFills(rootFrame, data.root.styles, data.assets, dw, dh);
-    // Ensure the root frame has a solid fill at the bottom so the Figma canvas doesn't bleed through
-    const hasSolidFill = rootFrame.fills && rootFrame.fills.some(f => f.type === 'SOLID' && f.opacity > 0.05);
-    if (!hasSolidFill) {
-      rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }, ...(rootFrame.fills || [])];
+    // In web browsers, the viewport always has a solid opaque white base (#FFFFFF).
+    // If the root body fill has an alpha/opacity < 1.0 (e.g. Tailwind bg-muted/30),
+    // we pre-blend it against solid white so Figma gets an identical 100% solid, opaque
+    // background color, preventing the dark Figma canvas from bleeding through!
+    const existingFills = Array.isArray(rootFrame.fills) ? [...rootFrame.fills] : [];
+    const solidFillIdx = existingFills.findIndex(f => f.type === 'SOLID');
+    if (solidFillIdx !== -1) {
+      const sf = existingFills[solidFillIdx];
+      const op = sf.opacity !== undefined ? sf.opacity : 1;
+      if (op < 0.99) {
+        // Alpha blend over white (1, 1, 1): c_final = c * alpha + 1.0 * (1 - alpha)
+        const blendedR = sf.color.r * op + 1.0 * (1 - op);
+        const blendedG = sf.color.g * op + 1.0 * (1 - op);
+        const blendedB = sf.color.b * op + 1.0 * (1 - op);
+        existingFills[solidFillIdx] = {
+          type: 'SOLID',
+          color: { r: blendedR, g: blendedG, b: blendedB },
+          opacity: 1
+        };
+        rootFrame.fills = existingFills;
+      }
+    } else {
+      rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }, ...existingFills];
     }
   } else {
     rootFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
@@ -4250,7 +4282,7 @@ async function renderTree(data, withHoverOpt) {
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'import' && msg.data) {
     try {
-      await renderTree(msg.data, msg.withHover);
+      await renderTree(msg.data);
     } catch (e) {
       figma.ui.postMessage({ type: 'error', message: e.message || String(e) });
     }

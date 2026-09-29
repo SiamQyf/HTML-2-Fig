@@ -64,27 +64,32 @@
   /* ======================================================================
    *  2.  IN-PAGE TOAST NOTIFICATION
    * ====================================================================== */
-  function showToast(message, duration) {
+  function showToast(message, duration, onClick) {
     const host = document.createElement('div');
     host.style.cssText = 'all:initial; position:fixed; z-index:2147483647;';
-    const root = host.attachShadow({ mode: 'closed' });
+    const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `
       <style>
         .toast {
           position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
-          background: #1e1e1e; color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          background: #111318; color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
           font-size: 13px; font-weight: 500; padding: 12px 22px; border-radius: 10px;
-          box-shadow: 0 8px 30px rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.12);
+          box-shadow: 0 8px 30px rgba(0,0,0,0.5); border: 1px solid rgba(0, 242, 254, 0.3);
           display: flex; align-items: center; gap: 8px; z-index: 2147483647; pointer-events: auto;
           animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          cursor: ${onClick ? 'pointer' : 'default'};
         }
         @keyframes slideUp {
           from { opacity: 0; transform: translate(-50%, 12px); }
           to { opacity: 1; transform: translate(-50%, 0); }
         }
       </style>
-      <div class="toast">${message}</div>
+      <div class="toast" id="toastInner">${message}</div>
     `;
+    const toastEl = root.getElementById('toastInner');
+    if (onClick && toastEl) {
+      toastEl.addEventListener('click', () => onClick(toastEl));
+    }
     document.documentElement.appendChild(host);
     if (duration) setTimeout(() => { try { host.remove(); } catch {} }, duration);
     return host;
@@ -564,6 +569,29 @@
             }
           }
           cleanupTasks.push(() => { el.style.cssText = savedCss; });
+        }
+      }
+    } catch (e) {}
+
+    // Neutralize Jarallax and parallax image containers
+    // When the page scrolls back to (0, 0), Jarallax applies an extreme negative translateY
+    // (e.g. -740px) to elements below the fold, causing the image to be pushed off the top
+    // edge of its card, leaving only a thin horizontal strip visible in Figma!
+    // We center every jarallax image vertically within its container so it covers the full frame.
+    try {
+      const jarallaxImgs = document.querySelectorAll('.jarallax-img, [id^="jarallax-container-"] > img, [data-jarallax] img');
+      for (const img of jarallaxImgs) {
+        const container = img.closest('[id^="jarallax-container-"]') || img.parentElement;
+        if (container) {
+          const cH = container.clientHeight || container.getBoundingClientRect().height;
+          const iH = img.clientHeight || img.getBoundingClientRect().height;
+          const centeredY = (cH > 0 && iH > 0 && iH > cH) ? -Math.round((iH - cH) / 2) : 0;
+          const savedTransform = img.style.transform;
+          img.style.setProperty('transform', `translate3d(0px, ${centeredY}px, 0px)`, 'important');
+          cleanupTasks.push(() => {
+            if (savedTransform) img.style.transform = savedTransform;
+            else img.style.removeProperty('transform');
+          });
         }
       }
     } catch (e) {}
@@ -1676,19 +1704,21 @@
     if (!rawFamily || !rawSrc) return;
     const cleanFamily = rawFamily.replace(/['"]/g, '').trim();
     if (!cleanFamily) return;
-    const urls = Array.from(rawSrc.matchAll(/url\(["']?(.*?)["']?\)/gi)).map(m => m[1]);
+    const allUrls = Array.from(rawSrc.matchAll(/url\(["']?(.*?)["']?\)/gi)).map(m => m[1]);
+    const urls = allUrls.filter(u => !u.split('?')[0].split('#')[0].toLowerCase().endsWith('.eot'));
+    if (urls.length === 0) return;
     const fontUrl = urls.find(u => {
+      const p = u.split('?')[0].split('#')[0].toLowerCase();
+      return p.endsWith('.woff2');
+    }) || urls.find(u => {
       const p = u.split('?')[0].split('#')[0].toLowerCase();
       return p.endsWith('.ttf');
     }) || urls.find(u => {
       const p = u.split('?')[0].split('#')[0].toLowerCase();
-      return p.endsWith('.woff') && !p.includes('.woff2');
+      return p.endsWith('.woff');
     }) || urls.find(u => {
       const p = u.split('?')[0].split('#')[0].toLowerCase();
       return p.endsWith('.otf');
-    }) || urls.find(u => {
-      const p = u.split('?')[0].split('#')[0].toLowerCase();
-      return !p.includes('.woff2');
     }) || urls[0];
     if (fontUrl && !fontUrl.startsWith('data:')) {
       try {
@@ -1712,11 +1742,11 @@
     while ((match = fontFaceRegex.exec(cssText)) !== null) {
       const block = match[1];
       const familyMatch = block.match(/font-family\s*:\s*([^;]+)/i);
-      const srcMatch = block.match(/src\s*:\s*([^;]+)/i);
+      const allSrcs = Array.from(block.matchAll(/src\s*:\s*([^;]+)/gi)).map(m => m[1]).join(' ');
       const weightMatch = block.match(/font-weight\s*:\s*([^;]+)/i);
       const styleMatch = block.match(/font-style\s*:\s*([^;]+)/i);
-      if (familyMatch && srcMatch) {
-        parseFontFaceRule(familyMatch[1], srcMatch[1], baseUrl, weightMatch ? weightMatch[1] : null, styleMatch ? styleMatch[1] : null);
+      if (familyMatch && (allSrcs || block.includes('url('))) {
+        parseFontFaceRule(familyMatch[1], allSrcs || block, baseUrl, weightMatch ? weightMatch[1] : null, styleMatch ? styleMatch[1] : null);
       }
     }
   }
@@ -1767,13 +1797,58 @@
     } catch(e) {}
   }
 
+  async function decompressFontIfNeeded(input) {
+    if (!input) return input;
+    try {
+      const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+      // Check WOFF2 magic header 'wOF2' (0x77, 0x4F, 0x46, 0x32)
+      if (bytes.length >= 4 && bytes[0] === 0x77 && bytes[1] === 0x4F && bytes[2] === 0x46 && bytes[3] === 0x32) {
+        const w2 = (typeof window !== 'undefined' && window.wawoff2) || (typeof globalThis !== 'undefined' && globalThis.wawoff2);
+        if (w2 && typeof w2.decompress === 'function') {
+          const decompressed = await w2.decompress(bytes);
+          if (decompressed && decompressed.buffer) {
+            return decompressed.buffer;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[H2F] WOFF2 decompression error:', err);
+    }
+    return input instanceof ArrayBuffer ? input : (input.buffer || input);
+  }
+
+  function resolveFontUrl(family, weight) {
+    if (!family) return null;
+    const candidates = family.split(',').map(f => f.replace(/['"]/g, '').trim()).filter(Boolean);
+    for (const cand of candidates) {
+      const lower = cand.toLowerCase();
+      const stripped = lower.replace(/[\s-_]/g, '');
+
+      if (fontUrlMap.has(`${lower}__${weight}`)) return fontUrlMap.get(`${lower}__${weight}`);
+      if (fontUrlMap.has(lower)) return fontUrlMap.get(lower);
+      if (fontUrlMap.has(cand)) return fontUrlMap.get(cand);
+
+      for (const [k, u] of fontUrlMap.entries()) {
+        const kFamily = k.split('__')[0];
+        const kWeight = k.split('__')[1];
+        const kStripped = kFamily.replace(/[\s-_]/g, '');
+        if (kStripped === stripped) {
+          if (kWeight === weight || !kWeight) return u;
+        }
+      }
+      for (const [k, u] of fontUrlMap.entries()) {
+        const kFamily = k.split('__')[0];
+        const kStripped = kFamily.replace(/[\s-_]/g, '');
+        if (kStripped === stripped) return u;
+      }
+    }
+    return null;
+  }
+
   async function getFontSvgPath(family, char, fontSize, fontWeight, fontStyle) {
     if (!family || !char || typeof opentype === 'undefined') return null;
-    const cleanFamily = family.replace(/['"]/g, '').split(',')[0].trim();
     const weight = normalizeWeight(fontWeight);
-    const url = fontUrlMap.get(`${cleanFamily.toLowerCase()}__${weight}`) ||
-                fontUrlMap.get(cleanFamily.toLowerCase()) ||
-                fontUrlMap.get(cleanFamily);
+    const url = resolveFontUrl(family, weight);
     if (!url) return null;
 
     if (!fontParseCache.has(url)) {
@@ -1794,7 +1869,8 @@
               for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
               }
-              const font = opentype.parse(bytes.buffer);
+              const fontBuf = await decompressFontIfNeeded(bytes);
+              const font = opentype.parse(fontBuf);
               resolve(font);
               return;
             }
@@ -1805,7 +1881,8 @@
           clearTimeout(fTimer);
           if (resp.ok) {
             const buf = await resp.arrayBuffer();
-            const font = opentype.parse(buf);
+            const fontBuf = await decompressFontIfNeeded(buf);
+            const font = opentype.parse(fontBuf);
             resolve(font);
             return;
           }
@@ -2065,7 +2142,134 @@
     }
   }
 
-  function serializeSVG(el) {
+  function renderGlyphToSvg(char, styles, width, height) {
+    try {
+      if (!char || typeof globalThis.traceAlphaToSvgPath !== 'function') return null;
+      const scale = 8;
+      const drawW = width || 16;
+      const drawH = height || 16;
+      const w = Math.max(1, Math.round(drawW * scale));
+      const h = Math.max(1, Math.round(drawH * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      ctx.scale(scale, scale);
+
+      const style = styles.fontStyle || 'normal';
+      const weight = styles.fontWeight || '400';
+      const size = styles.fontSize || '16px';
+      const family = styles.fontFamily || 'sans-serif';
+      const fontStr = `${style} ${weight} ${size} ${family}`;
+      ctx.font = fontStr;
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+
+      ctx.fillText(char, 0, 0);
+
+      const imgData = ctx.getImageData(0, 0, w, h).data;
+      let minX = w, minY = h, maxX = -1, maxY = -1;
+
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const alpha = imgData[(y * w + x) * 4 + 3];
+          if (alpha > 10) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      if (maxX === -1 || maxY === -1) return null;
+
+      ctx.clearRect(0, 0, drawW, drawH);
+
+      const glyphLogicW = (maxX - minX + 1) / scale;
+      const glyphLogicH = (maxY - minY + 1) / scale;
+      const offsetX = (drawW - glyphLogicW) / 2 - (minX / scale);
+      const offsetY = (drawH - glyphLogicH) / 2 - (minY / scale);
+
+      ctx.fillText(char, offsetX, offsetY);
+
+      const finalImgData = ctx.getImageData(0, 0, w, h).data;
+      const alphaArray = new Uint8Array(w * h);
+      let hasPixels = false;
+      for (let i = 0; i < w * h; i++) {
+        const a = finalImgData[i * 4 + 3];
+        alphaArray[i] = a;
+        if (a > 10) hasPixels = true;
+      }
+      if (!hasPixels) return null;
+
+      const rawColor = styles.webkitTextFillColor || styles.color || '#000000';
+      let hexColor = rawColor;
+      let fillOpacity = 1;
+      const m = rawColor.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+      if (m) {
+        const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+        const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+        const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+        hexColor = `#${r}${g}${b}`;
+        if (m[4] !== undefined) fillOpacity = parseFloat(m[4]);
+      }
+      const opAttr = fillOpacity < 1 ? ` fill-opacity="${fillOpacity}"` : '';
+
+      const pathTag = globalThis.traceAlphaToSvgPath(w, h, alphaArray, {
+        color: hexColor,
+        scale: 1 / scale,
+        alphaMax: 1.334,
+        optTolerance: 0.2,
+        turdSize: 2
+      });
+      if (!pathTag) return null;
+
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${drawW}" height="${drawH}" viewBox="0 0 ${drawW} ${drawH}">${pathTag}</svg>`;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  const externalSvgCache = new Map();
+  async function getExternalSvgDoc(fileUrl) {
+    if (!fileUrl) return null;
+    let absoluteUrl = fileUrl;
+    try { absoluteUrl = new URL(fileUrl, document.baseURI).href; } catch {}
+    if (externalSvgCache.has(absoluteUrl)) return externalSvgCache.get(absoluteUrl);
+
+    try {
+      let text = null;
+      try {
+        const res = await fetch(absoluteUrl);
+        if (res.ok) text = await res.text();
+      } catch {}
+
+      if (!text && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        const bgRes = await new Promise(resolve => {
+          chrome.runtime.sendMessage({ type: 'FETCH_TEXT', url: absoluteUrl }, r => {
+            if (chrome.runtime.lastError) resolve(null);
+            else resolve(r);
+          });
+        });
+        if (bgRes && bgRes.data) text = bgRes.data;
+      }
+
+      if (text && text.includes('<svg')) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, 'image/svg+xml');
+        externalSvgCache.set(absoluteUrl, doc);
+        return doc;
+      }
+    } catch {}
+
+    externalSvgCache.set(absoluteUrl, null);
+    return null;
+  }
+
+  async function serializeSVG(el) {
     try {
       const clone = el.cloneNode(true);
       const cs = window.getComputedStyle(el);
@@ -2076,7 +2280,81 @@
         clone.setAttribute('height', String(Math.round(h)));
       }
 
+      // Inline external / document-level SVG symbol sprites referenced via <use href="#..."> or <use xlink:href="#...">
+      // Websites like dzen.ru, GitHub, etc. store all icons in a global hidden <svg><symbol id="..."><path/></symbol></svg>
+      // Other sites reference external sprite files like <use href="/icons.svg#icon-search"></use>
+      // When cloned in isolation, Figma's SVG engine cannot resolve external IDs and drops the icons.
+      // Inlining the symbol's child vector paths directly into <g> guarantees 100% rendering fidelity!
+      const useElements = Array.from(clone.querySelectorAll('use'));
+      for (const use of useElements) {
+        const ref = use.getAttribute('href') || use.getAttribute('xlink:href') || use.getAttribute('xlink:title');
+        if (ref) {
+          let target = null;
+          let id = '';
+          if (ref.startsWith('#')) {
+            id = ref.slice(1);
+            target = document.getElementById(id);
+            if (!target) {
+              try { target = document.querySelector(`[id="${CSS.escape(id)}"]`); } catch {}
+            }
+          } else if (ref.includes('#')) {
+            const hashIdx = ref.indexOf('#');
+            const fileUrl = ref.slice(0, hashIdx);
+            id = ref.slice(hashIdx + 1);
+            const extDoc = await getExternalSvgDoc(fileUrl);
+            if (extDoc) {
+              target = extDoc.getElementById(id);
+              if (!target) {
+                try { target = extDoc.querySelector(`[id="${CSS.escape(id)}"]`); } catch {}
+              }
+            }
+          }
+          if (target) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            const ux = parseFloat(use.getAttribute('x')) || 0;
+            const uy = parseFloat(use.getAttribute('y')) || 0;
+            const uTrans = use.getAttribute('transform') || '';
+            let trans = uTrans;
+            if (ux !== 0 || uy !== 0) {
+              trans = trans ? `translate(${ux}, ${uy}) ${trans}` : `translate(${ux}, ${uy})`;
+            }
+            if (trans) g.setAttribute('transform', trans);
+
+            if (target.tagName.toUpperCase() === 'SYMBOL' && target.getAttribute('viewBox') && !clone.getAttribute('viewBox')) {
+              clone.setAttribute('viewBox', target.getAttribute('viewBox'));
+            }
+
+            for (const child of Array.from(target.childNodes)) {
+              if (child.nodeType === 1) {
+                g.appendChild(child.cloneNode(true));
+              }
+            }
+            use.replaceWith(g);
+          }
+        }
+      }
+
       const computedColor = cs.color ? normalizeColor(cs.color) || cs.color : null;
+      function applyColorAttr(targetEl, attrName, colorVal) {
+        if (!colorVal || colorVal === 'rgba(0, 0, 0, 0)' || colorVal === 'transparent' || colorVal === 'none') {
+          targetEl.setAttribute(attrName, 'none');
+          return;
+        }
+        const m = colorVal.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
+        if (m) {
+          const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
+          const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
+          const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
+          targetEl.setAttribute(attrName, `#${r}${g}${b}`);
+          if (m[4] !== undefined) {
+            const opAttr = attrName === 'fill' ? 'fill-opacity' : 'stroke-opacity';
+            targetEl.setAttribute(opAttr, parseFloat(m[4]).toString());
+          }
+        } else {
+          targetEl.setAttribute(attrName, colorVal);
+        }
+      }
+
       const origChildren = [el].concat(Array.from(el.querySelectorAll('*')));
       const cloneChildren = [clone].concat(Array.from(clone.querySelectorAll('*')));
       for (let i = 0; i < origChildren.length && i < cloneChildren.length; i++) {
@@ -2111,26 +2389,6 @@
 
           const attrFill = cloned.getAttribute('fill');
           const attrStroke = cloned.getAttribute('stroke');
-
-          function applyColorAttr(el, attrName, colorVal) {
-            if (!colorVal || colorVal === 'rgba(0, 0, 0, 0)' || colorVal === 'transparent' || colorVal === 'none') {
-              el.setAttribute(attrName, 'none');
-              return;
-            }
-            const m = colorVal.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i);
-            if (m) {
-              const r = Math.round(parseFloat(m[1])).toString(16).padStart(2, '0');
-              const g = Math.round(parseFloat(m[2])).toString(16).padStart(2, '0');
-              const b = Math.round(parseFloat(m[3])).toString(16).padStart(2, '0');
-              el.setAttribute(attrName, `#${r}${g}${b}`);
-              if (m[4] !== undefined) {
-                const opAttr = attrName === 'fill' ? 'fill-opacity' : 'stroke-opacity';
-                el.setAttribute(opAttr, parseFloat(m[4]).toString());
-              }
-            } else {
-              el.setAttribute(attrName, colorVal);
-            }
-          }
 
           if (attrFill === 'currentColor') {
             applyColorAttr(cloned, 'fill', computedColor);
@@ -2184,6 +2442,21 @@
             }
           }
         } catch {}
+      }
+
+      // CRITICAL: Inlined SVG <symbol> paths from <use> elements were not in origChildren,
+      // and often contain fill="currentColor" or stroke="currentColor".
+      // Figma's SVG engine cannot resolve "currentColor" without CSS context.
+      // Resolve all remaining currentColor attributes across the entire clone tree:
+      const fallbackColor = computedColor || 'rgba(0, 0, 0, 1)';
+      for (const elItem of Array.from(clone.querySelectorAll('*'))) {
+        if (elItem.closest('defs')) continue;
+        if (elItem.getAttribute('fill') === 'currentColor') {
+          applyColorAttr(elItem, 'fill', fallbackColor);
+        }
+        if (elItem.getAttribute('stroke') === 'currentColor') {
+          applyColorAttr(elItem, 'stroke', fallbackColor);
+        }
       }
 
       if (!el.hasAttribute('fill')) clone.removeAttribute('fill');
@@ -3338,9 +3611,27 @@
           };
         }
 
-        // Absolute match fallback: canvas glyph rendering
         const iconW = Math.ceil(pseudoRect.width) || parseFloat(styles.fontSize || cs.fontSize) || 16;
         const iconH = Math.ceil(pseudoRect.height) || parseFloat(styles.fontSize || cs.fontSize) || 16;
+
+        // Priority 1: Vector SVG Auto-Tracer (produces pure vector <path> curves)
+        const svgContent = renderGlyphToSvg(text, { ...cs, fontSize: styles.fontSize || cs.fontSize }, iconW, iconH);
+        if (svgContent) {
+          return {
+            nodeType: ELEMENT_NODE,
+            id: getNodeId('svg-icon-pseudo'),
+            tag: 'SVG',
+            content: svgContent,
+            styles: styles,
+            rect: {
+              ...pseudoRect,
+              width: iconW,
+              height: iconH
+            }
+          };
+        }
+
+        // Priority 2: Canvas image fallback
         const dataUrl = renderGlyphToImage(text, { ...cs, fontSize: styles.fontSize || cs.fontSize }, iconW, iconH);
         if (dataUrl) {
           return {
@@ -3506,7 +3797,7 @@
     return false;
   }
 
-  async function serializeNode(node, assets, fonts, parentStyles, withHover = false) {
+  async function serializeNode(node, assets, fonts, parentStyles) {
     if (captureTimedOut) return null;
     if (node.nodeType === TEXT_NODE) {
       if (node.parentElement) {
@@ -3627,13 +3918,32 @@
           };
         }
 
-        // Absolute match fallback: canvas glyph rendering
+        // Priority 1: Vector SVG Auto-Tracer
         if (isIconElementOrFont(charStr, parentStyles?.fontFamily, node.parentElement?.className)) {
           const iconW = Math.ceil(rect.width) || scaledFontSize || 16;
           const iconH = Math.ceil(rect.height) || scaledFontSize || 16;
+          const isZeroLineH = rect.height <= 4;
+          
+          const svgContent = renderGlyphToSvg(charStr, { ...parentStyles, fontSize: `${scaledFontSize}px` }, iconW, iconH);
+          if (svgContent) {
+            return {
+              nodeType: ELEMENT_NODE,
+              id: getNodeId('svg-icon'),
+              tag: 'SVG',
+              content: svgContent,
+              styles: parentStyles || {},
+              rect: {
+                x: rect.x + scrollX,
+                y: rect.y + scrollY - (isZeroLineH ? Math.round(iconH / 2) : 0),
+                width: iconW,
+                height: iconH
+              }
+            };
+          }
+
+          // Priority 2: Canvas image fallback
           const dataUrl = renderGlyphToImage(charStr, { ...parentStyles, fontSize: `${scaledFontSize}px` }, iconW, iconH);
           if (dataUrl) {
-            const isZeroLineH = rect.height <= 4;
             return {
               nodeType: ELEMENT_NODE,
               id: getNodeId('icon-img'),
@@ -3864,40 +4174,47 @@
           lastTop = charRect.top;
         } else if (Math.abs(charRect.top - lastTop) > Math.max(10, charRect.height * 0.4)) {
           // Line break detected
-          r.setStart(node, lineStart);
-          r.setEnd(node, i);
-          const lineBox = r.getBoundingClientRect();
-          let lineText = collapseWs(rawText.slice(lineStart, i)).trim();
-          let lineX = lineBox.x + scrollX;
-          let lineW = Math.ceil(lineBox.width);
+          let segStart = lineStart;
+          let segEnd = i;
+          while (segStart < segEnd && /\s/.test(rawText[segStart])) segStart++;
+          while (segEnd > segStart && /\s/.test(rawText[segEnd - 1])) segEnd--;
 
-          if (segments.length === 0 && isFirstTextInQ) {
-            const qMarks = getQuoteMarks(node.parentElement);
-            if (!lineText.startsWith(qMarks.open)) {
-              lineText = qMarks.open + lineText;
-              const parentRect = node.parentElement.getBoundingClientRect();
-              const parentLeft = parentRect.x + scrollX;
-              if (parentLeft < lineX) {
-                lineW += Math.ceil(lineX - parentLeft);
-                lineX = parentLeft;
+          if (segEnd > segStart) {
+            r.setStart(node, segStart);
+            r.setEnd(node, segEnd);
+            const lineBox = r.getBoundingClientRect();
+            let lineText = collapseWs(rawText.slice(segStart, segEnd));
+            let lineX = lineBox.x + scrollX;
+            let lineW = Math.ceil(lineBox.width);
+
+            if (segments.length === 0 && isFirstTextInQ) {
+              const qMarks = getQuoteMarks(node.parentElement);
+              if (!lineText.startsWith(qMarks.open)) {
+                lineText = qMarks.open + lineText;
+                const parentRect = node.parentElement.getBoundingClientRect();
+                const parentLeft = parentRect.x + scrollX;
+                if (parentLeft < lineX) {
+                  lineW += Math.ceil(lineX - parentLeft);
+                  lineX = parentLeft;
+                }
               }
             }
-          }
 
-          if (lineText) {
-            segments.push({
-              nodeType: TEXT_NODE,
-              id: getNodeId('text-line'),
-              text: lineText,
-              rect: {
-                x: lineX,
-                y: lineBox.y + scrollY,
-                width: lineW,
-                height: Math.ceil(lineBox.height)
-              },
-              styles: getTextNodeStyles(parentStyles),
-              lineCount: 1
-            });
+            if (lineText) {
+              segments.push({
+                nodeType: TEXT_NODE,
+                id: getNodeId('text-line'),
+                text: lineText,
+                rect: {
+                  x: lineX,
+                  y: lineBox.y + scrollY,
+                  width: lineW,
+                  height: Math.ceil(lineBox.height)
+                },
+                styles: getTextNodeStyles(parentStyles),
+                lineCount: 1
+              });
+            }
           }
           lineStart = i;
           lastTop = charRect.top;
@@ -3905,52 +4222,59 @@
       }
 
       // Add final line segment
-      r.setStart(node, lineStart);
-      r.setEnd(node, len);
-      const finalBox = r.getBoundingClientRect();
-      let finalLineText = collapseWs(rawText.slice(lineStart)).trim();
-      let finalX = finalBox.x + scrollX;
-      let finalW = Math.ceil(finalBox.width);
+      let finalSegStart = lineStart;
+      let finalSegEnd = len;
+      while (finalSegStart < finalSegEnd && /\s/.test(rawText[finalSegStart])) finalSegStart++;
+      while (finalSegEnd > finalSegStart && /\s/.test(rawText[finalSegEnd - 1])) finalSegEnd--;
 
-      if (segments.length === 0 && isFirstTextInQ) {
-        const qMarks = getQuoteMarks(node.parentElement);
-        if (!finalLineText.startsWith(qMarks.open)) {
-          finalLineText = qMarks.open + finalLineText;
-          const parentRect = node.parentElement.getBoundingClientRect();
-          const parentLeft = parentRect.x + scrollX;
-          if (parentLeft < finalX) {
-            finalW += Math.ceil(finalX - parentLeft);
-            finalX = parentLeft;
+      if (finalSegEnd > finalSegStart) {
+        r.setStart(node, finalSegStart);
+        r.setEnd(node, finalSegEnd);
+        const finalBox = r.getBoundingClientRect();
+        let finalLineText = collapseWs(rawText.slice(finalSegStart, finalSegEnd));
+        let finalX = finalBox.x + scrollX;
+        let finalW = Math.ceil(finalBox.width);
+
+        if (segments.length === 0 && isFirstTextInQ) {
+          const qMarks = getQuoteMarks(node.parentElement);
+          if (!finalLineText.startsWith(qMarks.open)) {
+            finalLineText = qMarks.open + finalLineText;
+            const parentRect = node.parentElement.getBoundingClientRect();
+            const parentLeft = parentRect.x + scrollX;
+            if (parentLeft < finalX) {
+              finalW += Math.ceil(finalX - parentLeft);
+              finalX = parentLeft;
+            }
           }
         }
-      }
 
-      if (isLastTextInQ) {
-        const qMarks = getQuoteMarks(node.parentElement);
-        if (!finalLineText.endsWith(qMarks.close)) {
-          finalLineText = finalLineText + qMarks.close;
-          const parentRect = node.parentElement.getBoundingClientRect();
-          const parentRight = parentRect.right + scrollX;
-          if (parentRight > finalX + finalW) {
-            finalW = Math.ceil(parentRight - finalX);
+        if (isLastTextInQ) {
+          const qMarks = getQuoteMarks(node.parentElement);
+          if (!finalLineText.endsWith(qMarks.close)) {
+            finalLineText = finalLineText + qMarks.close;
+            const parentRect = node.parentElement.getBoundingClientRect();
+            const parentRight = parentRect.right + scrollX;
+            if (parentRight > finalX + finalW) {
+              finalW = Math.ceil(parentRight - finalX);
+            }
           }
         }
-      }
 
-      if (finalLineText) {
-        segments.push({
-          nodeType: TEXT_NODE,
-          id: getNodeId('text-line'),
-          text: finalLineText,
-          rect: {
-            x: finalX,
-            y: finalBox.y + scrollY,
-            width: finalW,
-            height: Math.ceil(finalBox.height)
-          },
-          styles: getTextNodeStyles(parentStyles),
-          lineCount: 1
-        });
+        if (finalLineText) {
+          segments.push({
+            nodeType: TEXT_NODE,
+            id: getNodeId('text-line'),
+            text: finalLineText,
+            rect: {
+              x: finalX,
+              y: finalBox.y + scrollY,
+              width: finalW,
+              height: Math.ceil(finalBox.height)
+            },
+            styles: getTextNodeStyles(parentStyles),
+            lineCount: 1
+          });
+        }
       }
 
       if (segments.length === 1) return segments[0];
@@ -4015,23 +4339,45 @@
     const cls = (el.className && typeof el.className === 'string') ? el.className : '';
     const isCarouselOrTab = !!(el.closest && el.closest('.swiper-slide, .slick-slide, .owl-item, .carousel-item, .splide__slide, .tab-pane'));
 
+    // Strictly suppress hover overlays, hover states, and inactive popup layers
+    const isHoverOrOverlay = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay/i.test(cls) ||
+                             !!(el.closest && el.closest('.hover-box, [class*="hover-"], .feature-box') && /overlay|mask|reveal|box-overlay/i.test(cls));
+
+    if (isHoverOrOverlay && isHidden) {
+      return null;
+    }
+
     // Detect text scrub animations and scroll-animated targets:
-    // Always force them to the brightened, completed state!
-    const isAnimTarget = !isCarouselOrTab && (
-      /title-anim|text-anim|hero-text-anim|hero-wave|hero-section|developers-wave|pxn-|highlight-separator|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text/i.test(cls) ||
-      el.hasAttribute('data-shadow-animation') || el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-scroll') ||
-      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .hero-wave-animation, .developers-wave-animation, .developers-scale-subsection, .hero-section__background, [class*="pxn-"], [data-shadow-animation], .highlight-separator, [data-anime], [data-fancy-text], [data-splitting], .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-scroll]'))
+    // Only apply to actual text elements/spans, never hover overlays or generic section containers
+    const isAnimTarget = !isCarouselOrTab && !isHoverOrOverlay && (
+      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text/i.test(cls) ||
+      el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') ||
+      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text'))
     );
 
     if (isAnimTarget) {
+      // If it's a text animation split span (e.g. chars/words), ensure it's visible & brightened
       styles.visibility = 'visible';
       isHidden = false;
       const curOp = parseFloat(styles.opacity);
       if (isNaN(curOp) || curOp < 0.98) {
         styles.opacity = '1';
       }
-      if (styles.transform && (styles.transform.includes('rotate') || styles.transform.includes('matrix'))) {
-        styles.transform = 'none';
+      if (styles.transform && styles.transform !== 'none') {
+        const parts = styles.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+        if (parts) {
+          const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
+          const a = vals[0], b = vals[1];
+          const tAngle = Math.abs(Math.atan2(b, a) * (180 / Math.PI));
+          // Preserve deliberate/structural layout rotations (e.g. 90deg, 180deg, 270deg, 45deg)
+          // Only neutralize minor entrance animation tilts (< 15deg) on individual split chars/words
+          const isStructuralRot = (tAngle >= 15 && tAngle <= 345);
+          if (!isStructuralRot) {
+            styles.transform = 'none';
+          }
+        } else if (!/rotate\s*\(\s*[-+]?(?:90|180|270|45)/i.test(styles.transform)) {
+          styles.transform = 'none';
+        }
       }
       if (styles.color) {
         styles.color = brightenColorAlpha(styles.color);
@@ -4227,7 +4573,7 @@
     let svgTexts = null;
     if (tag === 'SVG' || el instanceof SVGElement) {
       svgTexts = extractSvgTexts(el);
-      const rawSvg = serializeSVG(el);
+      const rawSvg = await serializeSVG(el);
       if (rawSvg) {
         const vRes = await vectorizeEmbeddedSvgImages(rawSvg);
         if (vRes && vRes.dataUri && !vRes.isVector) {
@@ -4416,6 +4762,167 @@
     const after = await serializePseudo(el, '::after', assets, fonts, docRect);
     const pseudoElementNodes = (before || after) ? { before, after } : undefined;
 
+    // Multiline inline elements (e.g. <span class="underline">wrapped text</span>):
+    // In CSS, an inline element that wraps across multiple lines forms separate line box fragments.
+    // In Figma, a single Frame cannot represent a multi-line stepped box and causes severe overlaps
+    // and stretched lines. We split the inline element into separate line fragments so each line
+    // renders with its exact text and borders without overlapping siblings!
+    const isInlineFlow = (styles.display === 'inline' || (!styles.display && ['SPAN', 'A', 'EM', 'STRONG', 'B', 'I', 'U', 'MARK', 'CODE', 'SMALL'].includes(tag))) &&
+                         styles.display !== 'inline-block' && styles.display !== 'inline-flex';
+    const isRotated = isElementOrAncestorRotated(el);
+
+    if (isInlineFlow && !isRotated && !svgContent) {
+      const rawClientRects = Array.from(el.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+      const distinctLines = [];
+      for (const cr of rawClientRects) {
+        const existing = distinctLines.find(l => Math.abs(l.top - cr.top) < Math.max(6, cr.height * 0.35));
+        if (existing) {
+          existing.rects.push(cr);
+          existing.minX = Math.min(existing.minX, cr.left);
+          existing.maxX = Math.max(existing.maxX, cr.right);
+          existing.minY = Math.min(existing.minY, cr.top);
+          existing.maxY = Math.max(existing.maxY, cr.bottom);
+        } else {
+          distinctLines.push({
+            top: cr.top,
+            rects: [cr],
+            minX: cr.left,
+            maxX: cr.right,
+            minY: cr.top,
+            maxY: cr.bottom
+          });
+        }
+      }
+
+      if (distinctLines.length > 1) {
+        distinctLines.sort((a, b) => a.top - b.top);
+
+        const fragments = [];
+        const scrollX = isFixed ? 0 : window.scrollX;
+        const scrollY = (isFixed ? 0 : window.scrollY) + fixedShiftY;
+
+        for (let k = 0; k < distinctLines.length; k++) {
+          const dl = distinctLines[k];
+          const fragChildNodes = [];
+
+          for (const child of el.childNodes) {
+            if (child.nodeType === TEXT_NODE) {
+              const textContent = child.textContent || '';
+              if (!textContent.trim()) continue;
+              const r = document.createRange();
+              let startIdx = -1;
+              let endIdx = -1;
+              for (let i = 0; i < child.length; i++) {
+                r.setStart(child, i);
+                r.setEnd(child, i + 1);
+                const cr = r.getBoundingClientRect();
+                if (cr.width === 0 && cr.height === 0) continue;
+                const midY = cr.top + cr.height / 2;
+                if (midY >= dl.minY - 6 && midY <= dl.maxY + 6) {
+                  if (startIdx === -1) startIdx = i;
+                  endIdx = i + 1;
+                }
+              }
+              if (startIdx !== -1 && endIdx > startIdx) {
+                let actualStart = startIdx;
+                let actualEnd = endIdx;
+                while (actualStart < actualEnd && /\s/.test(textContent[actualStart])) {
+                  actualStart++;
+                }
+                while (actualEnd > actualStart && /\s/.test(textContent[actualEnd - 1])) {
+                  actualEnd--;
+                }
+                if (actualEnd > actualStart) {
+                  r.setStart(child, actualStart);
+                  r.setEnd(child, actualEnd);
+                  const textBox = r.getBoundingClientRect();
+                  r.detach();
+                  const lineText = textContent.slice(actualStart, actualEnd);
+                  fragChildNodes.push({
+                    nodeType: TEXT_NODE,
+                    id: getNodeId('text-line'),
+                    text: lineText,
+                    rect: {
+                      x: textBox.x + scrollX,
+                      y: textBox.y + scrollY,
+                      width: Math.ceil(textBox.width),
+                      height: Math.ceil(textBox.height)
+                    },
+                    styles: getTextNodeStyles(styles),
+                    lineCount: 1
+                  });
+                } else {
+                  r.detach();
+                }
+              } else {
+                r.detach();
+              }
+            } else if (child.nodeType === ELEMENT_NODE) {
+              const cRect = child.getBoundingClientRect();
+              const midY = cRect.top + cRect.height / 2;
+              if (midY >= dl.minY - 6 && midY <= dl.maxY + 6) {
+                const sChild = await serializeNode(child, assets, fonts, styles);
+                if (Array.isArray(sChild)) {
+                  fragChildNodes.push(...sChild);
+                } else if (sChild) {
+                  fragChildNodes.push(sChild);
+                }
+              }
+            }
+          }
+
+          if (fragChildNodes.length > 0) {
+            const fragStyles = { ...styles };
+            if (styles.boxDecorationBreak !== 'clone') {
+              if (k > 0) {
+                fragStyles.borderLeftWidth = '0px';
+                fragStyles.borderLeftStyle = 'none';
+                fragStyles.paddingLeft = '0px';
+                fragStyles.marginLeft = '0px';
+              }
+              if (k < distinctLines.length - 1) {
+                fragStyles.borderRightWidth = '0px';
+                fragStyles.borderRightStyle = 'none';
+                fragStyles.paddingRight = '0px';
+                fragStyles.marginRight = '0px';
+              }
+            }
+
+            const fragW = Math.max(Math.ceil(dl.maxX - dl.minX), ...fragChildNodes.map(c => c.rect?.width || 0));
+            const fragH = Math.max(Math.ceil(dl.maxY - dl.minY), ...fragChildNodes.map(c => c.rect?.height || 0));
+            const fragX = Math.min(dl.minX + scrollX, ...fragChildNodes.map(c => c.rect?.x || dl.minX + scrollX));
+            const fragY = Math.min(dl.minY + scrollY, ...fragChildNodes.map(c => c.rect?.y || dl.minY + scrollY));
+
+            const fragRect = {
+              x: fragX,
+              y: fragY,
+              width: Math.max(1, fragW),
+              height: Math.max(1, fragH)
+            };
+
+            const fragPseudo = {};
+            if (k === 0 && before) fragPseudo.before = before;
+            if (k === distinctLines.length - 1 && after) fragPseudo.after = after;
+
+            fragments.push({
+              nodeType: ELEMENT_NODE,
+              id: getNodeId('inline-line-frag'),
+              tag,
+              attributes: getAttributes(el),
+              styles: fragStyles,
+              rect: fragRect,
+              childNodes: fragChildNodes,
+              pseudoElementNodes: Object.keys(fragPseudo).length > 0 ? fragPseudo : undefined
+            });
+          }
+        }
+
+        if (fragments.length > 0) {
+          return fragments;
+        }
+      }
+    }
+
     const childNodes = [];
     if (svgContent && pseudoElementNodes) {
       // If an element has both SVG content (e.g. converted repeating ticks background) AND pseudo-elements (e.g. ::after indicator needle),
@@ -4434,43 +4941,46 @@
     if (!svgContent) {
       const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
       for (const child of sourceNodes) {
-        const sChild = await serializeNode(child, assets, fonts, styles, withHover);
+        const sChild = await serializeNode(child, assets, fonts, styles);
         if (sChild) {
-          childNodes.push(sChild);
-          
-          // Flatten out escaping descendants (CSS stacking context simulation)
-          const cs = sChild.styles || {};
-          const isPositioned = cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'fixed' || cs.position === 'sticky';
-          const hasZ = cs.zIndex && cs.zIndex !== 'auto';
-          
-          let createsSC = false;
-          if (hasZ && isPositioned) createsSC = true;
-          if (cs.opacity && parseFloat(cs.opacity) < 1) createsSC = true;
-          if (cs.transform && cs.transform !== 'none') createsSC = true;
-          if (cs.filter && cs.filter !== 'none') createsSC = true;
-          if (cs.clipPath && cs.clipPath !== 'none') createsSC = true;
-          if (cs.isolation === 'isolate') createsSC = true;
-          if (cs.maskImage && cs.maskImage !== 'none') createsSC = true;
-          if (cs.webkitMaskImage && cs.webkitMaskImage !== 'none') createsSC = true;
-          
-          const isSectionBoundary = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE', 'BODY', 'HTML'].includes(tag);
-          const isInteractive = /btn|button|nav|menu|badge|dropdown|card/i.test(sChild.attributes?.class || '') ||
-            ['A', 'BUTTON', 'LI', 'SPAN', 'LABEL', 'INPUT'].includes(sChild.tag);
-          if (!createsSC && !isSectionBoundary && !isInteractive && sChild.childNodes && sChild.childNodes.length > 0) {
-            let j = 0;
-            while (j < sChild.childNodes.length) {
-              const gc = sChild.childNodes[j];
-              const gcs = gc.styles || {};
-              const zVal = parseInt(gcs.zIndex, 10);
-              const isLayoutContainer = /swiper|carousel|slider|wrapper|section|container|col-|row/i.test(gc.attributes?.class || '') ||
-                ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(gc.tag);
-              const isEscapablePos = gcs.position === 'absolute' || gcs.position === 'fixed';
-              
-              if (!isLayoutContainer && isEscapablePos && zVal >= 3) {
-                const extracted = sChild.childNodes.splice(j, 1)[0];
-                childNodes.push(extracted);
-              } else {
-                j++;
+          const itemsToAdd = Array.isArray(sChild) ? sChild : [sChild];
+          for (const item of itemsToAdd) {
+            childNodes.push(item);
+            
+            // Flatten out escaping descendants (CSS stacking context simulation)
+            const cs = item.styles || {};
+            const isPositioned = cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'fixed' || cs.position === 'sticky';
+            const hasZ = cs.zIndex && cs.zIndex !== 'auto';
+            
+            let createsSC = false;
+            if (hasZ && isPositioned) createsSC = true;
+            if (cs.opacity && parseFloat(cs.opacity) < 1) createsSC = true;
+            if (cs.transform && cs.transform !== 'none') createsSC = true;
+            if (cs.filter && cs.filter !== 'none') createsSC = true;
+            if (cs.clipPath && cs.clipPath !== 'none') createsSC = true;
+            if (cs.isolation === 'isolate') createsSC = true;
+            if (cs.maskImage && cs.maskImage !== 'none') createsSC = true;
+            if (cs.webkitMaskImage && cs.webkitMaskImage !== 'none') createsSC = true;
+            
+            const isSectionBoundary = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE', 'BODY', 'HTML'].includes(tag);
+            const isInteractive = /btn|button|nav|menu|badge|dropdown|card/i.test(item.attributes?.class || '') ||
+              ['A', 'BUTTON', 'LI', 'SPAN', 'LABEL', 'INPUT'].includes(item.tag);
+            if (!createsSC && !isSectionBoundary && !isInteractive && item.childNodes && item.childNodes.length > 0) {
+              let j = 0;
+              while (j < item.childNodes.length) {
+                const gc = item.childNodes[j];
+                const gcs = gc.styles || {};
+                const zVal = parseInt(gcs.zIndex, 10);
+                const isLayoutContainer = /swiper|carousel|slider|wrapper|section|container|col-|row/i.test(gc.attributes?.class || '') ||
+                  ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(gc.tag);
+                const isEscapablePos = gcs.position === 'absolute' || gcs.position === 'fixed';
+                
+                if (!isLayoutContainer && isEscapablePos && zVal >= 3) {
+                  const extracted = item.childNodes.splice(j, 1)[0];
+                  childNodes.push(extracted);
+                } else {
+                  j++;
+                }
               }
             }
           }
@@ -4749,10 +5259,6 @@
     const CAPTURE_TIMEOUT = 90000;
     const captureTimer = setTimeout(() => { captureTimedOut = true; }, CAPTURE_TIMEOUT);
 
-    const withHover = (typeof options === 'object' && options !== null && 'withHover' in options)
-      ? !!options.withHover
-      : false;
-
     try {
       await initFontMap();
 
@@ -4778,7 +5284,7 @@
 
       // Target document.body directly to avoid double nesting HTML + BODY frames
       const targetElement = document.body || document.documentElement;
-      const root = await serializeNode(targetElement, assets, fonts, null, withHover);
+      const root = await serializeNode(targetElement, assets, fonts, null);
 
       if (targetElement === document.body && document.documentElement) {
         const htmlStyles = window.getComputedStyle(document.documentElement);
@@ -4822,7 +5328,6 @@
       return {
         version: 2,
         generator: 'HTML-2-Fig',
-        withHover: !!withHover,
         documentTitle: document.title || 'Web Import',
         documentRect: {
           x: 0,
@@ -4855,16 +5360,11 @@
     if (window.__html2FigRunning) return;
     window.__html2FigRunning = true;
 
-    const withHover = (typeof options === 'object' && options !== null && 'withHover' in options)
-      ? !!options.withHover
-      : false;
-
     let toast = null;
     try {
-      try { await navigator.clipboard.writeText(' '); } catch (e) {}
       toast = showToast('⏳ Pre-rendering full webpage…');
 
-      let payload = await captureRaw({ withHover });
+      let payload = await captureRaw();
 
       // Splice all iframes (same-origin and cross-origin) into the captured tree
       if (typeof window.__e2fSpliceFrames === 'function') {
@@ -4877,6 +5377,20 @@
 
       window.__capturedPayload = payload;
       const json = typeof payload === 'string' ? payload : JSON.stringify(payload);
+
+      // Save backup in chrome.storage.local
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ 'h2f_last_capture': json });
+        }
+      } catch (e) {}
+
+      // Ensure focus on document before writing to clipboard
+      try {
+        window.focus();
+        if (document.body) document.body.focus();
+      } catch (e) {}
+
       const ok = await writeClipboard(json);
 
       try { if (toast) toast.remove(); } catch {}
@@ -4884,7 +5398,16 @@
       if (ok) {
         showToast('✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
       } else {
-        showToast('⚠️ Capture complete. Please allow clipboard access.', 6000);
+        showToast('⚠️ Click here to copy captured data to clipboard', 15000, async (el) => {
+          try {
+            await navigator.clipboard.writeText(json);
+            el.textContent = '✅ Copied to clipboard! Paste into Figma plugin (Ctrl+V)';
+            el.style.borderColor = 'rgba(52, 211, 153, 0.5)';
+          } catch (e) {
+            writeClipboard(json);
+            el.textContent = '✅ Copied! Paste into Figma plugin (Ctrl+V)';
+          }
+        });
       }
     } catch (err) {
       console.error('[HTML-2-Fig] Capture error:', err);

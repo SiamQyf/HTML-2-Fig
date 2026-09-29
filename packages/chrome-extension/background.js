@@ -316,18 +316,27 @@ function installFrameMachinery(nonce) {
 }
 
 // ── Capture Execution Pipeline ──────────────────────────────────────────────
-async function executeCaptureOnTab(tabId, withHover = false) {
-  // 1. Inject opentype and capture engine into ALL frames (including cross-origin iframes)
+async function executeCaptureOnTab(tabId) {
+  // Focus the window and active tab so clipboard writing has document focus
+  try {
+    const tabInfo = await chrome.tabs.get(tabId);
+    if (tabInfo && tabInfo.windowId) {
+      await chrome.windows.update(tabInfo.windowId, { focused: true });
+    }
+    await chrome.tabs.update(tabId, { active: true });
+  } catch (e) {}
+
+  // 1. Inject woff2, opentype, potrace and capture engine into ALL frames (including cross-origin iframes)
   try {
     await chrome.scripting.executeScript({
       target: { tabId: tabId, allFrames: true },
-      files: ['opentype.min.js', 'capture.js']
+      files: ['woff2.min.js', 'opentype.min.js', 'potrace.min.js', 'capture.js']
     });
   } catch (err) {
     // Fallback to top frame if allFrames is blocked
     await chrome.scripting.executeScript({
       target: { tabId: tabId },
-      files: ['opentype.min.js', 'capture.js']
+      files: ['woff2.min.js', 'opentype.min.js', 'potrace.min.js', 'capture.js']
     });
   }
 
@@ -347,16 +356,25 @@ async function executeCaptureOnTab(tabId, withHover = false) {
     });
   }
 
-  // 3. Trigger capture ONLY on the top frame with withHover setting
-  await chrome.scripting.executeScript({
+  // 3. Trigger capture ONLY on the top frame
+  const execResults = await chrome.scripting.executeScript({
     target: { tabId: tabId },
-    func: (optWithHover) => {
-      if (window.html2Fig && window.html2Fig.startCapture) {
-        window.html2Fig.startCapture({ withHover: optWithHover });
+    func: () => {
+      if (!window.html2Fig || typeof window.html2Fig.startCapture !== 'function') {
+        return { ok: false, error: 'HTML-2-Fig engine failed to initialize in page' };
       }
-    },
-    args: [withHover]
+      try {
+        window.html2Fig.startCapture();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err.message || String(err) };
+      }
+    }
   });
+
+  if (execResults && execResults[0] && execResults[0].result && !execResults[0].result.ok) {
+    throw new Error(execResults[0].result.error);
+  }
 }
 
 // ── Toolbar Click Handler (Fallback when no popup or shortcut) ───────────────
@@ -367,12 +385,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 
   try {
-    let withHover = false;
-    if (chrome.storage && chrome.storage.local) {
-      const stored = await chrome.storage.local.get(['withHover']);
-      withHover = !!stored.withHover;
-    }
-    await executeCaptureOnTab(tab.id, withHover);
+    await executeCaptureOnTab(tab.id);
   } catch (err) {
     console.error('[HTML-2-Fig] Failed to run capture pipeline:', err);
   }
@@ -388,6 +401,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           try { tab = await chrome.tabs.get(request.tabId); } catch (e) {}
         }
         if (!tab || !tab.id || isRestrictedUrl(tab.url)) {
+          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          tab = tabs.find(t => t.url && !isRestrictedUrl(t.url));
+        }
+        if (!tab || !tab.id || isRestrictedUrl(tab.url)) {
           const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
           tab = tabs.find(t => t.url && !isRestrictedUrl(t.url));
         }
@@ -400,10 +417,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           tab = tabs.find(t => t.url && !isRestrictedUrl(t.url));
         }
         if (!tab || !tab.id) {
-          sendResponse({ success: false, error: 'No active webpage tab found' });
+          sendResponse({ success: false, error: 'No active webpage tab found. Please open a webpage to capture.' });
           return;
         }
-        await executeCaptureOnTab(tab.id, !!request.withHover);
+        await executeCaptureOnTab(tab.id);
         sendResponse({ success: true, tabId: tab.id });
       } catch (err) {
         sendResponse({ success: false, error: err.message || String(err) });

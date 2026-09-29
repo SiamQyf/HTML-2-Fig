@@ -16,6 +16,7 @@
   "action": {
     "default_icon": {
       "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
@@ -27,12 +28,13 @@
   },
   "icons": {
     "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
   "web_accessible_resources": [
     {
-      "resources": ["capture.js", "opentype.min.js"],
+      "resources": ["capture.js", "opentype.min.js", "potrace.min.js", "woff2.min.js"],
       "matches": ["<all_urls>"]
     }
   ]
