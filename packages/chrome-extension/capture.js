@@ -355,55 +355,128 @@
       }
     } catch(e) {}
 
-    let scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-    for (const container of scrollableContainers) {
-      if (container !== window) {
-        scrollHeight = Math.max(scrollHeight, container.scrollHeight);
-      }
-    }
+    // Section-by-Section Animation Settling Walk
+    const vh = window.innerHeight || 800;
+    const checkpoints = new Set([0]);
 
-    const MAX_SCROLL_HEIGHT = 50000;
-    const MAX_SCROLL_TIME = 15000;
-    const step = 32;
-    const delay = 16;
-    const scrollStart = performance.now();
-
-    for (let y = 0; y < scrollHeight; y += step) {
-      if (captureTimedOut) break;
-      for (const container of scrollableContainers) {
-        if (container === window) {
-          window.scrollTo(0, y);
-        } else {
-          container.scrollTo(0, y);
+    // 1. Gather semantic sections and major block containers
+    const sectionSelectors = [
+      'section', 'header', 'footer', 'main > *', 'article',
+      '[class*="section"]', '[id*="section"]', '[class*="hero"]', '[class*="block"]',
+      '.wp-block-group', '.elementor-section', '.vc_row', '.site-section',
+      '[data-aos]', '.wow', '.scroll-reveal', '[data-scroll]'
+    ];
+    try {
+      const foundSections = document.querySelectorAll(sectionSelectors.join(', '));
+      for (const sec of foundSections) {
+        if (sec.offsetHeight > 100) {
+          const r = sec.getBoundingClientRect();
+          const top = Math.max(0, Math.round(r.top + window.scrollY));
+          checkpoints.add(top);
         }
       }
-      await new Promise(r => setTimeout(r, delay));
-      let newHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-      for (const container of scrollableContainers) {
-        if (container !== window) newHeight = Math.max(newHeight, container.scrollHeight);
-      }
-      scrollHeight = Math.min(newHeight, MAX_SCROLL_HEIGHT);
-      if (performance.now() - scrollStart > MAX_SCROLL_TIME) break;
-    }
-    
+    } catch (e) {}
+
+    // 2. Add viewport stepping checkpoints to cover all intermediate areas
+    let scrollHeight = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
     for (const container of scrollableContainers) {
-      if (container === window) window.scrollTo(0, scrollHeight);
-      else container.scrollTo(0, container.scrollHeight);
+      if (container !== window) scrollHeight = Math.max(scrollHeight, container.scrollHeight);
     }
-    await new Promise(r => setTimeout(r, 600));
-    
-    for (let y = scrollHeight; y > 0; y -= (step * 8)) {
+    const MAX_SCROLL_HEIGHT = 50000;
+    scrollHeight = Math.min(scrollHeight, MAX_SCROLL_HEIGHT);
+
+    const stepSize = Math.max(400, Math.round(vh * 0.75));
+    for (let y = 0; y < scrollHeight; y += stepSize) {
+      checkpoints.add(y);
+    }
+    checkpoints.add(scrollHeight);
+
+    const sortedCheckpoints = Array.from(checkpoints).sort((a, b) => a - b);
+    const maxWalkTime = 15000;
+    const walkStart = performance.now();
+
+    for (const cp of sortedCheckpoints) {
+      if (captureTimedOut || (performance.now() - walkStart > maxWalkTime)) break;
+
+      // Scroll to section
       for (const container of scrollableContainers) {
-        if (container === window) window.scrollTo(0, y);
-        else container.scrollTo(0, y);
+        if (container === window) window.scrollTo(0, cp);
+        else container.scrollTo(0, cp);
       }
-      await new Promise(r => setTimeout(r, 16));
+
+      // Fire scroll event to trigger intersection observers and scroll listeners
+      window.dispatchEvent(new Event('scroll'));
+
+      // Small pause for intersection observers to register the section in-view
+      await new Promise(r => setTimeout(r, 60));
+
+      // Fast-forward & settle all active animations for this section:
+      // a) Web Animations API (CSS transitions, keyframes, WAAPI)
+      try {
+        if (typeof document.getAnimations === 'function') {
+          const anims = document.getAnimations();
+          for (const anim of anims) {
+            try {
+              if (anim.playState === 'running' || anim.playState === 'pending') {
+                const timing = anim.effect ? anim.effect.getTiming() : null;
+                const isInfinite = timing && (timing.iterations === Infinity || timing.duration === Infinity);
+                if (!isInfinite) {
+                  anim.finish();
+                }
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (e) {}
+
+      // b) AOS (Animate on Scroll)
+      try {
+        const aosEls = document.querySelectorAll('[data-aos]');
+        for (const el of aosEls) {
+          const r = el.getBoundingClientRect();
+          if (r.top < vh * 1.2 && r.bottom > -50) {
+            el.classList.add('aos-animate');
+            el.setAttribute('data-aos-once', 'true');
+          }
+        }
+      } catch (e) {}
+
+      // c) WOW.js / ScrollReveal
+      try {
+        const wowEls = document.querySelectorAll('.wow');
+        for (const el of wowEls) {
+          const r = el.getBoundingClientRect();
+          if (r.top < vh * 1.2 && r.bottom > -50) {
+            el.style.visibility = 'visible';
+            el.classList.add('animated');
+          }
+        }
+      } catch (e) {}
+
+      // d) GSAP / ScrollTrigger active in this viewport
+      try {
+        if (window.ScrollTrigger) {
+          window.ScrollTrigger.getAll().forEach(st => {
+            try {
+              if (st.trigger) {
+                const r = st.trigger.getBoundingClientRect();
+                if (r.top < vh && r.bottom > 0) {
+                  if (st.animation) st.animation.progress(1);
+                  if (typeof st.vars?.onEnter === 'function') st.vars.onEnter();
+                }
+              }
+            } catch (e) {}
+          });
+        }
+      } catch (e) {}
     }
 
+    // Scroll back to top
     for (const container of scrollableContainers) {
       container.scrollTo(0, 0);
     }
-    await new Promise(r => setTimeout(r, 200));
+    window.dispatchEvent(new Event('scroll'));
+    await new Promise(r => setTimeout(r, 150));
 
     // Ensure all Swipers remain frozen and reset to slide 0 after scrolling completes
     freezeAndResetSwipers();
@@ -4350,9 +4423,9 @@
     // Detect text scrub animations and scroll-animated targets:
     // Only apply to actual text elements/spans, never hover overlays or generic section containers
     const isAnimTarget = !isCarouselOrTab && !isHoverOrOverlay && (
-      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text/i.test(cls) ||
-      el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') ||
-      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text'))
+      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos-item|scroll-reveal/i.test(cls) ||
+      el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') ||
+      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal'))
     );
 
     if (isAnimTarget) {
