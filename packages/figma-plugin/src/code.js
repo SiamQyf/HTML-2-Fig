@@ -3564,7 +3564,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       }
     }
     const childrenSpan = maxChildBottom - (sNode.rect?.y || 0);
-    if (childrenSpan > 0 && (rectH < 1 || childrenSpan > rectH || isPageLevelWrapper)) {
+    if (childrenSpan > 0 && (rectH < 1 || (isPageLevelWrapper && childrenSpan > rectH))) {
       rectH = Math.max(rectH, Math.round(childrenSpan));
     }
   }
@@ -3882,7 +3882,7 @@ function brightenGradientForText(grad, bgColor = { r: 1, g: 1, b: 1 }) {
 }
 
 async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false, parentUnrotOrigin = { x: 0, y: 0 }, effectiveBgColor = null) {
-  const s = sNode.styles || inheritedStyles || parentFrame.styles || {};
+  const s = sNode.styles || inheritedStyles || {};
   let text = (sNode.text || '');
   const ws = s.whiteSpace || 'normal';
   if (ws === 'normal' || ws === 'nowrap') {
@@ -3996,9 +3996,9 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const fillColor = parseColor(fillColorRaw);
   const fillIsTransparent = !fillColor || fillColor.a < 0.005;
 
-  const resolvedBgColor = effectiveBgColor || 
-    (parentFrame && parentFrame.styles?._effectiveBgColor ? parseColor(parentFrame.styles._effectiveBgColor) : null) ||
+  const resolvedBgColor = (effectiveBgColor && typeof effectiveBgColor.r === 'number') ? effectiveBgColor :
     (s._effectiveBgColor ? parseColor(s._effectiveBgColor) : null) ||
+    (inheritedStyles?._effectiveBgColor ? parseColor(inheritedStyles._effectiveBgColor) : null) ||
     { r: 1, g: 1, b: 1 };
 
   if (isTextClip) {
@@ -4051,7 +4051,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       const minC = Math.min(renderColor.r, renderColor.g, renderColor.b);
       const maxC = Math.max(renderColor.r, renderColor.g, renderColor.b);
       const sat = maxC === 0 ? 0 : (maxC - minC) / maxC;
-      const bgLum = 0.2126 * resolvedBgColor.r + 0.7152 * resolvedBgColor.g + 0.0722 * resolvedBgColor.b;
+      const bgLum = 0.2126 * (resolvedBgColor.r ?? 1) + 0.7152 * (resolvedBgColor.g ?? 1) + 0.0722 * (resolvedBgColor.b ?? 1);
       const contrast = Math.abs(lum - bgLum);
 
       // If text color is stuck at a low-contrast muted grey (< 0.25 contrast against bg)
@@ -4421,7 +4421,8 @@ figma.ui.onmessage = async (msg) => {
     try {
       await renderTree(msg.data);
     } catch (e) {
-      figma.ui.postMessage({ type: 'error', message: e.message || String(e) });
+      console.error(e);
+      figma.ui.postMessage({ type: 'error', message: (e.message || String(e)) + (e.stack ? '\n' + e.stack : '') });
     }
   }
 };

@@ -767,6 +767,16 @@
       script.textContent = `
         (function() {
           try {
+            if (window.ScrollSmoother) {
+              try {
+                const smoother = window.ScrollSmoother.get();
+                if (smoother) {
+                  smoother.scrollTop(0);
+                  smoother.paused(true);
+                  smoother.kill();
+                }
+              } catch(e) {}
+            }
             if (window.ScrollTrigger) {
               window.ScrollTrigger.getAll().forEach(st => {
                 try {
@@ -775,6 +785,7 @@
                     try {
                       if (st.animation) st.animation.progress(0);
                       st.scroll(0);
+                      st.kill(true);
                     } catch(_) {}
                     return;
                   }
@@ -1244,11 +1255,14 @@
             if (pinnedChild) {
               const savedTrans = pinnedChild.style.transform;
               const savedTop = pinnedChild.style.top;
+              const savedPos = pinnedChild.style.position;
               pinnedChild.style.setProperty('transform', 'none', 'important');
-              pinnedChild.style.setProperty('top', '0px', 'important');
+              pinnedChild.style.setProperty('top', 'auto', 'important');
+              pinnedChild.style.setProperty('position', 'relative', 'important');
               cleanupTasks.push(() => {
                 pinnedChild.style.transform = savedTrans;
                 pinnedChild.style.top = savedTop;
+                pinnedChild.style.position = savedPos;
               });
             }
           }
@@ -5185,6 +5199,10 @@
       width: clientRect.width,
       height: clientRect.height
     };
+    if (el.offsetWidth !== undefined && el.offsetHeight !== undefined && (el.offsetWidth > 0 || el.offsetHeight > 0)) {
+      docRect.offsetWidth = el.offsetWidth;
+      docRect.offsetHeight = el.offsetHeight;
+    }
     if (el.id === 'smooth-wrapper' || el.id === 'smooth-content') {
       styles.position = 'static';
       styles.overflow = 'visible';
