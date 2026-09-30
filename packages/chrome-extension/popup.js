@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
 
-        showStatus('✅ Capture started! See webpage banner.', 'success');
+        showStatus('✅ Capture started!', 'success');
         setTimeout(() => {
           window.close();
         }, 800);

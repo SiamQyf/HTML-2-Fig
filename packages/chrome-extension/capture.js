@@ -190,13 +190,20 @@
           display: flex; align-items: center; gap: 10px;
           z-index: 2147483647; pointer-events: auto;
           cursor: ${onClick ? 'pointer' : 'default'};
-          transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+          transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .notification-pill.compact {
+          padding: 10px 18px;
+          gap: 0;
         }
         .pill-dot {
           width: 8px; height: 8px; border-radius: 50%;
           background: #00f2fe; box-shadow: 0 0 8px #00f2fe;
           animation: pillDotBlink 1.4s infinite ease-in-out;
           flex-shrink: 0;
+        }
+        .pill-text:empty {
+          display: none;
         }
         @keyframes pillDotBlink {
           0%, 100% { opacity: 1; transform: scale(1); }
@@ -256,7 +263,7 @@
         <div class="corner-radiance bottom-right"></div>
         <div class="corner-radiance bottom-left"></div>
 
-        <div class="notification-pill" id="notificationPill">
+        <div class="notification-pill ${message ? '' : 'compact'}" id="notificationPill">
           <div class="pill-dot"></div>
           <span class="pill-text" id="pillText">${message || ''}</span>
         </div>
@@ -283,10 +290,18 @@
       pill,
       pillText,
       update(text) {
-        if (pillText) pillText.textContent = text;
+        if (pillText) pillText.textContent = text || '';
+        if (pill) {
+          if (text) pill.classList.remove('compact');
+          else pill.classList.add('compact');
+        }
       },
       finish(success, text, finishDuration = 6000, newOnClick) {
         if (text && pillText) pillText.textContent = text;
+        if (pill) {
+          if (text) pill.classList.remove('compact');
+          else pill.classList.add('compact');
+        }
         if (wrapper) {
           wrapper.classList.remove('success', 'error');
           wrapper.classList.add(success ? 'success' : 'error');
@@ -568,6 +583,29 @@
         const savedDisplay = p.style.display;
         p.style.display = 'none';
         cleanupTasks.push(() => { p.style.display = savedDisplay; });
+      }
+    } catch {}
+
+    // Neutralize cookie consent overlays, GDPR modals, and body scroll locks so scrolling reaches all sections
+    try {
+      const consentModals = document.querySelectorAll(
+        '#usercentrics-root, uc-layer2, #onetrust-consent-sdk, #CookiebotWidget, .cookie-banner, [id*="cookie-banner"], [class*="consent-modal"], [id*="consent-prompt"]'
+      );
+      for (const c of consentModals) {
+        const savedDisplay = c.style.display;
+        c.style.display = 'none';
+        cleanupTasks.push(() => { try { c.style.display = savedDisplay; } catch {} });
+      }
+
+      const bodyOverflow = document.body ? document.body.style.overflow : '';
+      const htmlOverflow = document.documentElement ? document.documentElement.style.overflow : '';
+      if (bodyOverflow === 'hidden') {
+        document.body.style.overflow = 'visible';
+        cleanupTasks.push(() => { try { document.body.style.overflow = bodyOverflow; } catch {} });
+      }
+      if (htmlOverflow === 'hidden') {
+        document.documentElement.style.overflow = 'visible';
+        cleanupTasks.push(() => { try { document.documentElement.style.overflow = htmlOverflow; } catch {} });
       }
     } catch {}
 
@@ -3367,7 +3405,7 @@
       if (curCs.position !== 'static' || curCs.transform !== 'none' || curCs.filter !== 'none' || curCs.perspective !== 'none') {
         return cur;
       }
-      cur = cur.parentElement;
+      cur = cur.parentElement || (cur.getRootNode ? cur.getRootNode().host : null);
     }
     return document.body || document.documentElement;
   }
@@ -3465,13 +3503,15 @@
         };
       }
 
-      // Skip truly invisible pseudo-elements — but NOT ones with visible borders or background images (dotted/dashed leader lines)
+      // Skip truly invisible pseudo-elements — but NOT ones with visible borders, background color/image, or text content
+      const rawTextContent = (content || '').replace(/^["']|["']$/g, '').trim();
       const hasPseudoBorder = (cs.borderTopStyle && cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) > 0) ||
                               (cs.borderBottomStyle && cs.borderBottomStyle !== 'none' && parseFloat(cs.borderBottomWidth) > 0) ||
                               (cs.borderLeftStyle && cs.borderLeftStyle !== 'none' && parseFloat(cs.borderLeftWidth) > 0) ||
                               (cs.borderRightStyle && cs.borderRightStyle !== 'none' && parseFloat(cs.borderRightWidth) > 0);
-      const hasPseudoBg = cs.backgroundImage && cs.backgroundImage !== 'none';
-      if (!hasPseudoBorder && !hasPseudoBg && (parseFloat(cs.width) === 0 || parseFloat(cs.height) === 0)) return null;
+      const hasPseudoBg = (cs.backgroundImage && cs.backgroundImage !== 'none') || (cs.backgroundColor && cs.backgroundColor !== 'transparent' && cs.backgroundColor !== 'rgba(0, 0, 0, 0)');
+      const hasPseudoShadow = cs.boxShadow && cs.boxShadow !== 'none';
+      if (!hasPseudoBorder && !hasPseudoBg && !rawTextContent && !hasPseudoShadow) return null;
 
       const styles = {};
       for (const [prop, defVal] of Object.entries(CSS_DEFAULTS)) {
@@ -3641,12 +3681,43 @@
       } else {
         const parentCs = window.getComputedStyle(el);
         const isFlex = parentCs.display && parentCs.display.includes('flex');
+        const isGrid = parentCs.display && parentCs.display.includes('grid');
         const isFixed = isElementOrAncestorFixed(el, parentCs);
         const fixedShiftY = isFixed ? getFixedShiftY(el, parentCs) : 0;
         const scrollX = isFixed ? 0 : window.scrollX;
         const scrollY = (isFixed ? 0 : window.scrollY) + fixedShiftY;
 
-        if (isFlex) {
+        if (isGrid) {
+          try {
+            const probe = document.createElement('div');
+            probe.style.gridArea = cs.gridArea || 'auto';
+            probe.style.gridColumn = cs.gridColumn || 'auto';
+            probe.style.gridRow = cs.gridRow || 'auto';
+            probe.style.width = cs.width;
+            probe.style.height = cs.height;
+            probe.style.position = cs.position;
+            probe.style.alignSelf = cs.alignSelf;
+            probe.style.justifySelf = cs.justifySelf;
+            probe.style.margin = cs.margin;
+            probe.style.boxSizing = cs.boxSizing;
+            probe.style.visibility = 'hidden';
+            probe.style.pointerEvents = 'none';
+            el.appendChild(probe);
+            const pRect = probe.getBoundingClientRect();
+            probe.remove();
+            if (pRect.width > 0 && pRect.height > 0) {
+              pseudoRect.x = pRect.x + scrollX;
+              pseudoRect.y = pRect.y + scrollY;
+              pseudoRect.width = pRect.width;
+              pseudoRect.height = pRect.height;
+            } else {
+              pseudoRect.x = parentRect.x;
+              pseudoRect.width = Math.min(parentRect.width, parseFloat(cs.width) || parentRect.width);
+            }
+          } catch (e) {
+            pseudoRect.x = parentRect.x;
+          }
+        } else if (isFlex) {
           const isRow = !parentCs.flexDirection || parentCs.flexDirection.startsWith('row');
           const colGap = parseFloat(parentCs.columnGap || parentCs.gap) || 0;
           const rowGap = parseFloat(parentCs.rowGap || parentCs.gap) || 0;
@@ -3766,7 +3837,15 @@
               pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
             }
           } else if (pseudo === '::after') {
-            if (el.lastChild) {
+            const isWideOverlay = (pseudoRect.width >= parentRect.width * 0.4) || cs.display === 'block';
+            if (isWideOverlay) {
+              pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0) + (parseFloat(cs.marginLeft) || 0);
+              if (cs.position === 'static') {
+                pseudoRect.y = parentRect.y + parentRect.height - pseudoRect.height - (parseFloat(parentCs.paddingBottom) || 0);
+              } else {
+                pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+              }
+            } else if (el.lastChild) {
               const r = document.createRange();
               try {
                 r.selectNodeContents(el.lastChild);
@@ -3862,13 +3941,99 @@
             sy = Math.sqrt(c * c + d * d);
             tx = vals[4]; ty = vals[5];
           }
-          pseudoRect.x += tx;
-          pseudoRect.y += ty;
-          pseudoRect.width *= Math.abs(sx);
-          pseudoRect.height *= Math.abs(sy);
-          if (Math.abs(sx) !== 1 || Math.abs(sy) !== 1) {
+
+          const origW = pseudoRect.width;
+          const origH = pseudoRect.height;
+          let ox = origW / 2;
+          let oy = origH / 2;
+          if (cs.transformOrigin) {
+            const oParts = cs.transformOrigin.trim().split(/\s+/);
+            const parseOrigin = (val, ref) => {
+              if (!val) return ref / 2;
+              if (val.endsWith('px')) return parseFloat(val);
+              if (val.endsWith('%')) return (parseFloat(val) / 100) * ref;
+              const n = parseFloat(val);
+              return isNaN(n) ? ref / 2 : n;
+            };
+            if (oParts.length >= 1) ox = parseOrigin(oParts[0], origW);
+            if (oParts.length >= 2) oy = parseOrigin(oParts[1], origH);
+            else oy = ox;
+          }
+
+          const absSx = Math.abs(sx);
+          const absSy = Math.abs(sy);
+          const preCenterX = pseudoRect.x + origW / 2;
+          const preCenterY = pseudoRect.y + origH / 2;
+
+          pseudoRect.x += tx + ox * (1 - absSx);
+          pseudoRect.y += ty + oy * (1 - absSy);
+          pseudoRect.width = origW * absSx;
+          pseudoRect.height = origH * absSy;
+
+          // Circular concentric ripple guard:
+          // If the pseudo element was concentric with baseRect before transform (e.g. pulsing circular ripple rings),
+          // ensure pure scaling (tx ~ 0, ty ~ 0) keeps it perfectly concentric with baseRect's center!
+          const bCenterX = baseRect.x + baseRect.width / 2;
+          const bCenterY = baseRect.y + baseRect.height / 2;
+          const isCircle = cs.borderRadius === '50%' || parseFloat(cs.borderRadius) >= Math.min(pseudoRect.width, pseudoRect.height) * 0.45;
+          if (isCircle && Math.abs(tx) <= 0.5 && Math.abs(ty) <= 0.5) {
+            if (Math.abs(preCenterX - bCenterX) <= 1.5 && Math.abs(preCenterY - bCenterY) <= 1.5) {
+              pseudoRect.x = bCenterX - pseudoRect.width / 2;
+              pseudoRect.y = bCenterY - pseudoRect.height / 2;
+            }
+          }
+
+          if (absSx !== 1 || absSy !== 1) {
             const currentFontSize = parseFloat(styles.fontSize) || 16;
-            styles.fontSize = `${currentFontSize * Math.abs(sy)}px`;
+            styles.fontSize = `${currentFontSize * absSy}px`;
+          }
+        }
+      }
+
+      // Handle the individual CSS `scale` property
+      if (cs.scale && cs.scale !== 'none') {
+        const sParts = cs.scale.trim().split(/\s+/).map(parseFloat);
+        const scX = sParts[0] || 1;
+        const scY = sParts[1] !== undefined ? sParts[1] : scX;
+        if (Math.abs(scX) >= 0.001 && Math.abs(scY) >= 0.001) {
+          const origW = pseudoRect.width;
+          const origH = pseudoRect.height;
+          let ox = origW / 2;
+          let oy = origH / 2;
+          if (cs.transformOrigin) {
+            const oParts = cs.transformOrigin.trim().split(/\s+/);
+            const parseOrigin = (val, ref) => {
+              if (!val) return ref / 2;
+              if (val.endsWith('px')) return parseFloat(val);
+              if (val.endsWith('%')) return (parseFloat(val) / 100) * ref;
+              const n = parseFloat(val);
+              return isNaN(n) ? ref / 2 : n;
+            };
+            if (oParts.length >= 1) ox = parseOrigin(oParts[0], origW);
+            if (oParts.length >= 2) oy = parseOrigin(oParts[1], origH);
+            else oy = ox;
+          }
+          const absScX = Math.abs(scX);
+          const absScY = Math.abs(scY);
+          const preCenterX = pseudoRect.x + origW / 2;
+          const preCenterY = pseudoRect.y + origH / 2;
+
+          pseudoRect.x += ox * (1 - absScX);
+          pseudoRect.y += oy * (1 - absScY);
+          pseudoRect.width = origW * absScX;
+          pseudoRect.height = origH * absScY;
+
+          const bCenterX = baseRect.x + baseRect.width / 2;
+          const bCenterY = baseRect.y + baseRect.height / 2;
+          const isCircle = cs.borderRadius === '50%' || parseFloat(cs.borderRadius) >= Math.min(pseudoRect.width, pseudoRect.height) * 0.45;
+          if (isCircle && Math.abs(preCenterX - bCenterX) <= 1.5 && Math.abs(preCenterY - bCenterY) <= 1.5) {
+            pseudoRect.x = bCenterX - pseudoRect.width / 2;
+            pseudoRect.y = bCenterY - pseudoRect.height / 2;
+          }
+
+          if (absScY !== 1) {
+            const currentFontSize = parseFloat(styles.fontSize) || 16;
+            styles.fontSize = `${currentFontSize * absScY}px`;
           }
         }
       }
@@ -3994,56 +4159,163 @@
     }
   }
 
-  /*
-   * Computes the effective z-index of a node within its stacking context.
-   * If the node has an explicit numeric z-index, that value is used.
-   * If the node has z-index: auto and does not establish an isolated stacking
-   * context (via opacity, transform, filter, etc.), any positive or negative
-   * z-index from descendant nodes (such as inner copy or CTA buttons) bubbles up.
-   */
-  function getNodeEffectiveZIndex(node) {
+  function getRawStackingLevel(s) {
+    if (!s) return 0;
+    const zRaw = s.zIndex;
+    const pos = s.position || 'static';
+    const isPos = pos === 'absolute' || pos === 'fixed' || pos === 'relative' || pos === 'sticky';
+
+    if (zRaw && zRaw !== 'auto') {
+      const parsed = parseInt(zRaw, 10);
+      if (!isNaN(parsed)) {
+        if (parsed < 0) {
+          // Negative z-index: strictly preserved below 0. Scale by 100,000 so -1 is -100,000.
+          return parsed * 100000;
+        }
+        if (parsed === 0) {
+          return 1000;
+        }
+        // Positive z-index: strictly above positioned-auto (1000). e.g. z=1 -> 100,000; z=2 -> 200,000
+        return parsed * 100000;
+      }
+    }
+
+    // Positioned elements with z-index: auto/0 stack above normal in-flow static elements (0)
+    if (isPos) {
+      const isBackdrop = (s.backdropFilter && s.backdropFilter !== 'none' && s.backdropFilter.includes('blur')) ||
+                         (s.webkitBackdropFilter && s.webkitBackdropFilter !== 'none' && s.webkitBackdropFilter.includes('blur'));
+      if (isBackdrop) return 500;
+      return 1000;
+    }
+
+    return 0;
+  }
+
+  function createsStackingContext(node) {
+    if (!node) return false;
+    const s = node.styles || {};
+    const zRaw = s.zIndex;
+    const pos = s.position || 'static';
+    const isPos = pos === 'absolute' || pos === 'fixed' || pos === 'relative' || pos === 'sticky';
+
+    if (node.tag === 'HTML' || node.tag === 'BODY') return true;
+    if (isPos && zRaw && zRaw !== 'auto') return true;
+    if (pos === 'fixed' || pos === 'sticky') return true;
+    if (s.opacity && parseFloat(s.opacity) < 0.999) return true;
+    if (s.transform && s.transform !== 'none') return true;
+    if (s.filter && s.filter !== 'none') return true;
+    if (s.clipPath && s.clipPath !== 'none') return true;
+    if ((s.mask && s.mask !== 'none') || (s.maskImage && s.maskImage !== 'none') || (s.webkitMaskImage && s.webkitMaskImage !== 'none')) return true;
+    if (s.isolation === 'isolate') return true;
+    if (s.mixBlendMode && s.mixBlendMode !== 'normal') return true;
+
+    return false;
+  }
+
+  function getMaxDescendantZ(node) {
+    let maxZ = 0;
+
+    function scan(cn) {
+      if (!cn) return;
+      const all = [];
+      if (cn.pseudoElementNodes?.before) all.push(cn.pseudoElementNodes.before);
+      if (cn.childNodes) {
+        for (let i = 0; i < cn.childNodes.length; i++) all.push(cn.childNodes[i]);
+      }
+      if (cn.pseudoElementNodes?.after) all.push(cn.pseudoElementNodes.after);
+
+      for (const c of all) {
+        const cLevel = getRawStackingLevel(c.styles);
+        if (cLevel > maxZ) {
+          maxZ = cLevel;
+        }
+        if (!createsStackingContext(c)) {
+          scan(c);
+        }
+      }
+    }
+
+    scan(node);
+    return maxZ;
+  }
+
+  function isBackgroundOverlay(node) {
+    if (!node) return false;
+    const cls = (node.attributes?.class || '').toLowerCase();
+    const id = (node.attributes?.id || node.id || '').toLowerCase();
+    const tag = (node.tag || '').toLowerCase();
+
+    if (/\b(?:lines|grid-lines|bg-lines|background-lines|stripes|bg-stripes|pattern-bg|bg-pattern|section-lines|banner-lines|bg-shape|shape-bg|bg-overlay|overlay-bg|bottom-image-layer)\b/.test(cls) ||
+        /\b(?:lines|grid-lines|bg-lines|stripes|bg-stripes|pattern-bg)\b/.test(id)) {
+      return true;
+    }
+    if (tag === 'svg' && (id.includes('svg-bg') || cls.includes('lines') || cls.includes('stripes'))) {
+      return true;
+    }
+    const bgImg = (node.styles?.backgroundImage || '').toLowerCase();
+    if (bgImg && (bgImg.includes('stripe') || bgImg.includes('pattern') || bgImg.includes('grid') || bgImg.includes('texture') || bgImg.includes('mesh'))) {
+      return true;
+    }
+    if (node.attributes?.src) {
+      const src = node.attributes.src.toLowerCase();
+      if (src.includes('stripe') || src.includes('grid') || src.includes('pattern') || src.includes('texture') || src.includes('mesh')) {
+        return true;
+      }
+    }
+    if (node.styles?.mixBlendMode === 'multiply' && (cls.includes('parallax') || cls.includes('layer') || cls.includes('bg'))) {
+      return true;
+    }
+    return false;
+  }
+
+  function computeEffectiveZIndex(node, isPageRoot = false) {
     if (!node) return 0;
-    const z = node.styles?.zIndex && node.styles.zIndex !== 'auto' ? parseInt(node.styles.zIndex, 10) : null;
-    if (z !== null && !isNaN(z)) {
+    const s = node.styles || {};
+    let z = getRawStackingLevel(s);
+
+    // Nav bar / header pinned to top tier
+    if (isNavOrHeader(node) || containsNavOrHeader(node)) {
+      z = Math.max(z, 1000000000);
+    }
+    if (containsNavButton(node)) {
+      z = Math.max(z, 1000000600);
+    } else if (containsNavLogo(node)) {
+      z = Math.max(z, 1000000500);
+    }
+
+    // Strictly preserve negative z-index: in CSS, elements with negative z-index (e.g. -1)
+    // MUST render behind in-flow content and positioned elements. Never clobber to 0!
+    if (z < 0) {
       return z;
     }
-    const s = node.styles || {};
-    const isIsolated = (
-      (s.opacity && parseFloat(s.opacity) < 0.999) ||
-      (s.transform && s.transform !== 'none') ||
-      (s.filter && s.filter !== 'none') ||
-      (s.isolation === 'isolate') ||
-      (s.mixBlendMode && s.mixBlendMode !== 'normal')
-    );
-    if (isIsolated) return 0;
 
-    let maxZ = 0;
-    let minZ = 0;
+    // Background overlay / stripes protection:
+    // If an element is a background grid/stripes/lines overlay without explicit positive z-index,
+    // ensure it never floats above foreground content.
+    if (isBackgroundOverlay(node) && z <= 100000) {
+      return -500;
+    }
 
-    if (node.pseudoElementNodes) {
-      if (node.pseudoElementNodes.before) {
-        const bZ = getNodeEffectiveZIndex(node.pseudoElementNodes.before);
-        if (bZ > maxZ) maxZ = bZ;
-        if (bZ < minZ) minZ = bZ;
-      }
-      if (node.pseudoElementNodes.after) {
-        const aZ = getNodeEffectiveZIndex(node.pseudoElementNodes.after);
-        if (aZ > maxZ) maxZ = aZ;
-        if (aZ < minZ) minZ = aZ;
+    // Top-level page sections (direct children of body/page-wrapper) with default or auto z-index
+    // maintain natural DOM order to prevent later sections from jumping over earlier ones
+    const isSectionTag = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(node.tag);
+    if (isPageRoot && isSectionTag && (s.zIndex === 'auto' || !s.zIndex) && z < 1000000000) {
+      return 0;
+    }
+
+    // CSS Stacking Context propagation:
+    // If this container does NOT establish an isolated stacking context,
+    // bubble up the maximum positive stacking level of its descendants so
+    // positioned children (like badges, buttons, foreground cards) are NEVER
+    // obscured by sibling background overlays that have lower z-index!
+    if (!createsStackingContext(node)) {
+      const descZ = getMaxDescendantZ(node);
+      if (descZ > z) {
+        z = descZ;
       }
     }
 
-    if (node.childNodes && node.childNodes.length > 0) {
-      for (const child of node.childNodes) {
-        const childZ = getNodeEffectiveZIndex(child);
-        if (childZ > maxZ) maxZ = childZ;
-        if (childZ < minZ) minZ = childZ;
-      }
-    }
-
-    if (maxZ > 0) return maxZ;
-    if (minZ < 0) return minZ;
-    return 0;
+    return z;
   }
 
   function getTextNodeStyles(parentStyles) {
@@ -4055,6 +4327,10 @@
     delete s.opacity;
     if (s.color) {
       s.color = brightenColorAlpha(s.color);
+    }
+    if (parentStyles._activeTextDecoration && (!s.textDecorationLine || s.textDecorationLine === 'none')) {
+      s.textDecorationLine = parentStyles._activeTextDecoration;
+      s.textDecoration = parentStyles._activeTextDecoration;
     }
     return s;
   }
@@ -4405,14 +4681,31 @@
         let unrotH = undefined;
 
         if (isRotated && node.parentElement) {
-          if (!parentHasMultipleChildren) {
-            const pW = node.parentElement.offsetWidth || node.parentElement.clientWidth;
-            const pH = node.parentElement.offsetHeight || node.parentElement.clientHeight;
-            if (pW > 0) unrotW = pW;
-            if (pH > 0) unrotH = pH;
-          } else {
-            unrotW = Math.ceil(rect.height);
-            unrotH = Math.ceil(rect.width);
+          const isVertWriting = parentStyles?.writingMode && parentStyles.writingMode.includes('vertical');
+          let isNear90 = false;
+          try {
+            const cs = window.getComputedStyle(node.parentElement);
+            const tf = cs.transform;
+            if (tf && tf !== 'none') {
+              const parts = tf.match(/matrix(?:3d)?\(([^)]+)\)/);
+              if (parts) {
+                const vals = parts[1].split(',').map(s => parseFloat(s.trim()));
+                const a = vals[0], b = vals[1];
+                const angle = Math.abs(Math.atan2(b, a) * (180 / Math.PI));
+                if (Math.abs(angle - 90) < 10 || Math.abs(angle - 270) < 10) isNear90 = true;
+              }
+            }
+          } catch (e) {}
+          if (isVertWriting || isNear90) {
+            if (!parentHasMultipleChildren) {
+              const pW = node.parentElement.offsetWidth || node.parentElement.clientWidth;
+              const pH = node.parentElement.offsetHeight || node.parentElement.clientHeight;
+              if (pW > 0) unrotW = pW;
+              if (pH > 0) unrotH = pH;
+            } else {
+              unrotW = Math.ceil(rect.height);
+              unrotH = Math.ceil(rect.width);
+            }
           }
         } else if (clientRects.length > 1 && node.parentElement) {
           try {
@@ -4429,10 +4722,17 @@
               const borderL = parseFloat(bCs.borderLeftWidth) || 0;
               const borderR = parseFloat(bCs.borderRightWidth) || 0;
               const bRect = blockEl.getBoundingClientRect();
-              const bContentW = bRect.width - padL - padR - borderL - borderR;
+              const bContentW = Math.max(1, bRect.width - padL - padR - borderL - borderR);
               const contentRight = bRect.x + padL + borderL + bContentW;
               const availW = contentRight - rect.x;
-              if (availW > textW) {
+
+              const isCentered = bCs.textAlign === 'center' || parentStyles?.textAlign === 'center';
+              const isRight = bCs.textAlign === 'right' || bCs.textAlign === 'end' || parentStyles?.textAlign === 'right' || parentStyles?.textAlign === 'end';
+
+              if (isCentered || isRight) {
+                textX = bRect.x + padL + borderL + scrollX;
+                textW = Math.ceil(bContentW);
+              } else if (availW > textW) {
                 const isAtLeftEdge = Math.abs(rect.x - (bRect.x + padL + borderL)) < 4;
                 if (!parentHasMultipleChildren || isAtLeftEdge) {
                   textW = Math.ceil(availW);
@@ -4666,7 +4966,41 @@
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE'].includes(tag)) return null;
 
     const styles = getElementStyles(el);
+    let activeTextDecoration = parentStyles?._activeTextDecoration || null;
+    const elDec = (styles.textDecorationLine || styles.textDecoration || '').toLowerCase();
+    if (elDec.includes('underline')) {
+      activeTextDecoration = 'underline';
+    } else if (elDec.includes('line-through')) {
+      activeTextDecoration = 'line-through';
+    }
+    styles._activeTextDecoration = activeTextDecoration;
+
+    if (tag === 'SLOT') {
+      const assigned = (typeof el.assignedNodes === 'function')
+        ? el.assignedNodes({ flatten: true })
+        : [];
+      const nodesToSerialize = assigned.length > 0 ? assigned : Array.from(el.childNodes);
+      const results = [];
+      for (const n of nodesToSerialize) {
+        const s = await serializeNode(n, assets, fonts, parentStyles || styles);
+        if (s) {
+          if (Array.isArray(s)) results.push(...s);
+          else results.push(s);
+        }
+      }
+      return results;
+    }
+
     let isHidden = (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02);
+
+    // If an image is fully loaded with dimensions but marked hidden by lazy loading or poster classes (e.g. Porsche car cards), don't drop it!
+    if ((tag === 'IMG' || el instanceof HTMLImageElement) && (el.currentSrc || el.src) && (el.naturalWidth > 10 || el.complete)) {
+      if (styles.display !== 'none') {
+        styles.visibility = 'visible';
+        styles.opacity = '1';
+        isHidden = false;
+      }
+    }
 
     const cls = (el.className && typeof el.className === 'string') ? el.className : '';
     const isCarouselOrTab = !!(el.closest && el.closest('.swiper-slide, .slick-slide, .owl-item, .carousel-item, .splide__slide, .tab-pane'));
@@ -4856,6 +5190,15 @@
     let posX = clientRect.x + (isFixed ? 0 : window.scrollX);
     let posY = clientRect.y + (isFixed ? 0 : window.scrollY) + fixedShiftY;
 
+    // Parallax Jarallax image alignment:
+    // Parallax scripts shift the image Y mid-scroll; anchor jarallax-img relative Y to parent
+    if (el.className && typeof el.className === 'string' && el.className.includes('jarallax-img') && el.parentElement) {
+      const pRect = el.parentElement.getBoundingClientRect();
+      const pIsFixed = isElementOrAncestorFixed(el.parentElement, window.getComputedStyle(el.parentElement));
+      const pScrollY = (pIsFixed ? 0 : window.scrollY) + (pIsFixed ? getFixedShiftY(el.parentElement, window.getComputedStyle(el.parentElement)) : 0);
+      posY = pRect.y + pScrollY;
+    }
+
     const docRect = {
       x: posX,
       y: posY,
@@ -4968,6 +5311,19 @@
             } else {
               svgContent = svgText;
               tag = 'SVG';
+            }
+
+            if (svgContent) {
+              const hasMask = (styles.maskImage && styles.maskImage !== 'none') || (styles.webkitMaskImage && styles.webkitMaskImage !== 'none');
+              if (hasMask) {
+                const maskTint = (styles.backgroundColor && styles.backgroundColor !== 'transparent' && styles.backgroundColor !== 'rgba(0, 0, 0, 0)')
+                  ? styles.backgroundColor
+                  : (styles.color || 'rgb(255, 255, 255)');
+                if (!/<svg\b[^>]*?\bfill=/i.test(svgContent)) {
+                  svgContent = svgContent.replace(/<svg\b/i, `<svg fill="${maskTint}" `);
+                }
+                styles.backgroundColor = 'transparent';
+              }
             }
           }
         } catch {}
@@ -5278,43 +5634,6 @@
           const itemsToAdd = Array.isArray(sChild) ? sChild : [sChild];
           for (const item of itemsToAdd) {
             childNodes.push(item);
-            
-            // Flatten out escaping descendants (CSS stacking context simulation)
-            const cs = item.styles || {};
-            const isPositioned = cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'fixed' || cs.position === 'sticky';
-            const hasZ = cs.zIndex && cs.zIndex !== 'auto';
-            
-            let createsSC = false;
-            if (hasZ && isPositioned) createsSC = true;
-            if (cs.opacity && parseFloat(cs.opacity) < 1) createsSC = true;
-            if (cs.transform && cs.transform !== 'none') createsSC = true;
-            if (cs.filter && cs.filter !== 'none') createsSC = true;
-            if (cs.clipPath && cs.clipPath !== 'none') createsSC = true;
-            if (cs.isolation === 'isolate') createsSC = true;
-            if (cs.maskImage && cs.maskImage !== 'none') createsSC = true;
-            if (cs.webkitMaskImage && cs.webkitMaskImage !== 'none') createsSC = true;
-            
-            const isSectionBoundary = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE', 'BODY', 'HTML'].includes(tag);
-            const isInteractive = /btn|button|nav|menu|badge|dropdown|card/i.test(item.attributes?.class || '') ||
-              ['A', 'BUTTON', 'LI', 'SPAN', 'LABEL', 'INPUT'].includes(item.tag);
-            if (!createsSC && !isSectionBoundary && !isInteractive && item.childNodes && item.childNodes.length > 0) {
-              let j = 0;
-              while (j < item.childNodes.length) {
-                const gc = item.childNodes[j];
-                const gcs = gc.styles || {};
-                const zVal = parseInt(gcs.zIndex, 10);
-                const isLayoutContainer = /swiper|carousel|slider|wrapper|section|container|col-|row/i.test(gc.attributes?.class || '') ||
-                  ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(gc.tag);
-                const isEscapablePos = gcs.position === 'absolute' || gcs.position === 'fixed';
-                
-                if (!isLayoutContainer && isEscapablePos && zVal >= 3) {
-                  const extracted = item.childNodes.splice(j, 1)[0];
-                  childNodes.push(extracted);
-                } else {
-                  j++;
-                }
-              }
-            }
           }
         }
       }
@@ -5322,104 +5641,22 @@
       // Harmonize child text colors and opacities (ensures scroll-reveal words/chars all receive the brightened color)
       harmonizeChildTextColors(childNodes, styles);
 
-      // Sort child nodes according to CSS stacking order rules while preserving DOM order
-      // CSS rules: position:absolute/fixed/relative with z-index:auto stacks ABOVE position:static siblings
+      // Sort child nodes according to CSS stacking order rules while strictly preserving DOM order
       if (childNodes.length > 1) {
         const isPageLayoutOrBody = ['BODY', 'HTML'].includes(tag) || (el.className && typeof el.className === 'string' && /page-layout|page-wrapper|main-wrapper|site-wrapper/i.test(el.className));
 
         childNodes.forEach((child, idx) => {
+          if (child._domIndex === undefined) {
+            child._domIndex = idx;
+          }
           child._originalIdx = idx;
-          const cs = child.styles || {};
-          const isPositioned = cs.position === 'absolute' || cs.position === 'fixed' || cs.position === 'relative' || cs.position === 'sticky';
-          const isBackdrop = (cs.backdropFilter && cs.backdropFilter !== 'none' && cs.backdropFilter.includes('blur')) ||
-                             (cs.webkitBackdropFilter && cs.webkitBackdropFilter !== 'none' && cs.webkitBackdropFilter.includes('blur'));
-          let zVal = 0;
-          if (cs.zIndex && cs.zIndex !== 'auto') {
-            const parsed = parseInt(cs.zIndex, 10);
-            if (!isNaN(parsed)) {
-              zVal = parsed === 0 ? 1 : parsed * 2;
-            }
-          } else {
-            if (isPositioned && !isBackdrop) {
-              zVal = 1;
-            }
-          }
-
-          // If child contains position:fixed descendants (e.g. fixed nav inside static header), boost its stacking level.
-          // For non-section containers, also check for relative/absolute descendants if the container does not establish an isolated stacking context.
-          const isSection = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(child.tag);
-          const isSectionLevel = isPageLayoutOrBody || isSection;
-          const childCreatesSC = (cs.zIndex && cs.zIndex !== 'auto' && isPositioned) ||
-                                 (cs.opacity && parseFloat(cs.opacity) < 1) ||
-                                 (cs.transform && cs.transform !== 'none') ||
-                                 (cs.filter && cs.filter !== 'none') ||
-                                 (cs.clipPath && cs.clipPath !== 'none') ||
-                                 (cs.isolation === 'isolate');
-          if (!childCreatesSC && child.childNodes) {
-            const getDescZ = (cn) => {
-              let m = 0;
-              if (cn.childNodes) {
-                for (const c of cn.childNodes) {
-                  const s = c.styles || {};
-                  const parsedZ = s.zIndex && s.zIndex !== 'auto' ? (parseInt(s.zIndex, 10) || 0) * 2 : 0;
-                  if (s.position === 'fixed') {
-                    m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
-                  } else if (child.tag === 'HEADER' && (s.position === 'absolute' || s.position === 'relative' || s.position === 'sticky')) {
-                    // Header's positioned children always elevate the header above hero sections
-                    m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
-                  } else if (!isSectionLevel && (s.position === 'absolute' || s.position === 'relative' || s.position === 'sticky')) {
-                    // Do not aggressively bubble z-index for normal layout containers, as it incorrectly lifts their static siblings (e.g. the doctor image).
-                    m = Math.max(m, 1);
-                  } else if (isSectionLevel && (s.position === 'absolute' || s.position === 'fixed') && parsedZ >= 6) {
-                    m = Math.max(m, parsedZ);
-                  }
-                  // Stop descending if c creates an isolated stacking context (its internal z-index cannot escape)
-                  const cCreatesSC = (s.zIndex && s.zIndex !== 'auto' && (s.position === 'relative' || s.position === 'absolute' || s.position === 'fixed')) ||
-                                     (s.opacity && parseFloat(s.opacity) < 1) ||
-                                     (s.transform && s.transform !== 'none') ||
-                                     (s.filter && s.filter !== 'none') ||
-                                     (s.clipPath && s.clipPath !== 'none') ||
-                                     (s.isolation === 'isolate');
-                  if (!cCreatesSC) {
-                    m = Math.max(m, getDescZ(c));
-                  }
-                }
-              }
-              return m;
-            };
-            const descZ = getDescZ(child);
-            if (descZ > zVal) zVal = descZ;
-          }
-
-          // Section-level flow protection: direct children of page/body or section-level elements
-          // should NEVER be reordered against each other unless one of them has an explicit non-zero z-index or fixed descendant
-          if (isSectionLevel && zVal <= 2 && !isNavOrHeader(child) && !containsNavOrHeader(child)) {
-            zVal = 0;
-          }
-
-          // Force nav bar / header to top layer above all sections, hero banners, overlays, modals, and cursor wrappers
-          if (isNavOrHeader(child) || containsNavOrHeader(child)) {
-            zVal = Math.max(zVal, 1000000000);
-          }
-
-          // Inside the navigation bar or general layout: Nav Button and Nav Logo must always be on the highest layers
-          if (containsNavButton(child)) {
-            zVal = Math.max(zVal, 1000000600);
-          } else if (containsNavLogo(child)) {
-            zVal = Math.max(zVal, 1000000500);
-          }
-
-          child._effectiveZIndex = zVal;
+          child._effectiveZIndex = computeEffectiveZIndex(child, isPageLayoutOrBody);
         });
+
         childNodes.sort((a, b) => {
           const diff = a._effectiveZIndex - b._effectiveZIndex;
-          return diff !== 0 ? diff : a._originalIdx - b._originalIdx;
+          return diff !== 0 ? diff : a._domIndex - b._domIndex;
         });
-        for (const child of childNodes) {
-          // delete child._effectiveZIndex;
-          // delete child._maxDescendantZ;
-          // delete child._originalIdx;
-        }
       }
     }
 
@@ -5694,7 +5931,7 @@
 
     let halo = null;
     try {
-      halo = showEdgeLighting('⏳ Pre-rendering full webpage…');
+      halo = showEdgeLighting();
 
       let payload = await captureRaw();
 
@@ -5725,22 +5962,23 @@
 
       const ok = await writeClipboard(json);
 
+      const completionMsg = 'HyperNodes captured, Open our Figma plugin and paste (Ctrl/ Cmd + V)';
       if (ok) {
         if (halo) {
-          halo.finish(true, '✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
+          halo.finish(true, completionMsg, 6000);
         } else {
-          showEdgeLighting('✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
+          showEdgeLighting(completionMsg, 6000);
         }
       } else {
         if (halo) {
           halo.finish(false, '⚠️ Click here to copy captured data to clipboard', 15000, async (el) => {
             try {
               await navigator.clipboard.writeText(json);
-              el.textContent = '✅ Copied to clipboard! Paste into Figma plugin (Ctrl+V)';
+              el.textContent = completionMsg;
               el.style.borderColor = 'rgba(52, 211, 153, 0.5)';
             } catch (e) {
               writeClipboard(json);
-              el.textContent = '✅ Copied! Paste into Figma plugin (Ctrl+V)';
+              el.textContent = completionMsg;
             }
           });
         }

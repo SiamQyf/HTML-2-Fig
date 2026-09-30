@@ -227,10 +227,11 @@ const FONT_WEIGHT_MAP = {
 
 async function loadFont(family, weight, italic, fontStretch, visualDensity, visualStretch) {
   const familyRaw = (family || 'Inter').replace(/['"]/g, '');
-  const fontList = familyRaw.split(',').map(f => f.trim());
-  const cleanFamily = fontList[0];
+  const fontList = familyRaw.split(',').map(f => f.trim()).filter(Boolean);
+  const cleanFamily = fontList[0] || 'Inter';
   
   // 1. Determine the CSS weight key first
+  const fullFamilyString = familyRaw.toLowerCase();
   const familyLower = cleanFamily.toLowerCase();
   let cssWeightKey = '400';
   if (familyLower.includes('thin') || familyLower.includes('hairline')) cssWeightKey = '100';
@@ -257,23 +258,43 @@ async function loadFont(family, weight, italic, fontStretch, visualDensity, visu
     else visualWeightKey = '100';
   }
 
-  // Extract stretch from font family name if present
+  // Extract stretch from the PRIMARY font family name or explicit CSS fontStretch.
+  // Do NOT check the entire fallback stack — a stack like '"Porsche Next", "Arial Narrow", Arial'
+  // has Arial Narrow as a FALLBACK, not because Porsche Next itself is condensed.
   let stretchLower = (fontStretch || '').toLowerCase();
-  if (familyLower.includes('condensed') || familyLower.includes('compressed') || familyLower.includes('narrow') || familyLower.includes('extracond')) {
+  if (
+    familyLower.includes('condensed') ||
+    familyLower.includes('compressed') ||
+    familyLower.includes('narrow') ||
+    familyLower.includes('extracond')
+  ) {
     stretchLower = 'condensed';
   }
 
+  // visualStretch is measured from the actual rendered glyphs via canvas.
+  // It can only SET condensed (< 0.60) or expanded (> 0.72);
+  // the 0.60-0.72 "normal" range does NOT override an already-condensed name detection.
   if (visualStretch !== undefined && visualStretch !== null) {
-    if (visualStretch < 0.53) {
+    if (visualStretch < 0.60) {
       stretchLower = 'condensed';
-    } else if (visualStretch > 0.70) {
-      stretchLower = 'expanded';
+    } else if (visualStretch > 0.72) {
+      // Only set expanded if not already marked condensed by name
+      if (!stretchLower.includes('condensed') && !stretchLower.includes('narrow')) {
+        stretchLower = 'expanded';
+      }
     }
   }
 
-  // Remove the weight/stretch descriptors from the family name to get the true base family
-  let baseFamily = cleanFamily.replace(/\b(Thin|Hairline|Extra\s?Light|Ultra\s?Light|Light|Medium|Semi\s?Bold|Demi\s?Bold|Extra\s?Bold|Ultra\s?Bold|Bold|Black|Heavy|Condensed|Compressed|Narrow|ExtraCond)\b/gi, '').trim();
-  if (!baseFamily) baseFamily = cleanFamily;
+  const isCondensed = stretchLower.includes('condensed') ||
+                      stretchLower.includes('compressed') ||
+                      stretchLower.includes('narrow') ||
+                      (parseFloat(stretchLower) < 100);
+
+  function getBaseFamilyName(fam) {
+    let base = fam.replace(/\b(Thin|Hairline|Extra\s?Light|Ultra\s?Light|Light|Medium|Semi\s?Bold|Demi\s?Bold|Extra\s?Bold|Ultra\s?Bold|Bold|Black|Heavy|Condensed|Compressed|Narrow|ExtraCond)\b/gi, '').trim();
+    return base || fam;
+  }
+  let baseFamily = getBaseFamilyName(cleanFamily);
   
   const WEIGHT_FALLBACK_SEQUENCE = {
     '100': ['100', '200', '300', '400'],
@@ -302,11 +323,10 @@ async function loadFont(family, weight, italic, fontStretch, visualDensity, visu
   }
 
   // Font Awesome Special Handling
-  const lowerFamily = cleanFamily.toLowerCase();
-  if (lowerFamily.includes('font awesome') || lowerFamily === 'fontawesome') {
+  if (fullFamilyString.includes('font awesome') || fullFamilyString.includes('fontawesome')) {
     const isSolid = cssWeightKey === '900' || cssWeightKey === 'bold' || cssWeightKey === 'bolder' || parseInt(cssWeightKey) >= 700;
     const faCandidates = [];
-    if (lowerFamily.includes('brands')) {
+    if (fullFamilyString.includes('brands')) {
       faCandidates.push({ family: cleanFamily, style: 'Regular' });
     } else if (isSolid) {
       faCandidates.push({ family: cleanFamily, style: 'Solid' });
@@ -330,19 +350,53 @@ async function loadFont(family, weight, italic, fontStretch, visualDensity, visu
     }
   }
 
-  // STEP A: If the font family is in Figma (Google Fonts, Figma Library, or Installed Locally on the user's OS),
-  // try loading it with the exact CSS font-weight!
-  const directCandidates = [];
-  directCandidates.push(...getCandidatesForFamily(cleanFamily, cssWeightKey));
-  if (baseFamily !== cleanFamily) {
-    directCandidates.push(...getCandidatesForFamily(baseFamily, cssWeightKey));
-  }
+  // STEP A: Iterate over each font family in the CSS font stack!
+  // If the font is available in Figma (installed on OS, Google Fonts, or Figma library), load it!
+  const genericKeywords = new Set(['sans-serif', 'serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'inherit', 'initial', 'unset']);
+  for (const rawFam of fontList) {
+    if (genericKeywords.has(rawFam.toLowerCase())) continue;
+    const rawFamLower = rawFam.toLowerCase().trim();
+    const isGenericWide = /^(arial|helvetica|tahoma|verdana|segoe ui|trebuchet)$/i.test(rawFam.trim());
+    const thisEntryIsNarrow = /narrow|condensed/i.test(rawFam);
 
-  for (const font of directCandidates) {
-    try {
-      await figma.loadFontAsync({ family: font.family, style: font.style });
-      return font; // Successfully loaded from Google Fonts / installed font / Figma library with CSS weight!
-    } catch {}
+    // If the primary style is condensed, skip plain wide generics (Arial, Helvetica etc.)
+    if (isCondensed && isGenericWide && !thisEntryIsNarrow) {
+      continue;
+    }
+    // If the actual rendered font was measured as normal/wide width (visualStretch >= 0.60),
+    // skip narrow/condensed font entries in the fallback stack — they would make text look
+    // visually narrower than the real site, even if the CSS stack explicitly lists them.
+    if (!isCondensed && thisEntryIsNarrow) {
+      continue;
+    }
+
+    const directCandidates = [];
+    const baseFam = getBaseFamilyName(rawFam);
+
+    // If this specific family entry is narrow/condensed by name, probe its narrow styles first
+    if (thisEntryIsNarrow) {
+      directCandidates.push({ family: rawFam, style: italic ? 'Italic' : 'Regular' });
+      directCandidates.push({ family: 'Arial', style: 'Narrow' + (italic ? ' Italic' : '') });
+      directCandidates.push({ family: 'Arial', style: 'Narrow' });
+      directCandidates.push({ family: 'Arial', style: 'Narrow Bold' });
+      directCandidates.push({ family: baseFam, style: 'Narrow' + (italic ? ' Italic' : '') });
+      directCandidates.push({ family: baseFam, style: 'Narrow' });
+      directCandidates.push({ family: 'Arial Narrow', style: italic ? 'Italic' : 'Regular' });
+      directCandidates.push({ family: 'Arial Narrow', style: 'Bold' });
+    }
+
+    directCandidates.push(...getCandidatesForFamily(rawFam, cssWeightKey));
+    const baseFamDiffers = baseFam !== rawFam;
+    if (baseFamDiffers) {
+      directCandidates.push(...getCandidatesForFamily(baseFam, cssWeightKey));
+    }
+
+    for (const font of directCandidates) {
+      try {
+        await figma.loadFontAsync({ family: font.family, style: font.style });
+        return font; // Successfully loaded from installed system fonts / Google Fonts with CSS weight!
+      } catch {}
+    }
   }
 
   // STEP B: The font family is NOT in Google Fonts, NOT in Figma's library, and NOT installed locally.
@@ -351,8 +405,6 @@ async function loadFont(family, weight, italic, fontStretch, visualDensity, visu
 
   // 3. Try to fall back to a Google Font based on the font category/type
   let fallbackGoogleFont = null;
-  const fullFamilyString = familyRaw.toLowerCase();
-  const isCondensed = stretchLower.includes('condensed') || stretchLower.includes('compressed') || (parseFloat(stretchLower) < 100);
 
   if (isCondensed) {
     fallbackGoogleFont = 'Roboto Condensed';
@@ -369,9 +421,12 @@ async function loadFont(family, weight, italic, fontStretch, visualDensity, visu
     fallbackGoogleFont = 'Inter';
   }
 
-  // 4. Try the calculated Google Font Fallback using visual weight
-  if (fallbackGoogleFont && fallbackGoogleFont !== cleanFamily && fallbackGoogleFont !== baseFamily) {
-    candidates.push(...getCandidatesForFamily(fallbackGoogleFont, visualWeightKey));
+  // 4. Try the calculated Google Font Fallback using cssWeightKey first, then visual weight
+  if (fallbackGoogleFont) {
+    candidates.push(...getCandidatesForFamily(fallbackGoogleFont, cssWeightKey));
+    if (visualWeightKey !== cssWeightKey) {
+      candidates.push(...getCandidatesForFamily(fallbackGoogleFont, visualWeightKey));
+    }
   }
   
   // 5. Ultimate Variable Font Fallback (Roboto Flex)
@@ -1249,6 +1304,20 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
               if (hasChildren) {
                 svgNode.isMask = true;
                 try { svgNode.maskType = 'ALPHA'; } catch {}
+              } else {
+                // Monochrome masked SVG (e.g. p-model-signature, icons using mask-image with background-color)
+                const maskFillColor = parseColor(styles.backgroundColor || styles.color);
+                if (maskFillColor && maskFillColor.a > 0) {
+                  function applyMaskFill(n) {
+                    if ('fills' in n && Array.isArray(n.fills)) {
+                      n.fills = [{ type: 'SOLID', color: { r: maskFillColor.r, g: maskFillColor.g, b: maskFillColor.b }, opacity: maskFillColor.a }];
+                    }
+                    if ('children' in n && Array.isArray(n.children)) {
+                      n.children.forEach(applyMaskFill);
+                    }
+                  }
+                  applyMaskFill(svgNode);
+                }
               }
               hasMaskSvg = true;
             }
@@ -1659,7 +1728,10 @@ function applyEffects(node, styles, effectiveBgColor = null) {
   const bdrop = styles.backdropFilter || styles.webkitBackdropFilter || '';
   if (bdrop.includes('blur')) {
     const m = bdrop.match(/blur\(([\d.]+)px\)/);
-    if (m) effects.push({ type: 'BACKGROUND_BLUR', radius: parseFloat(m[1]), visible: true });
+    if (m) {
+      effects.push({ type: 'BACKGROUND_BLUR', radius: parseFloat(m[1]), visible: true });
+      try { node.clipsContent = true; } catch {}
+    }
   }
 
   const filter = styles.filter || styles.webkitFilter || '';
@@ -2028,7 +2100,15 @@ function applySvgFlip(svgStr, flipX, flipY) {
   });
 }
 
-function prepareSvgString(svgString, isInverted) {
+function colorObjToHex(c) {
+  if (!c) return '#000000';
+  const r = Math.round(clamp01(c.r) * 255).toString(16).padStart(2, '0');
+  const g = Math.round(clamp01(c.g) * 255).toString(16).padStart(2, '0');
+  const b = Math.round(clamp01(c.b) * 255).toString(16).padStart(2, '0');
+  return `#${r}${g}${b}`;
+}
+
+function prepareSvgString(svgString, isInverted, styles = null) {
   if (!svgString) return '';
   let clean = svgString;
   // Strip scripts
@@ -2068,10 +2148,54 @@ function prepareSvgString(svgString, isInverted) {
   }
   // Remove xmlns:xlink
   clean = clean.replace(/\s*xmlns:xlink=["'][^"']*["']/gi, '');
-  // Figma's SVG engine doesn't resolve "currentColor". Convert any remaining currentColor to black (or inverted white):
-  const fallbackCurrentColor = isInverted ? '#ffffff' : '#000000';
+
+  // Resolve effective SVG foreground / icon color from styles
+  let targetColorHex = null;
+  const isMask = !!(styles && ((styles.maskImage && styles.maskImage !== 'none') || (styles.webkitMaskImage && styles.webkitMaskImage !== 'none')));
+
+  if (isMask) {
+    const bgCol = parseColor(styles.backgroundColor);
+    if (bgCol && bgCol.a > 0.05) {
+      targetColorHex = colorObjToHex(bgCol);
+    } else {
+      const textCol = parseColor(styles.color);
+      if (textCol && textCol.a > 0.05) targetColorHex = colorObjToHex(textCol);
+    }
+  } else if (styles) {
+    if (styles.fill && styles.fill !== 'none' && styles.fill !== 'transparent') {
+      const fCol = parseColor(styles.fill);
+      if (fCol && fCol.a > 0.05) targetColorHex = colorObjToHex(fCol);
+    }
+    if (!targetColorHex && styles.color && styles.color !== 'transparent') {
+      const cCol = parseColor(styles.color);
+      if (cCol && cCol.a > 0.05) targetColorHex = colorObjToHex(cCol);
+    }
+  }
+
+  // Figma's SVG engine doesn't resolve "currentColor". Convert any remaining currentColor to target color:
+  const fallbackCurrentColor = targetColorHex || (isInverted ? '#ffffff' : '#000000');
   clean = clean.replace(/\bfill=["']currentColor["']/gi, `fill="${fallbackCurrentColor}"`);
   clean = clean.replace(/\bstroke=["']currentColor["']/gi, `stroke="${fallbackCurrentColor}"`);
+
+  // Ensure shapes without fill in monochrome/masked SVGs inherit target fill
+  if (targetColorHex) {
+    clean = clean.replace(/<(path|rect|polygon|circle|ellipse)\b([^>]*?)(\/?>)/gi, (m, tag, attrs, close) => {
+      if (/\bfill\s*=/i.test(attrs)) {
+        if (isMask && !/\bfill\s*=\s*["']none["']/i.test(attrs)) {
+          return `<${tag}${attrs.replace(/\bfill\s*=\s*["'][^"']*["']/gi, `fill="${targetColorHex}"`)}${close}`;
+        }
+        return m;
+      }
+      if (!isMask && /\bstroke\s*=/i.test(attrs) && !/\bstroke\s*=\s*["']none["']/i.test(attrs)) {
+        return m;
+      }
+      return `<${tag}${attrs} fill="${targetColorHex}"${close}`;
+    });
+
+    if (!/<svg\b[^>]*?\bfill=/i.test(clean)) {
+      clean = clean.replace(/<svg\b/i, `<svg fill="${targetColorHex}" `);
+    }
+  }
   // Fix number formats without leading zero (e.g. scale(.0104167) -> scale(0.0104167))
   clean = clean.replace(/([(\s,])-?\.(\d+)/g, '$10.$2');
   // Ensure xmlns is present on <svg>
@@ -2430,7 +2554,7 @@ function isNavOrHeader(node) {
   if (/\b(?:navbar|site-header|main-header|header-wrapper|top-header|sticky-header|fixed-header)\b/i.test(cls)) {
     return true;
   }
-  if (/\bheader\b/i.test(cls) && !/\b(?:accordion|card|modal|table|post|comment|widget|box)-header\b/i.test(cls)) {
+  if (/\bheader\b/i.test(cls) && !/\b(?:accordion|card|modal|table|post|comment|widget|box|icon|feature|item)-header\b/i.test(cls)) {
     return true;
   }
   return false;
@@ -2489,93 +2613,197 @@ function containsNavOrHeader(node) {
   return false;
 }
 
-function getEffectiveZIndex(node, isSectionLevel = false) {
+function getVisualContentWidth(node) {
   if (!node) return 0;
-  const s = node.styles || {};
-  let z = 0;
+  if (node.type === 'TEXT' || node.type === 'VECTOR' || node.type === 'RECTANGLE' || node.type === 'INSTANCE') {
+    return node.width;
+  }
+  if (node.type === 'FRAME' || node.type === 'GROUP') {
+    if (!node.children || node.children.length === 0) return node.width;
+    let maxRight = 0;
+    for (const c of node.children) {
+      if (c.visible === false) continue;
+      if (c.name && (c.name.includes('mask') || c.name.includes('-bg') || c.name.includes('-border'))) continue;
+      const cW = getVisualContentWidth(c);
+      maxRight = Math.max(maxRight, (c.x || 0) + cW);
+    }
+    return maxRight > 0 ? maxRight : node.width;
+  }
+  return node.width;
+}
+
+function isInlineFlowElement(domNode) {
+  if (!domNode) return false;
+  if (domNode.nodeType === 3) return true;
+  const disp = (domNode.styles?.display || '').toLowerCase();
+  if (['inline', 'inline-block', 'inline-flex', 'contents'].includes(disp)) return true;
+  const tag = (domNode.tag || '').toUpperCase();
+  const inlineTags = ['SPAN', 'A', 'EM', 'STRONG', 'B', 'I', 'SMALL', 'SUB', 'SUP', 'LABEL', 'CODE', 'TIME', 'ABBR'];
+  if (inlineTags.includes(tag) || tag.includes('LINK')) return true;
+  return false;
+}
+
+function getRawStackingLevel(s) {
+  if (!s) return 0;
   const zRaw = s.zIndex;
+  const pos = s.position || 'static';
+  const isPos = pos === 'absolute' || pos === 'fixed' || pos === 'relative' || pos === 'sticky';
+
   if (zRaw && zRaw !== 'auto') {
     const parsed = parseInt(zRaw, 10);
-    if (!isNaN(parsed)) z = parsed === 0 ? 1 : parsed * 2; // scale by 2 to leave room for the positioned-auto slot (1)
-  } else {
-    const isPositioned = s.position === 'absolute' || s.position === 'fixed' || s.position === 'relative' || s.position === 'sticky';
-    if (isPositioned && !isBackdropNode(node)) {
-      z = 1;
+    if (!isNaN(parsed)) {
+      if (parsed < 0) {
+        // Negative z-index: strictly preserved below 0. Scale by 100,000 so -1 is -100,000.
+        return parsed * 100000;
+      }
+      if (parsed === 0) {
+        return 1000;
+      }
+      // Positive z-index: strictly above positioned-auto (1000). e.g. z=1 -> 100,000; z=2 -> 200,000
+      return parsed * 100000;
     }
   }
 
-  // If node does not create an isolated stacking context, check if any descendant has higher z-index (e.g. fixed nav inside static header)
-  const isSection = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(node.tag);
-  const childIsSection = isSectionLevel || isSection;
-  const isPos = s.position === 'absolute' || s.position === 'relative' || s.position === 'fixed';
-  const createsSC = (zRaw && zRaw !== 'auto' && isPos) ||
-                    (s.opacity && parseFloat(s.opacity) < 1) ||
-                    (s.transform && s.transform !== 'none') ||
-                    (s.filter && s.filter !== 'none') ||
-                    (s.clipPath && s.clipPath !== 'none') ||
-                    (s.isolation === 'isolate');
-  if (!createsSC && node.childNodes) {
-    const getDescZ = (cn) => {
-      let m = 0;
-      if (cn.childNodes) {
-        for (const c of cn.childNodes) {
-          const cs = c.styles || {};
-          const parsedZ = cs.zIndex && cs.zIndex !== 'auto' ? (parseInt(cs.zIndex, 10) || 0) * 2 : 0;
-          if (cs.position === 'fixed') {
-            m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
-          } else if (isNavOrHeader(node) && (cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'sticky')) {
-            // Header's positioned children always elevate the header above hero sections
-            m = Math.max(m, parsedZ > 0 ? parsedZ : 2);
-          } else if (!childIsSection && (cs.position === 'absolute' || cs.position === 'relative' || cs.position === 'sticky')) {
-            // A static container that has positioned descendants should be treated as z=1
-            // (same stacking level as other positioned z-index:auto elements) so that
-            // DOM source order is the correct tiebreaker instead of position-type.
-            m = Math.max(m, parsedZ > 0 ? parsedZ : 1);
-          } else if (childIsSection && (cs.position === 'absolute' || cs.position === 'fixed') && parsedZ >= 6) {
-            // Section-level: only high z-index overlays (z >= 3) elevate the section
-            m = Math.max(m, parsedZ);
-          }
-          // Stop descending if c creates an isolated stacking context (its internal z-index cannot escape)
-          const cCreatesSC = (cs.zIndex && cs.zIndex !== 'auto' && (cs.position === 'relative' || cs.position === 'absolute' || cs.position === 'fixed')) ||
-                             (cs.opacity && parseFloat(cs.opacity) < 1) ||
-                             (cs.transform && cs.transform !== 'none') ||
-                             (cs.filter && cs.filter !== 'none') ||
-                             (cs.clipPath && cs.clipPath !== 'none') ||
-                             (cs.isolation === 'isolate');
-          if (!cCreatesSC) {
-            m = Math.max(m, getDescZ(c));
-          }
-        }
+  // Positioned elements with z-index: auto/0 stack above normal in-flow static elements (0)
+  if (isPos) {
+    const isBackdrop = (s.backdropFilter && s.backdropFilter !== 'none' && s.backdropFilter.includes('blur')) ||
+                       (s.webkitBackdropFilter && s.webkitBackdropFilter !== 'none' && s.webkitBackdropFilter.includes('blur'));
+    if (isBackdrop) return 500;
+    return 1000;
+  }
+
+  return 0;
+}
+
+function createsStackingContext(node) {
+  if (!node) return false;
+  const s = node.styles || {};
+  const zRaw = s.zIndex;
+  const pos = s.position || 'static';
+  const isPos = pos === 'absolute' || pos === 'fixed' || pos === 'relative' || pos === 'sticky';
+
+  if (node.tag === 'HTML' || node.tag === 'BODY') return true;
+  if (isPos && zRaw && zRaw !== 'auto') return true;
+  if (pos === 'fixed' || pos === 'sticky') return true;
+  if (s.opacity && parseFloat(s.opacity) < 0.999) return true;
+  if (s.transform && s.transform !== 'none') return true;
+  if (s.filter && s.filter !== 'none') return true;
+  if (s.clipPath && s.clipPath !== 'none') return true;
+  if ((s.mask && s.mask !== 'none') || (s.maskImage && s.maskImage !== 'none') || (s.webkitMaskImage && s.webkitMaskImage !== 'none')) return true;
+  if (s.isolation === 'isolate') return true;
+  if (s.mixBlendMode && s.mixBlendMode !== 'normal') return true;
+
+  return false;
+}
+
+function getMaxDescendantZ(node) {
+  let maxZ = 0;
+
+  function scan(cn) {
+    if (!cn) return;
+    const all = [];
+    if (cn.pseudoElementNodes?.before) all.push(cn.pseudoElementNodes.before);
+    if (cn.childNodes) {
+      for (let i = 0; i < cn.childNodes.length; i++) all.push(cn.childNodes[i]);
+    }
+    if (cn.pseudoElementNodes?.after) all.push(cn.pseudoElementNodes.after);
+
+    for (const c of all) {
+      const cLevel = getRawStackingLevel(c.styles);
+      if (cLevel > maxZ) {
+        maxZ = cLevel;
       }
-      return m;
-    };
-    const descZ = getDescZ(node);
-    if (descZ > z) z = descZ;
+      if (!createsStackingContext(c)) {
+        scan(c);
+      }
+    }
   }
 
-  // Section-level flow protection: direct children of page/body or section-level elements
-  // should NEVER be reordered against each other unless one of them has an explicit non-zero z-index or fixed descendant
-  if (childIsSection && z <= 2 && !isNavOrHeader(node) && !containsNavOrHeader(node)) {
-    z = 0;
-  }
+  scan(node);
+  return maxZ;
+}
 
-  // Force nav bar / header to top layer above all sections, hero banners, overlays, modals, and cursor wrappers
+function isBackgroundOverlay(node) {
+  if (!node) return false;
+  const cls = (node.attributes?.class || '').toLowerCase();
+  const id = (node.attributes?.id || node.id || '').toLowerCase();
+  const tag = (node.tag || '').toLowerCase();
+
+  if (/\b(?:lines|grid-lines|bg-lines|background-lines|stripes|bg-stripes|pattern-bg|bg-pattern|section-lines|banner-lines|bg-shape|shape-bg|bg-overlay|overlay-bg|bottom-image-layer)\b/.test(cls) ||
+      /\b(?:lines|grid-lines|bg-lines|stripes|bg-stripes|pattern-bg)\b/.test(id)) {
+    return true;
+  }
+  if (tag === 'svg' && (id.includes('svg-bg') || cls.includes('lines') || cls.includes('stripes'))) {
+    return true;
+  }
+  const bgImg = (node.styles?.backgroundImage || '').toLowerCase();
+  if (bgImg && (bgImg.includes('stripe') || bgImg.includes('pattern') || bgImg.includes('grid') || bgImg.includes('texture') || bgImg.includes('mesh'))) {
+    return true;
+  }
+  if (node.attributes?.src) {
+    const src = node.attributes.src.toLowerCase();
+    if (src.includes('stripe') || src.includes('grid') || src.includes('pattern') || src.includes('texture') || src.includes('mesh')) {
+      return true;
+    }
+  }
+  if (node.styles?.mixBlendMode === 'multiply' && (cls.includes('parallax') || cls.includes('layer') || cls.includes('bg'))) {
+    return true;
+  }
+  return false;
+}
+
+function getEffectiveZIndex(node, isSectionLevel = false) {
+  if (!node) return 0;
+  const s = node.styles || {};
+  let z = getRawStackingLevel(s);
+
+  // Nav bar / header pinned to top tier
   if (isNavOrHeader(node) || containsNavOrHeader(node)) {
     z = Math.max(z, 1000000000);
   }
-
-  // Nav logo and nav button must always be on top of other nav elements
   if (containsNavButton(node)) {
     z = Math.max(z, 1000000600);
   } else if (containsNavLogo(node)) {
     z = Math.max(z, 1000000500);
   }
 
+  // Strictly preserve negative z-index: in CSS, elements with negative z-index (e.g. -1)
+  // MUST render behind in-flow content and positioned elements. Never clobber to 0!
+  if (z < 0) {
+    return z;
+  }
+
+  // Background overlay / stripes protection:
+  // If an element is a background grid/stripes/lines overlay without explicit positive z-index,
+  // ensure it never floats above foreground content.
+  if (isBackgroundOverlay(node) && z <= 100000) {
+    return -500;
+  }
+
+  // Top-level page sections (direct children of body/page-wrapper) with default or auto z-index
+  // maintain natural DOM order to prevent later sections from jumping over earlier ones
+  const isSectionTag = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(node.tag);
+  if (isSectionLevel && isSectionTag && (s.zIndex === 'auto' || !s.zIndex) && z < 1000000000) {
+    return 0;
+  }
+
+  // CSS Stacking Context propagation:
+  // If this container does NOT establish an isolated stacking context,
+  // bubble up the maximum positive stacking level of its descendants so
+  // positioned children (like badges, buttons, foreground cards) are NEVER
+  // obscured by sibling background overlays that have lower z-index!
+  if (!createsStackingContext(node)) {
+    const descZ = getMaxDescendantZ(node);
+    if (descZ > z) {
+      z = descZ;
+    }
+  }
+
   return z;
 }
 
 
-function getUnrotatedRectInRotationRoot(nodeRect, activeRotation) {
+function getUnrotatedRectInRotationRoot(nodeRect, activeRotation, isText = false) {
   if (!nodeRect || !activeRotation || !activeRotation.rootRect) return null;
   const cos = activeRotation.cosR != null ? activeRotation.cosR : Math.cos((activeRotation.rotRad || 0));
   const sin = activeRotation.sinR != null ? activeRotation.sinR : Math.sin((activeRotation.rotRad || 0));
@@ -2601,6 +2829,10 @@ function getUnrotatedRectInRotationRoot(nodeRect, activeRotation) {
   let nodeUnrotW = nodeRect.offsetWidth || 0;
   let nodeUnrotH = nodeRect.offsetHeight || 0;
   const is90Or270Deg = Math.abs(Math.abs(activeRotation.angleDeg) - 90) < 1 || Math.abs(Math.abs(activeRotation.angleDeg) - 270) < 1;
+  if (isText || (nodeRect.width > 0 && Math.abs(activeRotation.angleDeg) < 45 && nodeUnrotW > nodeRect.width * 1.5)) {
+    nodeUnrotW = nodeRect.width;
+    nodeUnrotH = nodeRect.height;
+  }
   if (nodeUnrotW <= 0) {
     nodeUnrotW = is90Or270Deg ? (nodeRect.height || 0) : (nodeRect.width || 0);
   }
@@ -2617,12 +2849,12 @@ function getUnrotatedRectInRotationRoot(nodeRect, activeRotation) {
 }
 
 async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false, parentUnrotOrigin = { x: 0, y: 0 }, inheritedBgColor = null) {
-  if (!sNode) return;
+  if (!sNode) return null;
 
   if (sNode.nodeType === 3 /* TEXT */) {
-    await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip, activeRotation, parentNode, isVerticalInverted, parentUnrotOrigin);
+    const textNode = await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip, activeRotation, parentNode, isVerticalInverted, parentUnrotOrigin);
     reportProgress();
-    return;
+    return textNode;
   }
 
   const s = sNode.styles || inheritedStyles || {};
@@ -2638,6 +2870,15 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (isBackgroundClipText(s)) {
     currentTextClip = s;
   }
+
+  let activeTextDecoration = inheritedStyles?._activeTextDecoration || null;
+  const myDec = (s.textDecorationLine || s.textDecoration || '').toLowerCase();
+  if (myDec.includes('underline')) {
+    activeTextDecoration = 'underline';
+  } else if (myDec.includes('line-through')) {
+    activeTextDecoration = 'line-through';
+  }
+  s._activeTextDecoration = activeTextDecoration;
 
   if (sNode.id && (sNode.id.includes('text-symbol-wrap') || sNode.id.includes('text-wrap'))) {
     s.borderTopWidth = '0px';
@@ -2738,7 +2979,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
         }
       }
 
-      let cleanSvg = prepareSvgString(sNode.content, hasInvertFilter(s.filter));
+      let cleanSvg = prepareSvgString(sNode.content, hasInvertFilter(s.filter), s);
       if (flipX || flipY) {
         cleanSvg = applySvgFlip(cleanSvg, flipX, flipY);
       }
@@ -2794,16 +3035,18 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       }
       applyOpacity(svgNode, s);
 
-      const hasBg = (s.backgroundColor && s.backgroundColor !== 'transparent' && s.backgroundColor !== 'rgba(0, 0, 0, 0)') ||
-                    (s.backgroundImage && s.backgroundImage !== 'none');
+      const isMask = (s.maskImage && s.maskImage !== 'none') || (s.webkitMaskImage && s.webkitMaskImage !== 'none');
+      const hasBg = !isMask && ((s.backgroundColor && s.backgroundColor !== 'transparent' && s.backgroundColor !== 'rgba(0, 0, 0, 0)') ||
+                    (s.backgroundImage && s.backgroundImage !== 'none'));
       const hasBorder = (s.borderTopWidth && parseFloat(s.borderTopWidth) > 0 && s.borderTopStyle !== 'none') ||
                         (s.borderRightWidth && parseFloat(s.borderRightWidth) > 0 && s.borderRightStyle !== 'none') ||
                         (s.borderBottomWidth && parseFloat(s.borderBottomWidth) > 0 && s.borderBottomStyle !== 'none') ||
                         (s.borderLeftWidth && parseFloat(s.borderLeftWidth) > 0 && s.borderLeftStyle !== 'none');
-      const hasRadius = (s.borderRadius && s.borderRadius !== '0px' && s.borderRadius !== '0');
+      const hasRadius = !isMask && (s.borderRadius && s.borderRadius !== '0px' && s.borderRadius !== '0');
 
+      let bgFrame = null;
       if (hasBg || hasBorder || hasRadius) {
-        const bgFrame = figma.createFrame();
+        bgFrame = figma.createFrame();
         bgFrame.name = (sNode.tag || 'svg-wrap').toLowerCase();
         if (s.position === 'absolute' || s.position === 'fixed') {
           try { bgFrame.layoutPositioning = 'ABSOLUTE'; } catch(e) {}
@@ -2826,7 +3069,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       }
 
       reportProgress();
-      return;
+      return bgFrame || svgNode;
     } catch (err) {
       console.warn('[HTML-2-Fig] Svg vector parse failed, creating fallback frame:', err);
       const svgFrame = figma.createFrame();
@@ -2837,7 +3080,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       svgFrame.x = x; svgFrame.y = y;
       svgFrame.resize(w, h);
       reportProgress();
-      return;
+      return svgFrame;
     }
   }
 
@@ -2902,7 +3145,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           try {
             const svgString = bytesToString(bytes);
 
-            const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter));
+            const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter), s);
             const svgNode = figma.createNodeFromSvg(cleanSvg);
             svgNode.name = sNode.attributes?.alt || 'img-svg';
             hydrateSvgPatterns(svgNode, svgString);
@@ -2965,7 +3208,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             }
 
             reportProgress();
-            return;
+            return bgFrame || svgNode;
           } catch (svgErr) {
             console.warn('[HTML-2-Fig] SVG import failed, creating SVG frame fallback:', svgErr);
             const svgFrame = figma.createFrame();
@@ -2976,7 +3219,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             svgFrame.x = x; svgFrame.y = y;
             svgFrame.resize(w, h);
             reportProgress();
-            return;
+            return svgFrame;
           }
         }
 
@@ -3019,7 +3262,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             applyCornerRadius(imgFrame, s);
             applyOpacity(imgFrame, s);
             reportProgress();
-            return;
+            return imgFrame;
           }
 
           const rect = figma.createRectangle();
@@ -3100,7 +3343,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           
           applyOpacity(rect, s);
           reportProgress();
-          return;
+          return rect;
         }
       }
     }
@@ -3126,7 +3369,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           const header = bytesToString(bytes.slice(0, 100)).toLowerCase();
           if (header.includes('<svg') || header.includes('<?xml')) {
             const svgString = bytesToString(bytes);
-            const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter));
+            const cleanSvg = prepareSvgString(svgString, hasInvertFilter(s.filter), s);
             const svgNode = figma.createNodeFromSvg(cleanSvg);
             svgNode.name = (sNode.tag || 'node').toLowerCase();
             let newW = w;
@@ -3154,7 +3397,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             svgNode.y = y + Math.round(offsetY);
             applyOpacity(svgNode, s);
             reportProgress();
-            return;
+            return svgNode;
           }
 
           const rect = figma.createRectangle();
@@ -3169,7 +3412,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           applyCornerRadius(rect, s);
           applyOpacity(rect, s);
           reportProgress();
-          return;
+          return rect;
         } catch {}
       }
     }
@@ -3274,7 +3517,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
           applyOpacity(vecNode, s);
           reportProgress();
-          return;
+          return vecNode;
         }
       } catch {}
     }
@@ -3455,12 +3698,42 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
         mapToLocal(child);
       }
     }
-  } else {
-    // Unrotated container: center single child or pseudo if parent is an icon container or centers alignment
-    const isIconContainer = (rectW <= 64 && rectH <= 64 && Math.abs(rectW - rectH) <= 6 && (parseFloat(s.borderRadius) >= 4 || s.borderRadius === '50%' || s.borderRadius === '500px')) ||
-                            (sNode.name && sNode.name.includes('icon')) ||
-                            (sNode.id && sNode.id.includes('icon')) ||
-                            (sNode.attributes?.class && /icon-box|btn-icon|social-icon|avatar|badge|rounded-circle/i.test(sNode.attributes.class));
+  }
+
+  // Concentric pseudo-elements alignment (e.g. pulsing ripple rings, circular badge borders):
+  // When a pseudo-element is geometrically concentric with parent (centers within 2.5px),
+  // lock its localRect so it remains strictly concentric with the parent frame.
+  for (const pKey of ['before', 'after']) {
+    const pseudoNode = sNode.pseudoElementNodes?.[pKey];
+    if (pseudoNode && pseudoNode.rect) {
+      const pCenterX = (sNode.rect?.x || 0) + (sNode.rect?.width || rectW) / 2;
+      const pCenterY = (sNode.rect?.y || 0) + (sNode.rect?.height || rectH) / 2;
+      const psCenterX = (pseudoNode.rect.x || 0) + (pseudoNode.rect.width || 0) / 2;
+      const psCenterY = (pseudoNode.rect.y || 0) + (pseudoNode.rect.height || 0) / 2;
+      if (Math.abs(pCenterX - psCenterX) <= 2.5 && Math.abs(pCenterY - psCenterY) <= 2.5) {
+        const psW = Math.round(pseudoNode.rect.width || 0);
+        const psH = Math.round(pseudoNode.rect.height || 0);
+        if (psW > 0 && psH > 0) {
+          pseudoNode._localRect = {
+            x: Math.round((rectW - psW) / 2),
+            y: Math.round((rectH - psH) / 2),
+            width: psW,
+            height: psH
+          };
+        }
+      }
+    }
+  }
+
+  // Unrotated container: center single child or pseudo if parent is an icon container or centers alignment
+  if (!activeRotation && Math.abs(angleDeg) <= 0.1) {
+    const isSmallSquare = (rectW <= 96 && rectH <= 96);
+    const isIconContainer = isSmallSquare && (
+      (Math.abs(rectW - rectH) <= 12 && (parseFloat(s.borderRadius) >= 4 || s.borderRadius === '50%' || s.borderRadius === '500px')) ||
+      (sNode.name && sNode.name.includes('icon')) ||
+      (sNode.id && sNode.id.includes('icon')) ||
+      (sNode.attributes?.class && /\b(?:btn-icon|social-icon|avatar|badge|rounded-circle|icon-holder|icon-wrap|icon-inner|icon-box-icon)\b/i.test(sNode.attributes.class))
+    );
     const isFlexCenter = s.display && s.display.includes('flex') && s.alignItems === 'center' && (s.justifyContent === 'center' || s.justifyContent === 'normal');
     const isCentered = isIconContainer || isFlexCenter;
 
@@ -3469,8 +3742,13 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     if (sNode.childNodes) { for (let i = 0; i < sNode.childNodes.length; i++) directChildren.push(sNode.childNodes[i]); }
     if (sNode.pseudoElementNodes?.after) directChildren.push(sNode.pseudoElementNodes.after);
 
-    if (isCentered && directChildren.length === 1) {
-      const onlyChild = directChildren[0];
+    const nonAbsoluteChildren = (sNode.childNodes || []).filter(c => {
+      const pos = c.styles?.position || '';
+      return pos !== 'absolute' && pos !== 'fixed';
+    });
+
+    if (isCentered && (directChildren.length === 1 || nonAbsoluteChildren.length === 1)) {
+      const onlyChild = nonAbsoluteChildren.length === 1 ? nonAbsoluteChildren[0] : directChildren[0];
       const childPos = onlyChild.styles?.position || '';
       const isAbsoluteChild = childPos === 'absolute' || childPos === 'fixed';
       const cW = Math.max(1, Math.round(onlyChild.rect?.width || 0));
@@ -3640,23 +3918,44 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   }
 
   const allChildren = [];
-  if (sNode.pseudoElementNodes?.before) allChildren.push(sNode.pseudoElementNodes.before);
-  if (sNode.childNodes) { for (let i = 0; i < sNode.childNodes.length; i++) allChildren.push(sNode.childNodes[i]); }
-  if (sNode.pseudoElementNodes?.after) allChildren.push(sNode.pseudoElementNodes.after);
+  if (sNode.pseudoElementNodes?.before) {
+    sNode.pseudoElementNodes.before._domIndex = -1;
+    allChildren.push(sNode.pseudoElementNodes.before);
+  }
+  if (sNode.childNodes) {
+    for (let i = 0; i < sNode.childNodes.length; i++) {
+      if (sNode.childNodes[i]._domIndex === undefined) {
+        sNode.childNodes[i]._domIndex = i;
+      }
+      allChildren.push(sNode.childNodes[i]);
+    }
+  }
+  if (sNode.pseudoElementNodes?.after) {
+    sNode.pseudoElementNodes.after._domIndex = 999999999;
+    allChildren.push(sNode.pseudoElementNodes.after);
+  }
 
   if (allChildren.length > 1) {
     const isPageLevel = ['BODY', 'HTML'].includes(sNode.tag) || (sNode.attributes?.class && /page-layout|page-wrapper|main-wrapper|site-wrapper/i.test(sNode.attributes.class));
-    allChildren.forEach((child, idx) => { child._origIdx = idx; });
+    allChildren.forEach((child, idx) => {
+      if (child._domIndex === undefined) {
+        child._domIndex = idx;
+      }
+    });
     allChildren.sort((a, b) => {
       const zA = getEffectiveZIndex(a, isPageLevel);
       const zB = getEffectiveZIndex(b, isPageLevel);
       const diff = zA - zB;
-      return diff !== 0 ? diff : a._origIdx - b._origIdx;
+      return diff !== 0 ? diff : a._domIndex - b._domIndex;
     });
   }
 
+  const renderedChildren = [];
   for (const child of allChildren) {
-    await renderNode(child, frame, trueGlobalX, trueGlobalY, assets, s, currentTextClip, nextRotation, sNode, nextVerticalInverted, myUnrotOrigin, currentBgColor);
+    const fNode = await renderNode(child, frame, trueGlobalX, trueGlobalY, assets, s, currentTextClip, nextRotation, sNode, nextVerticalInverted, myUnrotOrigin, currentBgColor);
+    if (fNode) {
+      renderedChildren.push({ domNode: child, figmaNode: fNode });
+    }
   }
 
   if (sNode.text && sNode.text.trim()) {
@@ -3791,6 +4090,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   }
 
   reportProgress();
+  return frame;
 }
 
 // Brightens scroll-reveal / scrub text gradients so text is always captured in its brightened state
@@ -3892,7 +4192,12 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     } catch (e) {}
   }
 
-  const dec = (s.textDecorationLine || s.textDecoration || '').toLowerCase();
+  const explicitDec = (s.textDecorationLine || s.textDecoration || '').toLowerCase();
+  const inheritedDec = (s._activeTextDecoration || inheritedStyles?._activeTextDecoration || inheritedStyles?.textDecorationLine || inheritedStyles?.textDecoration || '').toLowerCase();
+  let dec = explicitDec;
+  if (!dec || dec === 'none') {
+    dec = inheritedDec;
+  }
   
   let ancestorHasBorderBottom = false;
   let curr = parentFrame;
@@ -4034,7 +4339,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   parentFrame.appendChild(textNode);
 
   if (!sNode._localRect && activeRotation) {
-    const unrotRect = getUnrotatedRectInRotationRoot(sNode.rect, activeRotation);
+    const unrotRect = getUnrotatedRectInRotationRoot(sNode.rect, activeRotation, true);
     if (unrotRect) {
       sNode._localRect = {
         x: unrotRect.x - (parentUnrotOrigin?.x || 0),
@@ -4045,8 +4350,12 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     }
   }
 
-  const posX = sNode._localRect ? sNode._localRect.x : ((sNode.rect?.x || 0) - parentX);
+  let posX = sNode._localRect ? sNode._localRect.x : ((sNode.rect?.x || 0) - parentX);
   let posY = sNode._localRect ? sNode._localRect.y : ((sNode.rect?.y || 0) - parentY);
+  if (activeRotation && Math.abs(activeRotation.angleDeg) < 45) {
+    if (posX < 0 && posX > -40) posX = 0;
+    if (posY < 0 && posY > -40) posY = 0;
+  }
 
   let w = sNode._localRect ? sNode._localRect.width : (sNode.rect?.width || sNode.rect?.offsetWidth || 0);
   const h = sNode._localRect ? sNode._localRect.height : (sNode.rect?.height || sNode.rect?.offsetHeight || 0);
@@ -4097,36 +4406,92 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     textNode.resize(Math.ceil(w), Math.ceil(h));
     textNode.textAlignVertical = 'CENTER';
   } else if (isMultiLine && w > 0) {
-    let layoutW = Math.max(1, Math.ceil(w));
-    if (parentFrame && parentFrame.width > layoutW) {
-      layoutW = Math.min(parentFrame.width - Math.max(0, posX), layoutW + 2);
-    }
     textNode.textAutoResize = 'HEIGHT';
-    textNode.resize(layoutW, Math.max(1, Math.ceil(h)));
-    textNode.x = posX;
-    textNode.y = posY;
+
+    // For center-aligned multiline text: span parentFrame's content width and anchor at paddingLeft (x=pl).
+    // A block-level DOM element spans its container fully, and text-align:center centers
+    // relative to that full width. In Figma, this ensures every line centers perfectly.
+    if (alignVal === 'center' && parentFrame) {
+      let pl = parentNode?.styles?.paddingLeft ? (parseFloat(parentNode.styles.paddingLeft) || 0) : 0;
+      let pr = parentNode?.styles?.paddingRight ? (parseFloat(parentNode.styles.paddingRight) || 0) : 0;
+      let fullW = Math.max(1, Math.round(parentFrame.width - pl - pr));
+      try {
+        textNode.resize(fullW, Math.max(1, Math.ceil(h)));
+        textNode.x = pl;
+        textNode.y = posY;
+      } catch {
+        textNode.x = posX;
+        textNode.y = posY;
+      }
+    } else if ((alignVal === 'right' || alignVal === 'end') && parentFrame) {
+      let pl = parentNode?.styles?.paddingLeft ? (parseFloat(parentNode.styles.paddingLeft) || 0) : 0;
+      let pr = parentNode?.styles?.paddingRight ? (parseFloat(parentNode.styles.paddingRight) || 0) : 0;
+      let fullW = Math.max(1, Math.round(parentFrame.width - pl - pr));
+      try {
+        textNode.resize(fullW, Math.max(1, Math.ceil(h)));
+        textNode.x = pl;
+        textNode.y = posY;
+      } catch {
+        textNode.x = posX;
+        textNode.y = posY;
+      }
+    } else {
+      let layoutW = Math.max(1, Math.ceil(w));
+      if (parentFrame && parentFrame.width > layoutW) {
+        layoutW = Math.min(parentFrame.width - Math.max(0, posX), layoutW + 2);
+      }
+      textNode.resize(layoutW, Math.max(1, Math.ceil(h)));
+      textNode.x = posX;
+      textNode.y = posY;
+    }
   } else {
     // Single line text: Let the font be its natural width/height so it never wraps
     textNode.textAutoResize = 'WIDTH_AND_HEIGHT';
     const isVert = (s.writingMode === 'vertical-rl' || s.writingMode === 'vertical-lr') || isVerticalInverted;
     if (w > 0 && h > 0 && !isVert) {
-      
-      // Vertical Alignment:
-      // Center the Figma text node vertically relative to the original DOM node's height.
-      const figmaH = textNode.height;
-      const domCenterY = posY + (h / 2);
-      textNode.y = domCenterY - (figmaH / 2);
-
-      // Horizontal Alignment:
-      // Guarantee that if the website aligned text to center, it is mathematically centered
-      // around the DOM node's center, even if the fallback font width differs from the original!
       const figmaW = textNode.width;
-      if (alignVal === 'center') {
-        textNode.x = posX + (w / 2) - (figmaW / 2);
+      const figmaH = textNode.height;
+
+      // Determine horizontal centering intent:
+      // 1. Explicit text-align: center
+      // 2. CSS Flexbox / Grid centering (justify-content: center or align-items: center)
+      // 3. Symmetrically padded button / pill / tag container in DOM
+      const parentDomW = parentNode?.rect?.width || parentFrame?.width || 0;
+      const domLeftPad = (sNode.rect?.x || 0) - (parentNode?.rect?.x || (parentFrame.x || 0));
+      const domRightPad = parentDomW - domLeftPad - w;
+      const isDomSymmetricCenter = parentDomW > 0 && Math.abs(domLeftPad - domRightPad) <= 4 && domLeftPad > 4;
+      const isFlexCenter = (parentNode?.styles?.justifyContent === 'center' || parentNode?.styles?.alignItems === 'center') ||
+                           (parentFrame?.styles?.justifyContent === 'center' || parentFrame?.styles?.alignItems === 'center');
+
+      if (alignVal === 'center' || isFlexCenter || isDomSymmetricCenter) {
+        try { textNode.textAlignHorizontal = 'CENTER'; } catch {}
+        if (parentFrame && parentFrame.width > figmaW) {
+          textNode.x = Math.round((parentFrame.width - figmaW) / 2);
+        } else {
+          textNode.x = posX + (w / 2) - (figmaW / 2);
+        }
       } else if (alignVal === 'right' || alignVal === 'end') {
-        textNode.x = posX + w - figmaW;
+        if (parentFrame && parentFrame.width > figmaW) {
+          textNode.x = parentFrame.width - figmaW;
+        } else {
+          textNode.x = posX + w - figmaW;
+        }
       } else {
         textNode.x = posX;
+      }
+
+      // Vertical Alignment:
+      const parentDomH = parentNode?.rect?.height || parentFrame?.height || 0;
+      const domTopPad = (sNode.rect?.y || 0) - (parentNode?.rect?.y || (parentFrame.y || 0));
+      const domBottomPad = parentDomH - domTopPad - h;
+      const isDomSymmetricVert = parentDomH > 0 && Math.abs(domTopPad - domBottomPad) <= 3;
+      const isFlexVertCenter = (parentNode?.styles?.alignItems === 'center') || (parentFrame?.styles?.alignItems === 'center');
+
+      if (parentFrame && parentDomH > 0 && (isFlexVertCenter || isDomSymmetricVert)) {
+        textNode.y = Math.round((parentFrame.height - figmaH) / 2);
+      } else {
+        const domCenterY = posY + (h / 2);
+        textNode.y = domCenterY - (figmaH / 2);
       }
     }
   }
@@ -4186,6 +4551,8 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     textNode.x = posX - minX;
     textNode.y = posY - minY;
   }
+
+  return textNode;
 }
 
 // Post-render "Cut & Paste" (Ctrl+X / Cmd+X then Ctrl+V / Cmd+V to root):
@@ -4200,9 +4567,13 @@ function cutAndPasteNavbarsToTop(rootFrame) {
     if (node !== rootFrame) {
       const role = node.getPluginData ? (node.getPluginData('h2fRole') || '') : '';
       const name = (node.name || '').toLowerCase();
-      const isNav = role === 'navbar' ||
-        (/\b(?:header|navbar|nav-bar|site-header|main-header|top-nav|global-nav|app-bar|preview__header|elementor-location-header|elementor-type-header|elementor-header|elementor-nav-menu)\b/.test(name) &&
-         !/\b(?:card|modal|table|post|accordion|comment|widget|drawer)-header\b/.test(name));
+      const isExcluded = /\b(?:icon|icon-box|feature|box|item|card|modal|table|post|accordion|comment|widget|drawer)-header\b/i.test(name);
+      const isNav = !isExcluded && (
+        role === 'navbar' ||
+        name === 'header' ||
+        name.startsWith('header.') ||
+        /\b(?:navbar|site-header|main-header|top-header|fixed-header|sticky-header|top-nav|global-nav|app-bar|preview__header|elementor-location-header|elementor-type-header|elementor-header|elementor-nav-menu)\b/i.test(name)
+      );
 
       // Guard: do not treat large page wrappers or whole bodies as navbars (navbars are <= 320px tall)
       if (isNav && node.height <= 320) {
@@ -4321,12 +4692,16 @@ async function renderTree(data) {
 
   if (data.root?.childNodes) {
     const rootChildren = Array.from(data.root.childNodes);
-    rootChildren.forEach((child, idx) => { child._origIdx = idx; });
+    rootChildren.forEach((child, idx) => {
+      if (child._domIndex === undefined) {
+        child._domIndex = idx;
+      }
+    });
     rootChildren.sort((a, b) => {
       const zA = getEffectiveZIndex(a, true);
       const zB = getEffectiveZIndex(b, true);
       const diff = zA - zB;
-      return diff !== 0 ? diff : a._origIdx - b._origIdx;
+      return diff !== 0 ? diff : a._domIndex - b._domIndex;
     });
     for (const child of rootChildren) {
       await renderNode(child, rootFrame, 0, 0, data.assets, data.root.styles);
@@ -4340,9 +4715,6 @@ async function renderTree(data) {
   if (targetW > 100 && rootFrame.width !== targetW) {
     rootFrame.resize(targetW, rootFrame.height);
   }
-
-  // Cut & Paste all Navbars to the absolute top layer of rootFrame
-  cutAndPasteNavbarsToTop(rootFrame);
 
   figma.currentPage.selection = [rootFrame];
   figma.viewport.scrollAndZoomIntoView([rootFrame]);
