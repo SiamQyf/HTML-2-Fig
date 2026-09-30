@@ -1826,12 +1826,15 @@ function convertClipPathToSvg(cp, w, h) {
   return null;
 }
 
-function applyOpacity(node, styles) {
+function applyOpacity(node, styles, sNode = null) {
   if (!node || !styles) return;
   let op = parseFloat(styles.opacity);
   if (!isNaN(op)) {
     // If this is an animated text node/word/char whose opacity was dimmed by scroll-scrub, force full opacity:
-    const isWordOrChar = (styles.attributes?.class && /word|char|split|line/i.test(styles.attributes.class)) || (styles.id && /text-anim|split/i.test(styles.id));
+    const cls = (sNode?.attributes?.class || styles.attributes?.class || '');
+    const id = (sNode?.id || styles.id || '');
+    const isText = node.type === 'TEXT' || sNode?.nodeType === 3 || (sNode?.text && sNode.text.trim());
+    const isWordOrChar = /word|char|split|line|reveal|anim|invert/i.test(cls) || /text-anim|split|reveal/i.test(id) || isText;
     if (isWordOrChar && op < 0.95 && op > 0.01) {
       op = 1;
     }
@@ -3579,7 +3582,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   applyStrokes(frame, s);
   applyEffects(frame, s, currentBgColor);
   applyCornerRadius(frame, s);
-  applyOpacity(frame, s);
+  applyOpacity(frame, s, sNode);
   applyBlendMode(frame, s, sNode);
   // For INPUT elements, if no child text node was captured, synthesize text from value / placeholder
   const isInputTag = sNode.tag === 'INPUT' || (sNode.attributes && sNode.attributes.type);
@@ -4023,11 +4026,37 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   } else {
     if (fillColor) {
       let finalA = clamp01(fillColor.a);
-      const isWordOrChar = (sNode.attributes?.class && /word|char|split|line/i.test(sNode.attributes.class)) || (sNode.id && /text-anim|split/i.test(sNode.id));
-      if (isWordOrChar && finalA < 0.95 && finalA > 0.01) {
+      const isWordOrChar = (sNode.attributes?.class && /word|char|split|line|reveal|anim|invert/i.test(sNode.attributes.class)) ||
+                           (sNode.id && /text-anim|split|reveal/i.test(sNode.id)) ||
+                           (parentNode && parentNode.attributes?.class && /split|line|anim|reveal|invert/i.test(parentNode.attributes.class));
+      if ((isWordOrChar || finalA < 0.95) && finalA > 0.01) {
         finalA = 1;
       }
-      textNode.fills = [{ type: 'SOLID', color: { r: fillColor.r, g: fillColor.g, b: fillColor.b }, opacity: finalA }];
+
+      let renderColor = { r: fillColor.r, g: fillColor.g, b: fillColor.b };
+      const lum = 0.2126 * renderColor.r + 0.7152 * renderColor.g + 0.0722 * renderColor.b;
+      const minC = Math.min(renderColor.r, renderColor.g, renderColor.b);
+      const maxC = Math.max(renderColor.r, renderColor.g, renderColor.b);
+      const sat = maxC === 0 ? 0 : (maxC - minC) / maxC;
+      const bgLum = 0.2126 * resolvedBgColor.r + 0.7152 * resolvedBgColor.g + 0.0722 * resolvedBgColor.b;
+      const contrast = Math.abs(lum - bgLum);
+
+      // If text color is stuck at a low-contrast muted grey (< 0.25 contrast against bg)
+      // on an animated/revealed element, boost to the revealed high-contrast color
+      if (isWordOrChar && sat < 0.15 && contrast < 0.25) {
+        if (inheritedStyles?.color) {
+          const pCol = parseColor(inheritedStyles.color);
+          if (pCol && Math.abs(0.2126 * pCol.r + 0.7152 * pCol.g + 0.0722 * pCol.b - bgLum) > contrast + 0.2) {
+            renderColor = { r: pCol.r, g: pCol.g, b: pCol.b };
+          }
+        }
+        const curContrast = Math.abs((0.2126 * renderColor.r + 0.7152 * renderColor.g + 0.0722 * renderColor.b) - bgLum);
+        if (curContrast < 0.25) {
+          renderColor = bgLum > 0.5 ? { r: 0.07, g: 0.06, b: 0.07 } : { r: 1, g: 1, b: 1 };
+        }
+      }
+
+      textNode.fills = [{ type: 'SOLID', color: renderColor, opacity: finalA }];
     }
   }
 
@@ -4049,7 +4078,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   // Figma will square the opacity (e.g. 0.3 on frame * 0.3 on textNode = 0.09 / #ebebeb instead of 0.3 / #bbbbbb).
   // Only apply opacity directly to textNode if parentFrame is an unstyled top-level root frame.
   if (parentFrame && parentFrame.opacity >= 0.999 && (!parentFrame.parent || parentFrame.parent.type === 'PAGE')) {
-    applyOpacity(textNode, s);
+    applyOpacity(textNode, s, sNode);
   }
 
   parentFrame.appendChild(textNode);

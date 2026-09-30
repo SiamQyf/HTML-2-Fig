@@ -4839,25 +4839,20 @@
                             'DIV', 'SECTION', 'ARTICLE'].includes(tag);
 
         // Detect scroll-driven COLOR reveal: element has an inline color set to a muted/grey
-        // value while having a color/all transition — the classic GSAP/ScrollTrigger scrub pattern
-        // where text goes from grey → final color as you scroll.
+        // value — the classic GSAP/ScrollTrigger scrub pattern where text goes from grey → final color.
         let hasMutedInlineColor = false;
         if (!hasScrollRevealBehavior && el.style && el.style.color && el.style.color !== '') {
           try {
-            const cs2 = window.getComputedStyle(el);
-            const transProp2 = cs2.transitionProperty || '';
-            if (transProp2.includes('color') || transProp2.includes('all')) {
-              const inlineColor = normalizeColor(el.style.color);
-              const mc = inlineColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
-              if (mc) {
-                const cr = parseInt(mc[1], 10), cg = parseInt(mc[2], 10), cb = parseInt(mc[3], 10);
-                const cMin = Math.min(cr, cg, cb), cMax = Math.max(cr, cg, cb);
-                const cSat = cMax === 0 ? 0 : (cMax - cMin) / cMax;
-                const cLum = 0.2126 * (cr / 255) + 0.7152 * (cg / 255) + 0.0722 * (cb / 255);
-                // Grey-ish (low saturation) and mid-range luminance = muted scroll-driven color
-                if (cSat < 0.15 && cLum > 0.25 && cLum < 0.85) {
-                  hasMutedInlineColor = true;
-                }
+            const inlineColor = normalizeColor(el.style.color);
+            const mc = inlineColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+            if (mc) {
+              const cr = parseInt(mc[1], 10), cg = parseInt(mc[2], 10), cb = parseInt(mc[3], 10);
+              const cMin = Math.min(cr, cg, cb), cMax = Math.max(cr, cg, cb);
+              const cSat = cMax === 0 ? 0 : (cMax - cMin) / cMax;
+              const cLum = 0.2126 * (cr / 255) + 0.7152 * (cg / 255) + 0.0722 * (cb / 255);
+              // Grey-ish (low saturation) and mid-range luminance = muted scroll-driven color
+              if (cSat < 0.15 && cLum > 0.25 && cLum < 0.85) {
+                hasMutedInlineColor = true;
               }
             }
           } catch (_) {}
@@ -4868,7 +4863,8 @@
                                 (styles.backgroundImage && styles.backgroundImage.includes('gradient'));
 
         if (isTextLike && (
-          // Stuck at low opacity with opacity-transition = classic scroll reveal
+          // Stuck at low opacity with opacity-transition or set inline by JS scroll scrub
+          (inlineOp !== null && inlineOp < 0.98) ||
           (hasOpacityAnim && inlineOp !== null && inlineOp < 0.98) ||
           // Has active WAAPI animation and is not fully visible
           (hasActiveAnim && (isNaN(curOpacity) || curOpacity < 0.99)) ||
@@ -4876,7 +4872,7 @@
           hasClipEntrance ||
           // Entrance translate combined with low opacity
           hasEntranceTranslate ||
-          // Inline grey color with color transition = scroll-scrub color reveal
+          // Inline grey color = scroll-scrub color reveal
           hasMutedInlineColor ||
           // Background-clip text gradient scrub
           isTextClipScrub
