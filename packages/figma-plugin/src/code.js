@@ -2515,7 +2515,8 @@ function getEffectiveZIndex(node, isSectionLevel = false) {
   }
 
   // If node does not create an isolated stacking context, check if any descendant has higher z-index (e.g. fixed nav inside static header)
-  const isSection = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(node.tag);
+  const isSection = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(node.tag) ||
+    (node.attributes?.class && /\b(?:section|area|wrapper|container|row)\b/i.test(node.attributes.class) && !/\b(?:header|nav)\b/i.test(node.attributes.class));
   const childIsSection = isSectionLevel || isSection;
   const isPos = s.position === 'absolute' || s.position === 'relative' || s.position === 'fixed';
   const createsSC = (zRaw && zRaw !== 'auto' && isPos) ||
@@ -2565,7 +2566,7 @@ function getEffectiveZIndex(node, isSectionLevel = false) {
 
   // Section-level flow protection: direct children of page/body or section-level elements
   // should NEVER be reordered against each other unless one of them has an explicit non-zero z-index or fixed descendant
-  if (childIsSection && z <= 2 && !isNavOrHeader(node) && !containsNavOrHeader(node)) {
+  if (childIsSection && z < 20 && !isNavOrHeader(node) && !containsNavOrHeader(node)) {
     z = 0;
   }
 
@@ -2575,10 +2576,13 @@ function getEffectiveZIndex(node, isSectionLevel = false) {
   }
 
   // Nav logo and nav button must always be on top of other nav elements
-  if (containsNavButton(node)) {
-    z = Math.max(z, 1000000600);
-  } else if (containsNavLogo(node)) {
-    z = Math.max(z, 1000000500);
+  // ONLY apply inside a navbar or header, NEVER to whole page sections!
+  if (!childIsSection && (isNavOrHeader(node) || containsNavOrHeader(node))) {
+    if (containsNavButton(node)) {
+      z = Math.max(z, 1000000600);
+    } else if (containsNavLogo(node)) {
+      z = Math.max(z, 1000000500);
+    }
   }
 
   return z;
@@ -3668,13 +3672,21 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (sNode.pseudoElementNodes?.after) allChildren.push(sNode.pseudoElementNodes.after);
 
   if (allChildren.length > 1) {
-    const isPageLevel = ['BODY', 'HTML'].includes(sNode.tag) || (sNode.attributes?.class && /page-layout|page-wrapper|main-wrapper|site-wrapper/i.test(sNode.attributes.class));
+    const isPageLevel = ['BODY', 'HTML', 'MAIN'].includes(sNode.tag) ||
+      sNode.id === 'smooth-wrapper' || sNode.id === 'smooth-content' ||
+      sNode.attributes?.id === 'smooth-wrapper' || sNode.attributes?.id === 'smooth-content' ||
+      (sNode.attributes?.class && /dialog-off-canvas|my-app|page-wrapper|main-wrapper|site-wrapper|root-wrapper|content-wrapper|page-layout/i.test(sNode.attributes.class));
     allChildren.forEach((child, idx) => { child._origIdx = idx; });
     allChildren.sort((a, b) => {
       const zA = getEffectiveZIndex(a, isPageLevel);
       const zB = getEffectiveZIndex(b, isPageLevel);
       const diff = zA - zB;
-      return diff !== 0 ? diff : a._origIdx - b._origIdx;
+      if (diff !== 0 && (zA >= 1000 || zB >= 1000 || Math.abs(diff) >= 20)) {
+        return diff;
+      }
+      const idxA = a._originalIdx !== undefined ? a._originalIdx : a._origIdx;
+      const idxB = b._originalIdx !== undefined ? b._originalIdx : b._origIdx;
+      return idxA - idxB;
     });
   }
 
@@ -3810,6 +3822,20 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           console.warn('[HTML-2-Fig] Failed to apply clip-path mask to:', frame.name, err);
         }
       }
+    }
+  }
+
+  // Ensure the frame is tall enough to encompass all its rendered children
+  // (prevents child elements from hanging outside of their parent section/wrapper frame)
+  if (frame && frame.children && frame.children.length > 0) {
+    let maxChildBottom = 0;
+    for (const c of frame.children) {
+      if (c.y !== undefined && c.height !== undefined) {
+        maxChildBottom = Math.max(maxChildBottom, c.y + c.height);
+      }
+    }
+    if (maxChildBottom > frame.height + 1 && (isPageLevelWrapper || !frame.clipsContent)) {
+      frame.resize(frame.width, Math.round(maxChildBottom));
     }
   }
 
@@ -4390,7 +4416,12 @@ async function renderTree(data) {
       const zA = getEffectiveZIndex(a, true);
       const zB = getEffectiveZIndex(b, true);
       const diff = zA - zB;
-      return diff !== 0 ? diff : a._origIdx - b._origIdx;
+      if (diff !== 0 && (zA >= 1000 || zB >= 1000 || Math.abs(diff) >= 20)) {
+        return diff;
+      }
+      const idxA = a._originalIdx !== undefined ? a._originalIdx : a._origIdx;
+      const idxB = b._originalIdx !== undefined ? b._originalIdx : b._origIdx;
+      return idxA - idxB;
     });
     for (const child of rootChildren) {
       await renderNode(child, rootFrame, 0, 0, data.assets, data.root.styles);
@@ -4405,12 +4436,21 @@ async function renderTree(data) {
     rootFrame.resize(targetW, rootFrame.height);
   }
 
-  // Ensure root frame height encompasses all rendered child sections and footers
+  // Ensure root frame height encompasses all rendered child sections and footers (including deep descendants in main/wrappers)
   let maxChildBottom = 0;
-  for (const c of rootFrame.children) {
-    if (c.y !== undefined && c.height !== undefined) {
-      maxChildBottom = Math.max(maxChildBottom, c.y + c.height);
+  function measureDeepBottom(node, currentY = 0) {
+    if (!node) return;
+    const nodeY = currentY + (node.y || 0);
+    const nodeH = node.height || 0;
+    maxChildBottom = Math.max(maxChildBottom, nodeY + nodeH);
+    if (node.children) {
+      for (const ch of node.children) {
+        measureDeepBottom(ch, nodeY);
+      }
     }
+  }
+  for (const c of rootFrame.children) {
+    measureDeepBottom(c, 0);
   }
   if (maxChildBottom > rootFrame.height) {
     rootFrame.resize(rootFrame.width, Math.round(maxChildBottom));

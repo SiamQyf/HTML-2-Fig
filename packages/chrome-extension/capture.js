@@ -5198,7 +5198,7 @@
       docRect.offsetWidth = el.offsetWidth;
       docRect.offsetHeight = el.offsetHeight;
     }
-    if (el.id === 'smooth-wrapper' || el.id === 'smooth-content') {
+    if (el.id === 'smooth-wrapper' || el.id === 'smooth-content' || el.tagName === 'MAIN' || (el.className && typeof el.className === 'string' && /page-wrapper|main-wrapper|site-wrapper|root-wrapper|content-wrapper/i.test(el.className))) {
       styles.position = 'static';
       styles.overflow = 'visible';
       styles.overflowX = 'visible';
@@ -5670,7 +5670,10 @@
       // Sort child nodes according to CSS stacking order rules while preserving DOM order
       // CSS rules: position:absolute/fixed/relative with z-index:auto stacks ABOVE position:static siblings
       if (childNodes.length > 1) {
-        const isPageLayoutOrBody = ['BODY', 'HTML'].includes(tag) || (el.className && typeof el.className === 'string' && /page-layout|page-wrapper|main-wrapper|site-wrapper/i.test(el.className));
+        const isPageLayoutOrBody = ['BODY', 'HTML', 'MAIN'].includes(tag) ||
+          el.id === 'smooth-wrapper' || el.id === 'smooth-content' ||
+          (el.id && /page-wrapper|main-wrapper|site-wrapper|content-wrapper|smooth/i.test(el.id)) ||
+          (el.className && typeof el.className === 'string' && /page-layout|page-wrapper|main-wrapper|site-wrapper|content-wrapper|root-wrapper/i.test(el.className));
 
         childNodes.forEach((child, idx) => {
           child._originalIdx = idx;
@@ -5692,7 +5695,8 @@
 
           // If child contains position:fixed descendants (e.g. fixed nav inside static header), boost its stacking level.
           // For non-section containers, also check for relative/absolute descendants if the container does not establish an isolated stacking context.
-          const isSection = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(child.tag);
+          const isSection = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(child.tag) ||
+            (child.attributes?.class && /\b(?:section|area|wrapper|container|row)\b/i.test(child.attributes.class) && !/\b(?:header|nav)\b/i.test(child.attributes.class));
           const isSectionLevel = isPageLayoutOrBody || isSection;
           const childCreatesSC = (cs.zIndex && cs.zIndex !== 'auto' && isPositioned) ||
                                  (cs.opacity && parseFloat(cs.opacity) < 1) ||
@@ -5737,9 +5741,11 @@
           }
 
           // Section-level flow protection: direct children of page/body or section-level elements
-          // should NEVER be reordered against each other unless one of them has an explicit non-zero z-index or fixed descendant
-          if (isSectionLevel && zVal <= 2 && !isNavOrHeader(child) && !containsNavOrHeader(child)) {
-            zVal = 0;
+          // should NEVER be reordered against each other unless one of them is an explicit overlay (z >= 20)
+          if (isSectionLevel && !isNavOrHeader(child) && !containsNavOrHeader(child)) {
+            if (zVal < 20) {
+              zVal = 0;
+            }
           }
 
           // Force nav bar / header to top layer above all sections, hero banners, overlays, modals, and cursor wrappers
@@ -5747,11 +5753,14 @@
             zVal = Math.max(zVal, 1000000000);
           }
 
-          // Inside the navigation bar or general layout: Nav Button and Nav Logo must always be on the highest layers
-          if (containsNavButton(child)) {
-            zVal = Math.max(zVal, 1000000600);
-          } else if (containsNavLogo(child)) {
-            zVal = Math.max(zVal, 1000000500);
+          // Inside the navigation bar: Nav Button and Nav Logo must always be on the highest layers
+          // NEVER apply to page-level layout children or whole page sections!
+          if (!childCreatesSC && !isSectionLevel && !isPageLayoutOrBody) {
+            if (containsNavButton(child)) {
+              zVal = Math.max(zVal, 1000000600);
+            } else if (containsNavLogo(child)) {
+              zVal = Math.max(zVal, 1000000500);
+            }
           }
 
           child._effectiveZIndex = zVal;
