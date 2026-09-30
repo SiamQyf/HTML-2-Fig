@@ -3958,6 +3958,41 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     }
   }
 
+  // Sibling Vertical Flow Push:
+  // In HTML document flow, when an element's text wraps or height expands in Figma beyond its captured DOM height,
+  // subsequent siblings in vertical flow (elements positioned below it) must be shifted down to preserve the exact DOM gap and prevent vertical collisions.
+  for (let i = 0; i < renderedChildren.length - 1; i++) {
+    const curr = renderedChildren[i];
+    if (!curr.domNode || !curr.figmaNode) continue;
+    const currPos = curr.domNode.styles?.position || '';
+    if (currPos === 'absolute' || currPos === 'fixed') continue;
+
+    const currDomH = curr.domNode.rect?.height || 0;
+    const currActualH = curr.figmaNode.height || 0;
+    const extraH = currActualH - currDomH;
+
+    if (currDomH > 0 && extraH > 2) {
+      const currDomBottom = (curr.domNode.rect?.y || 0) + currDomH;
+      for (let j = i + 1; j < renderedChildren.length; j++) {
+        const next = renderedChildren[j];
+        if (!next.domNode || !next.figmaNode) continue;
+        const nextPos = next.domNode.styles?.position || '';
+        if (nextPos === 'absolute' || nextPos === 'fixed') continue;
+
+        // If next is positioned vertically below curr in document flow (not side-by-side on same row)
+        if ((next.domNode.rect?.y || 0) >= currDomBottom - 4) {
+          next.figmaNode.y += extraH;
+          if (next.domNode.rect) {
+            next.domNode.rect.y += extraH;
+          }
+        }
+      }
+      if (!isPageLevelWrapper) {
+        try { frame.resize(frame.width, Math.round(frame.height + extraH)); } catch {}
+      }
+    }
+  }
+
   if (sNode.text && sNode.text.trim()) {
     await renderTextNode(sNode, frame, trueGlobalX, trueGlobalY, s, currentTextClip, nextRotation, sNode, nextVerticalInverted, myUnrotOrigin);
   }
@@ -4232,9 +4267,15 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   let figmaLineHeight = null;
   if (s.lineHeight && s.lineHeight !== 'normal') {
     const lh = parseFloat(s.lineHeight);
-    if (!isNaN(lh)) {
+    if (!isNaN(lh) && lh > 0) {
       textNode.lineHeight = { value: lh, unit: 'PIXELS' };
       figmaLineHeight = lh;
+    }
+  } else if (isMultiLine && sNode.lineCount > 1 && sNode.rect?.height) {
+    const calcLh = sNode.rect.height / sNode.lineCount;
+    if (calcLh > 0 && Math.abs(calcLh - (parseFloat(s.fontSize) || 16)) < 50) {
+      textNode.lineHeight = { value: Math.round(calcLh * 10) / 10, unit: 'PIXELS' };
+      figmaLineHeight = calcLh;
     }
   }
 
@@ -4443,12 +4484,39 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       }
     } else {
       let layoutW = Math.max(1, Math.ceil(w));
-      if (parentFrame && parentFrame.width > layoutW && !hasSiblings) {
-        layoutW = Math.min(parentFrame.width - Math.max(0, posX), layoutW + 2);
+      if (parentFrame && !hasSiblings) {
+        let pl = parentNode?.styles?.paddingLeft ? (parseFloat(parentNode.styles.paddingLeft) || 0) : 0;
+        let pr = parentNode?.styles?.paddingRight ? (parseFloat(parentNode.styles.paddingRight) || 0) : 0;
+        const availParentW = Math.max(1, Math.round(parentFrame.width - pl - pr));
+        layoutW = Math.max(layoutW, availParentW);
       }
+      layoutW += 6;
       textNode.resize(layoutW, Math.max(1, Math.ceil(h)));
       textNode.x = posX;
       textNode.y = posY;
+    }
+
+    // Multiline line-count preservation guard:
+    // If Figma's font shaper wrapped words onto more lines than the browser DOM had,
+    // give layoutW incremental breathing room (up to +24px) until line count matches the browser DOM
+    const targetLines = sNode.lineCount || 0;
+    if (targetLines > 0 && !hasSiblings && sNode.rect?.height) {
+      let attempts = 0;
+      while (attempts < 6 && textNode.height > (sNode.rect.height * 1.15)) {
+        const curW = textNode.width;
+        textNode.resize(curW + 4, Math.max(1, Math.ceil(h)));
+        attempts++;
+      }
+    }
+
+    // Ensure parentFrame encompasses the text height if it expanded
+    if (parentFrame && !hasSiblings) {
+      const requiredH = Math.round(textNode.y + textNode.height);
+      if (requiredH > parentFrame.height) {
+        try {
+          parentFrame.resize(Math.max(parentFrame.width, textNode.width), requiredH);
+        } catch {}
+      }
     }
   } else {
     // Single line text: Let the font be its natural width/height so it never wraps
@@ -4497,9 +4565,13 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       const domTopPad = (sNode.rect?.y || 0) - (parentNode?.rect?.y || (parentFrame.y || 0));
       const domBottomPad = parentDomH - domTopPad - h;
       const isDomSymmetricVert = parentDomH > 0 && Math.abs(domTopPad - domBottomPad) <= 3;
-      const isFlexVertCenter = (parentNode?.styles?.alignItems === 'center') || (parentFrame?.styles?.alignItems === 'center');
+      const pFlexDir = parentNode?.styles?.flexDirection || parentFrame?.styles?.flexDirection || 'row';
+      const isFlexCol = pFlexDir.includes('column');
+      const isFlexVertCenter = isFlexCol 
+        ? ((parentNode?.styles?.justifyContent === 'center') || (parentFrame?.styles?.justifyContent === 'center'))
+        : ((parentNode?.styles?.alignItems === 'center') || (parentFrame?.styles?.alignItems === 'center'));
 
-      if (parentFrame && parentDomH > 0 && (isFlexVertCenter || isDomSymmetricVert)) {
+      if (parentFrame && parentDomH > 0 && (isFlexVertCenter || isDomSymmetricVert) && !hasSiblings) {
         textNode.y = Math.round((parentFrame.height - figmaH) / 2);
       } else {
         const domCenterY = posY + (h / 2);
