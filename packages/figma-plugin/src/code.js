@@ -4188,6 +4188,77 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   }
 }
 
+// Post-render "Cut & Paste" (Ctrl+X / Cmd+X then Ctrl+V / Cmd+V to root):
+// Once everything is rendered, lift all navbars out of nested containers and paste them onto the top layer of rootFrame
+function cutAndPasteNavbarsToTop(rootFrame) {
+  if (!rootFrame) return;
+
+  const navFrames = [];
+
+  function findNavFrames(node) {
+    if (!node) return;
+    if (node !== rootFrame) {
+      const role = node.getPluginData ? (node.getPluginData('h2fRole') || '') : '';
+      const name = (node.name || '').toLowerCase();
+      const isNav = role === 'navbar' ||
+        (/\b(?:header|navbar|nav-bar|site-header|main-header|top-nav|global-nav|app-bar|preview__header|elementor-location-header|elementor-type-header|elementor-header|elementor-nav-menu)\b/.test(name) &&
+         !/\b(?:card|modal|table|post|accordion|comment|widget|drawer)-header\b/.test(name));
+
+      // Guard: do not treat large page wrappers or whole bodies as navbars (navbars are <= 320px tall)
+      if (isNav && node.height <= 320) {
+        navFrames.push(node);
+        return; // Don't look for nested navbars inside an already detected navbar
+      }
+    }
+
+    if (node.children) {
+      for (const child of node.children) {
+        findNavFrames(child);
+      }
+    }
+  }
+
+  findNavFrames(rootFrame);
+
+  if (navFrames.length === 0) return;
+
+  // Cut from nested container and Paste to top of rootFrame
+  for (const navNode of navFrames) {
+    try {
+      // 1. Inside navbar: bring logo and buttons to the top layer
+      if (navNode.children && navNode.children.length > 1) {
+        const topElements = [];
+        for (const child of navNode.children) {
+          const role = child.getPluginData ? (child.getPluginData('h2fRole') || '') : '';
+          const cName = (child.name || '').toLowerCase();
+          const isBtnOrLogo = role === 'button' || role === 'logo' ||
+            /\b(?:btn|button|cta|navbar-btn|header-btn|menu-btn|hamburger|nav-btn|logo|brand|navbar-brand|site-logo|header-logo)\b/.test(cName);
+          if (isBtnOrLogo) topElements.push(child);
+        }
+        for (const el of topElements) {
+          navNode.appendChild(el);
+        }
+      }
+
+      // 2. Cut & Paste to top of rootFrame
+      const navAbsX = navNode.absoluteTransform[0][2];
+      const navAbsY = navNode.absoluteTransform[1][2];
+      const rootAbsX = rootFrame.absoluteTransform[0][2];
+      const rootAbsY = rootFrame.absoluteTransform[1][2];
+
+      const relX = Math.round(navAbsX - rootAbsX);
+      const relY = Math.round(navAbsY - rootAbsY);
+
+      // Re-parent to rootFrame at the very end of children (top layer)
+      rootFrame.appendChild(navNode);
+      navNode.x = relX;
+      navNode.y = relY;
+    } catch (e) {
+      console.warn('[HTML-2-Fig] Cut & paste navbar error:', e);
+    }
+  }
+}
+
 function countNodes(node) {
   if (!node) return 0;
   let c = 1;
@@ -4269,6 +4340,9 @@ async function renderTree(data) {
   if (targetW > 100 && rootFrame.width !== targetW) {
     rootFrame.resize(targetW, rootFrame.height);
   }
+
+  // Cut & Paste all Navbars to the absolute top layer of rootFrame
+  cutAndPasteNavbarsToTop(rootFrame);
 
   figma.currentPage.selection = [rootFrame];
   figma.viewport.scrollAndZoomIntoView([rootFrame]);

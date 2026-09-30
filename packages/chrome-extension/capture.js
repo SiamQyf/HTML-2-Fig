@@ -62,37 +62,269 @@
   };
 
   /* ======================================================================
-   *  2.  IN-PAGE TOAST NOTIFICATION
+   *  2.  IN-PAGE ACTIVE HALO EDGE LIGHTING & NOTIFICATION OVERLAY
+   *      (Smartphone-style 4-side radiating halo & corner illumination)
    * ====================================================================== */
-  function showToast(message, duration, onClick) {
+  function showEdgeLighting(message, duration, onClick) {
+    // Remove existing active overlay if any
+    try {
+      const old = document.getElementById('h2f-edge-lighting-host');
+      if (old) old.remove();
+    } catch (e) {}
+
     const host = document.createElement('div');
-    host.style.cssText = 'all:initial; position:fixed; z-index:2147483647;';
+    host.id = 'h2f-edge-lighting-host';
+    host.setAttribute('data-h2f-ignore', 'true');
+    host.style.cssText = 'all:initial; position:fixed; inset:0; width:100vw; height:100vh; pointer-events:none; z-index:2147483647;';
     const root = host.attachShadow({ mode: 'open' });
+
     root.innerHTML = `
       <style>
-        .toast {
-          position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
-          background: #111318; color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          font-size: 13px; font-weight: 500; padding: 12px 22px; border-radius: 10px;
-          box-shadow: 0 8px 30px rgba(0,0,0,0.5); border: 1px solid rgba(0, 242, 254, 0.3);
-          display: flex; align-items: center; gap: 8px; z-index: 2147483647; pointer-events: auto;
-          animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-          cursor: ${onClick ? 'pointer' : 'default'};
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        .h2f-edge-wrapper {
+          position: fixed; inset: 0; width: 100vw; height: 100vh;
+          pointer-events: none; z-index: 2147483647; overflow: hidden;
+          opacity: 0;
+          transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translate(-50%, 12px); }
-          to { opacity: 1; transform: translate(-50%, 0); }
+        .h2f-edge-wrapper.visible {
+          opacity: 1;
+        }
+
+        /* 1. Continuous Vibrant Neon Perimeter Border - Sharp 90° Window Corners */
+        .halo-stroke {
+          position: absolute; inset: 0;
+          border-radius: 0;
+          border: 2.5px solid transparent;
+          background: linear-gradient(135deg, 
+            #00f2fe 0%, 
+            #4facfe 20%, 
+            #3b82f6 40%, 
+            #8b5cf6 60%, 
+            #d946ef 80%, 
+            #00f2fe 100%
+          ) border-box;
+          -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+          -webkit-mask-composite: xor;
+          mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+          mask-composite: exclude;
+          filter: drop-shadow(0 0 3px rgba(0, 242, 254, 0.8)) drop-shadow(0 0 6px rgba(139, 92, 246, 0.6));
+          transition: filter 0.5s ease;
+        }
+
+        /* 2. Soft Inset Ambient Glow along all 4 edges - Sharp 90° Corners */
+        .halo-ambient-glow {
+          position: absolute; inset: 0;
+          border-radius: 0;
+          box-shadow:
+            inset 0 0 10px 1px rgba(0, 242, 254, 0.6),
+            inset 0 0 25px 2px rgba(139, 92, 246, 0.4),
+            inset 0 0 50px 3px rgba(217, 70, 239, 0.2),
+            0 0 10px rgba(0, 242, 254, 0.45);
+          animation: haloPulse 2.6s ease-in-out infinite alternate;
+          transition: box-shadow 0.6s ease;
+        }
+
+        /* 3. Refined Corner Radiance anchored to 90° window vertices */
+        .corner-radiance {
+          position: absolute; width: 90px; height: 90px;
+          border-radius: 50%; pointer-events: none;
+          filter: blur(20px); opacity: 0.55;
+          animation: cornerShimmer 2.6s ease-in-out infinite alternate;
+          transition: opacity 0.5s ease;
+        }
+        .corner-radiance.top-left {
+          top: -25px; left: -25px;
+          background: radial-gradient(circle at 50% 50%, rgba(0, 242, 254, 0.7) 0%, rgba(0, 242, 254, 0.25) 45%, rgba(0, 242, 254, 0) 75%);
+        }
+        .corner-radiance.top-right {
+          top: -25px; right: -25px;
+          background: radial-gradient(circle at 50% 50%, rgba(79, 172, 254, 0.7) 0%, rgba(59, 130, 246, 0.25) 45%, rgba(59, 130, 246, 0) 75%);
+        }
+        .corner-radiance.bottom-right {
+          bottom: -25px; right: -25px;
+          background: radial-gradient(circle at 50% 50%, rgba(217, 70, 239, 0.7) 0%, rgba(139, 92, 246, 0.25) 45%, rgba(217, 70, 239, 0) 75%);
+        }
+        .corner-radiance.bottom-left {
+          bottom: -25px; left: -25px;
+          background: radial-gradient(circle at 50% 50%, rgba(236, 72, 153, 0.7) 0%, rgba(244, 63, 94, 0.25) 45%, rgba(236, 72, 153, 0) 75%);
+        }
+
+        @keyframes haloPulse {
+          0% {
+            opacity: 0.8;
+            box-shadow:
+              inset 0 0 8px 1px rgba(0, 242, 254, 0.5),
+              inset 0 0 20px 2px rgba(139, 92, 246, 0.35),
+              inset 0 0 45px 3px rgba(217, 70, 239, 0.18),
+              0 0 8px rgba(0, 242, 254, 0.35);
+          }
+          100% {
+            opacity: 1;
+            box-shadow:
+              inset 0 0 14px 2px rgba(0, 242, 254, 0.75),
+              inset 0 0 32px 3px rgba(139, 92, 246, 0.55),
+              inset 0 0 65px 4px rgba(217, 70, 239, 0.28),
+              0 0 14px rgba(0, 242, 254, 0.55);
+          }
+        }
+
+        @keyframes cornerShimmer {
+          0% { transform: scale(0.96); opacity: 0.45; }
+          100% { transform: scale(1.05); opacity: 0.62; }
+        }
+
+        /* 4. Smartphone Dynamic Island / Notification Pill */
+        .notification-pill {
+          position: fixed; top: 22px; left: 50%;
+          transform: translateX(-50%);
+          background: rgba(13, 15, 24, 0.92);
+          backdrop-filter: blur(24px) saturate(180%);
+          -webkit-backdrop-filter: blur(24px) saturate(180%);
+          color: #f8fafc;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          font-size: 13px; font-weight: 500;
+          padding: 10px 22px; border-radius: 999px;
+          border: 1.5px solid rgba(0, 242, 254, 0.4);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 20px rgba(0, 242, 254, 0.25);
+          display: flex; align-items: center; gap: 10px;
+          z-index: 2147483647; pointer-events: auto;
+          cursor: ${onClick ? 'pointer' : 'default'};
+          transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .pill-dot {
+          width: 8px; height: 8px; border-radius: 50%;
+          background: #00f2fe; box-shadow: 0 0 8px #00f2fe;
+          animation: pillDotBlink 1.4s infinite ease-in-out;
+          flex-shrink: 0;
+        }
+        @keyframes pillDotBlink {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.35; transform: scale(0.75); }
+        }
+
+        /* Success & Error State Enhancements */
+        .h2f-edge-wrapper.success .halo-ambient-glow {
+          box-shadow:
+            inset 0 0 24px 3px rgba(52, 211, 153, 0.95),
+            inset 0 0 55px 6px rgba(0, 242, 254, 0.8),
+            inset 0 0 110px 10px rgba(52, 211, 153, 0.5),
+            0 0 30px rgba(52, 211, 153, 0.85);
+        }
+        .h2f-edge-wrapper.success .halo-stroke {
+          background: linear-gradient(135deg, #34d399, #00f2fe, #10b981) border-box;
+          filter: drop-shadow(0 0 6px #34d399) drop-shadow(0 0 12px #00f2fe);
+        }
+        .h2f-edge-wrapper.success .notification-pill {
+          border-color: rgba(52, 211, 153, 0.6);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 25px rgba(52, 211, 153, 0.45);
+        }
+        .h2f-edge-wrapper.success .pill-dot {
+          background: #34d399; box-shadow: 0 0 10px #34d399;
+        }
+
+        .h2f-edge-wrapper.error .halo-ambient-glow {
+          box-shadow:
+            inset 0 0 24px 3px rgba(239, 68, 68, 0.9),
+            inset 0 0 55px 6px rgba(225, 29, 72, 0.7),
+            0 0 30px rgba(239, 68, 68, 0.8);
+        }
+        .h2f-edge-wrapper.error .halo-stroke {
+          background: linear-gradient(135deg, #ef4444, #f43f5e) border-box;
+          filter: drop-shadow(0 0 6px #ef4444);
+        }
+        .h2f-edge-wrapper.error .notification-pill {
+          border-color: rgba(239, 68, 68, 0.6);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 25px rgba(239, 68, 68, 0.45);
+        }
+        .h2f-edge-wrapper.error .pill-dot {
+          background: #ef4444; box-shadow: 0 0 10px #ef4444;
+        }
+
+        .halo-fadeout .halo-stroke,
+        .halo-fadeout .halo-ambient-glow,
+        .halo-fadeout .corner-radiance {
+          opacity: 0 !important;
+          transition: opacity 0.8s ease;
         }
       </style>
-      <div class="toast" id="toastInner">${message}</div>
+      <div class="h2f-edge-wrapper" id="edgeWrapper">
+        <div class="halo-stroke"></div>
+        <div class="halo-ambient-glow"></div>
+        <div class="corner-radiance top-left"></div>
+        <div class="corner-radiance top-right"></div>
+        <div class="corner-radiance bottom-right"></div>
+        <div class="corner-radiance bottom-left"></div>
+
+        <div class="notification-pill" id="notificationPill">
+          <div class="pill-dot"></div>
+          <span class="pill-text" id="pillText">${message || ''}</span>
+        </div>
+      </div>
     `;
-    const toastEl = root.getElementById('toastInner');
-    if (onClick && toastEl) {
-      toastEl.addEventListener('click', () => onClick(toastEl));
+
+    const wrapper = root.getElementById('edgeWrapper');
+    const pill = root.getElementById('notificationPill');
+    const pillText = root.getElementById('pillText');
+
+    if (onClick && pill) {
+      pill.addEventListener('click', () => onClick(pill));
     }
+
     document.documentElement.appendChild(host);
-    if (duration) setTimeout(() => { try { host.remove(); } catch {} }, duration);
-    return host;
+
+    requestAnimationFrame(() => {
+      if (wrapper) wrapper.classList.add('visible');
+    });
+
+    const controller = {
+      host,
+      wrapper,
+      pill,
+      pillText,
+      update(text) {
+        if (pillText) pillText.textContent = text;
+      },
+      finish(success, text, finishDuration = 6000, newOnClick) {
+        if (text && pillText) pillText.textContent = text;
+        if (wrapper) {
+          wrapper.classList.remove('success', 'error');
+          wrapper.classList.add(success ? 'success' : 'error');
+        }
+        if (newOnClick && pill) {
+          pill.style.cursor = 'pointer';
+          pill.addEventListener('click', () => newOnClick(pill));
+        }
+        setTimeout(() => {
+          if (wrapper) wrapper.classList.add('halo-fadeout');
+        }, 1200);
+
+        if (finishDuration) {
+          setTimeout(() => {
+            if (wrapper) wrapper.classList.remove('visible');
+            setTimeout(() => {
+              try { host.remove(); } catch (e) {}
+            }, 500);
+          }, finishDuration);
+        }
+      },
+      remove() {
+        if (wrapper) wrapper.classList.remove('visible');
+        setTimeout(() => {
+          try { host.remove(); } catch (e) {}
+        }, 400);
+      }
+    };
+
+    if (duration) {
+      setTimeout(() => controller.remove(), duration);
+    }
+
+    return controller;
+  }
+
+  function showToast(message, duration, onClick) {
+    return showEdgeLighting(message, duration, onClick);
   }
 
   /* ======================================================================
@@ -2218,7 +2450,9 @@
   function renderGlyphToSvg(char, styles, width, height) {
     try {
       if (!char || typeof globalThis.traceAlphaToSvgPath !== 'function') return null;
-      const scale = 8;
+      // Use a high render scale so the canvas source is sharp before tracing.
+      // Lower scales cause the tracer to see large staircase edges → grid artifact.
+      const scale = 16;
       const drawW = width || 16;
       const drawH = height || 16;
       const w = Math.max(1, Math.round(drawW * scale));
@@ -2228,27 +2462,26 @@
       canvas.height = h;
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) return null;
-      ctx.scale(scale, scale);
 
       const style = styles.fontStyle || 'normal';
       const weight = styles.fontWeight || '400';
       const size = styles.fontSize || '16px';
       const family = styles.fontFamily || 'sans-serif';
       const fontStr = `${style} ${weight} ${size} ${family}`;
+
+      // First pass: draw at high scale to measure glyph bounds
       ctx.font = fontStr;
+      ctx.scale(scale, scale);
       ctx.fillStyle = '#000000';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-
       ctx.fillText(char, 0, 0);
 
-      const imgData = ctx.getImageData(0, 0, w, h).data;
+      const firstPass = ctx.getImageData(0, 0, w, h).data;
       let minX = w, minY = h, maxX = -1, maxY = -1;
-
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-          const alpha = imgData[(y * w + x) * 4 + 3];
-          if (alpha > 10) {
+          if (firstPass[(y * w + x) * 4 + 3] > 10) {
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
@@ -2256,10 +2489,12 @@
           }
         }
       }
-
       if (maxX === -1 || maxY === -1) return null;
 
-      ctx.clearRect(0, 0, drawW, drawH);
+      // Second pass: redraw centered
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      ctx.scale(scale, scale);
 
       const glyphLogicW = (maxX - minX + 1) / scale;
       const glyphLogicH = (maxY - minY + 1) / scale;
@@ -2269,12 +2504,30 @@
       ctx.fillText(char, offsetX, offsetY);
 
       const finalImgData = ctx.getImageData(0, 0, w, h).data;
-      const alphaArray = new Uint8Array(w * h);
+
+      // Apply a 1-pixel box blur on the alpha channel before tracing.
+      // This smooths sub-pixel anti-aliased edges so Potrace sees smooth
+      // gradients instead of hard pixel steps → eliminates the grid artifact.
+      const blurred = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          let sum = 0, count = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const nx = x + dx, ny = y + dy;
+              if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                sum += finalImgData[(ny * w + nx) * 4 + 3];
+                count++;
+              }
+            }
+          }
+          blurred[y * w + x] = Math.round(sum / count);
+        }
+      }
+
       let hasPixels = false;
-      for (let i = 0; i < w * h; i++) {
-        const a = finalImgData[i * 4 + 3];
-        alphaArray[i] = a;
-        if (a > 10) hasPixels = true;
+      for (let i = 0; i < blurred.length; i++) {
+        if (blurred[i] > 10) { hasPixels = true; break; }
       }
       if (!hasPixels) return null;
 
@@ -2291,16 +2544,21 @@
       }
       const opAttr = fillOpacity < 1 ? ` fill-opacity="${fillOpacity}"` : '';
 
-      const pathTag = globalThis.traceAlphaToSvgPath(w, h, alphaArray, {
+      const pathTag = globalThis.traceAlphaToSvgPath(w, h, blurred, {
         color: hexColor,
         scale: 1 / scale,
-        alphaMax: 1.334,
-        optTolerance: 0.2,
-        turdSize: 2
+        // alphaMax < 1 means Potrace prefers smooth bezier curves over hard corners.
+        // 0.75 gives professional-quality smooth strokes; 1.334 gave jagged corners.
+        alphaMax: 0.75,
+        // tighter optTolerance = higher fidelity to the actual glyph contour
+        optTolerance: 0.1,
+        // turdSize scales with render area so specks are filtered at any icon size
+        turdSize: Math.max(2, Math.round(scale * scale * 0.5))
       });
       if (!pathTag) return null;
 
-      return `<svg xmlns="http://www.w3.org/2000/svg" width="${drawW}" height="${drawH}" viewBox="0 0 ${drawW} ${drawH}">${pathTag}</svg>`;
+      const opStyle = fillOpacity < 1 ? ` style="opacity:${fillOpacity}"` : '';
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${drawW}" height="${drawH}" viewBox="0 0 ${drawW} ${drawH}"${opStyle}>${pathTag}</svg>`;
     } catch (e) {
       return null;
     }
@@ -4403,6 +4661,7 @@
 
     if (node.nodeType !== ELEMENT_NODE) return null;
     const el = node;
+    if (el.hasAttribute && (el.hasAttribute('data-h2f-ignore') || el.id === 'h2f-edge-lighting-host')) return null;
     let tag = el.tagName.toUpperCase();
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE'].includes(tag)) return null;
 
@@ -5433,9 +5692,9 @@
     if (window.__html2FigRunning) return;
     window.__html2FigRunning = true;
 
-    let toast = null;
+    let halo = null;
     try {
-      toast = showToast('⏳ Pre-rendering full webpage…');
+      halo = showEdgeLighting('⏳ Pre-rendering full webpage…');
 
       let payload = await captureRaw();
 
@@ -5466,26 +5725,33 @@
 
       const ok = await writeClipboard(json);
 
-      try { if (toast) toast.remove(); } catch {}
-
       if (ok) {
-        showToast('✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
+        if (halo) {
+          halo.finish(true, '✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
+        } else {
+          showEdgeLighting('✅ Full page captured! Paste into Figma plugin (Ctrl+V)', 6000);
+        }
       } else {
-        showToast('⚠️ Click here to copy captured data to clipboard', 15000, async (el) => {
-          try {
-            await navigator.clipboard.writeText(json);
-            el.textContent = '✅ Copied to clipboard! Paste into Figma plugin (Ctrl+V)';
-            el.style.borderColor = 'rgba(52, 211, 153, 0.5)';
-          } catch (e) {
-            writeClipboard(json);
-            el.textContent = '✅ Copied! Paste into Figma plugin (Ctrl+V)';
-          }
-        });
+        if (halo) {
+          halo.finish(false, '⚠️ Click here to copy captured data to clipboard', 15000, async (el) => {
+            try {
+              await navigator.clipboard.writeText(json);
+              el.textContent = '✅ Copied to clipboard! Paste into Figma plugin (Ctrl+V)';
+              el.style.borderColor = 'rgba(52, 211, 153, 0.5)';
+            } catch (e) {
+              writeClipboard(json);
+              el.textContent = '✅ Copied! Paste into Figma plugin (Ctrl+V)';
+            }
+          });
+        }
       }
     } catch (err) {
       console.error('[HTML-2-Fig] Capture error:', err);
-      try { if (toast) toast.remove(); } catch {}
-      showToast('❌ Capture failed: ' + (err.message || err), 8000);
+      if (halo) {
+        halo.finish(false, '❌ Capture failed: ' + (err.message || err), 8000);
+      } else {
+        showEdgeLighting('❌ Capture failed: ' + (err.message || err), 8000);
+      }
     } finally {
       window.__html2FigRunning = false;
     }
