@@ -2653,6 +2653,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
                              sNode.id === 'smooth-content' ||
                              sNode.attributes?.id === 'smooth-wrapper' ||
                              sNode.attributes?.id === 'smooth-content' ||
+                             sNode.tag === 'MAIN' ||
                              (sNode.attributes?.class && /dialog-off-canvas|my-app|page-wrapper|main-wrapper|site-wrapper|root-wrapper/i.test(sNode.attributes.class));
   if (isPageLevelWrapper) {
     s.position = 'static';
@@ -4402,6 +4403,17 @@ async function renderTree(data) {
   const targetW = contentW || (data.viewportRect?.width ? Math.min(dw, Math.round(data.viewportRect.width) - 16) : (dw > 16 ? dw - 16 : dw));
   if (targetW > 100 && rootFrame.width !== targetW) {
     rootFrame.resize(targetW, rootFrame.height);
+  }
+
+  // Ensure root frame height encompasses all rendered child sections and footers
+  let maxChildBottom = 0;
+  for (const c of rootFrame.children) {
+    if (c.y !== undefined && c.height !== undefined) {
+      maxChildBottom = Math.max(maxChildBottom, c.y + c.height);
+    }
+  }
+  if (maxChildBottom > rootFrame.height) {
+    rootFrame.resize(rootFrame.width, Math.round(maxChildBottom));
   }
 
   // Cut & Paste all Navbars to the absolute top layer of rootFrame

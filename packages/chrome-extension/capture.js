@@ -389,99 +389,34 @@
     try {
       const injectScript = document.createElement('script');
       injectScript.textContent = `
-        window.__h2f_cleanup = window.__h2f_cleanup || [];
         try {
           if (window.ScrollSmoother) {
-            const sm = window.ScrollSmoother.get();
-            if (sm) {
-              try {
+            try {
+              const sm = window.ScrollSmoother.get();
+              if (sm) {
                 sm.scrollTop(0);
                 sm.paused(true);
-              } catch(e) {}
-              window.__h2f_cleanup.push(() => { try { sm.paused(false); } catch(e){} });
-            }
+                sm.kill();
+              }
+            } catch(e) {}
           }
           if (window.ScrollTrigger) {
-            const savedTriggers = [];
             window.ScrollTrigger.getAll().forEach(st => {
               try {
-                // NEVER advance or disable pinned triggers! Advancing pinned triggers displaces sections down by thousands of pixels!
                 const isPinned = !!(st.pin || st.vars?.pin);
                 if (isPinned) {
-                  return;
+                  try {
+                    st.scroll(0);
+                    st.kill(true);
+                  } catch(e) {}
                 }
-                const savedProgress = st.animation ? st.animation.progress() : null;
-                const isCrazyScale = st.vars && st.vars.scrub && st.trigger && (st.trigger.className || '').includes('circle-shape');
-                const targets = st.animation?.targets ? st.animation.targets() : [];
-                const isLayout = targets.some(t => {
-                  if (!t || !t.tagName) return false;
-                  const tag = t.tagName.toUpperCase();
-                  if (['SECTION', 'MAIN', 'HEADER', 'FOOTER'].includes(tag)) return true;
-                  const cls = t.className || '';
-                  return typeof cls === 'string' && /section|area|wrapper|pin-|container|row/i.test(cls);
-                });
-                if (st.animation && !isCrazyScale && !isLayout) {
-                  st.animation.progress(1);
-                }
-                if (typeof st.vars?.onEnter === 'function') {
-                  try { st.vars.onEnter(); } catch(e){}
-                }
-                st.disable(false);
-                savedTriggers.push({ st, savedProgress, isCrazyScale });
-              } catch(e){}
-            });
-            window.__h2f_cleanup.push(() => {
-              for (const item of savedTriggers) {
-                try {
-                  item.st.enable();
-                  if (item.st.animation && item.savedProgress !== null && !item.isCrazyScale) {
-                    item.st.animation.progress(item.savedProgress);
-                  }
-                } catch(e){}
-              }
-              try { window.ScrollTrigger.refresh(); } catch(e){}
+              } catch(e) {}
             });
           }
-          if (window.gsap) {
-            const savedTweens = [];
-            window.gsap.globalTimeline.getChildren().forEach(tween => {
-              try {
-                const targets = tween.targets ? tween.targets() : [];
-                const isLayout = targets.some(t => {
-                  if (!t || !t.tagName) return false;
-                  const tag = t.tagName.toUpperCase();
-                  if (['SECTION', 'MAIN', 'HEADER', 'FOOTER'].includes(tag)) return true;
-                  const cls = t.className || '';
-                  return typeof cls === 'string' && /section|area|wrapper|pin-|container|row/i.test(cls);
-                });
-                if (!isLayout && (tween.scrollTrigger || !tween.paused())) {
-                  savedTweens.push({ tween, progress: tween.progress() });
-                  tween.progress(1);
-                }
-              } catch(e){}
-            });
-            window.__h2f_cleanup.push(() => {
-              for (const item of savedTweens) {
-                try { item.tween.progress(item.progress); } catch(e){}
-              }
-            });
-          }
-        } catch(e){}
+        } catch(e) {}
       `;
       document.documentElement.appendChild(injectScript);
       injectScript.remove();
-      
-      cleanupTasks.push(() => {
-        const cleanupScript = document.createElement('script');
-        cleanupScript.textContent = `
-          if (window.__h2f_cleanup) {
-            window.__h2f_cleanup.forEach(fn => { try { fn(); } catch(e){} });
-            window.__h2f_cleanup = [];
-          }
-        `;
-        document.documentElement.appendChild(cleanupScript);
-        cleanupScript.remove();
-      });
 
       const sw = document.getElementById('smooth-wrapper');
       const sc = document.getElementById('smooth-content');
@@ -524,13 +459,54 @@
           cur = cur.parentElement;
         }
       }
+
       if (sc) {
-        const saved = { position: sc.style.position, height: sc.style.height, overflow: sc.style.overflow, transform: sc.style.transform };
+        const savedSc = { position: sc.style.position, height: sc.style.height, overflow: sc.style.overflow, maxHeight: sc.style.maxHeight, transform: sc.style.transform };
         sc.style.setProperty('position', 'static', 'important');
         sc.style.setProperty('height', 'auto', 'important');
+        sc.style.setProperty('max-height', 'none', 'important');
         sc.style.setProperty('overflow', 'visible', 'important');
         sc.style.setProperty('transform', 'none', 'important');
-        cleanupTasks.push(() => { sc.style.position = saved.position; sc.style.height = saved.height; sc.style.overflow = saved.overflow; sc.style.transform = saved.transform; });
+        cleanupTasks.push(() => {
+          sc.style.position = savedSc.position;
+          sc.style.height = savedSc.height;
+          sc.style.maxHeight = savedSc.maxHeight;
+          sc.style.overflow = savedSc.overflow;
+          sc.style.transform = savedSc.transform;
+        });
+      }
+
+      // Unwrap any existing .pin-spacer wrappers so pinned elements sit in natural flow
+      const existingPinSpacers = document.querySelectorAll('.pin-spacer, [class*="pin-spacer"]');
+      for (const sp of existingPinSpacers) {
+        const savedH = sp.style.height;
+        const savedMinH = sp.style.minHeight;
+        const savedPb = sp.style.paddingBottom;
+        sp.style.setProperty('height', 'auto', 'important');
+        sp.style.setProperty('min-height', '0px', 'important');
+        sp.style.setProperty('padding-bottom', '0px', 'important');
+        const child = sp.firstElementChild;
+        if (child) {
+          const savedChildPos = child.style.position;
+          const savedChildTop = child.style.top;
+          const savedChildLeft = child.style.left;
+          const savedChildTrans = child.style.transform;
+          child.style.setProperty('position', 'relative', 'important');
+          child.style.setProperty('top', 'auto', 'important');
+          child.style.setProperty('left', 'auto', 'important');
+          child.style.setProperty('transform', 'none', 'important');
+          cleanupTasks.push(() => {
+            child.style.position = savedChildPos;
+            child.style.top = savedChildTop;
+            child.style.left = savedChildLeft;
+            child.style.transform = savedChildTrans;
+          });
+        }
+        cleanupTasks.push(() => {
+          sp.style.height = savedH;
+          sp.style.minHeight = savedMinH;
+          sp.style.paddingBottom = savedPb;
+        });
       }
     } catch (e) {}
 
@@ -2507,14 +2483,33 @@
   }
 
   function isElementOrAncestorFixed(el, styles) {
-    if (el && (el.id === 'smooth-wrapper' || el.id === 'smooth-content')) return false;
+    if (!el) return false;
+    if (el.id === 'smooth-wrapper' || el.id === 'smooth-content') return false;
+    if (el.tagName === 'MAIN' || el.tagName === 'SECTION') return false;
+
+    // Check if element is inside <main> or #smooth-content
+    let inMain = false;
+    let check = el;
+    while (check && check !== document.body && check !== document.documentElement) {
+      if (check.tagName === 'MAIN' || check.id === 'smooth-wrapper' || check.id === 'smooth-content') {
+        inMain = true;
+        break;
+      }
+      check = check.parentElement;
+    }
+    // If inside <main>, only explicit floating overlays (modals/popups/back-top) can be fixed
+    if (inMain) {
+      const cls = typeof el.className === 'string' ? el.className : '';
+      const isOverlay = /modal|dialog|popup|cookie|floating|back-top|scroll-top/i.test(cls) || (el.id && /modal|dialog|popup|cookie|back-top/i.test(el.id));
+      if (!isOverlay) return false;
+    }
+
     if (styles && styles.position === 'fixed') {
-      if (el && (el.id === 'smooth-wrapper' || el.id === 'smooth-content')) return false;
       return true;
     }
     let cur = el ? el.parentElement : null;
     while (cur && cur !== document.body && cur !== document.documentElement) {
-      if (cur.id === 'smooth-wrapper' || cur.id === 'smooth-content') {
+      if (cur.id === 'smooth-wrapper' || cur.id === 'smooth-content' || cur.tagName === 'MAIN') {
         cur = cur.parentElement;
         continue;
       }
@@ -5999,9 +5994,11 @@
       // on the right side of the captured Figma frame.
       const clientWidth = document.documentElement.clientWidth || document.body?.clientWidth || window.innerWidth;
       const fullDocWidth = clientWidth;
+      const scEl = document.getElementById('smooth-content');
       const fullDocHeight = Math.max(
         document.documentElement.scrollHeight,
         document.body ? document.body.scrollHeight : 0,
+        scEl ? scEl.scrollHeight : 0,
         window.innerHeight
       );
 
