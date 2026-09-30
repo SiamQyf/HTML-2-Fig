@@ -3996,11 +3996,12 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const fillColor = parseColor(fillColorRaw);
   const fillIsTransparent = !fillColor || fillColor.a < 0.005;
 
+  const resolvedBgColor = effectiveBgColor || 
+    (parentFrame && parentFrame.styles?._effectiveBgColor ? parseColor(parentFrame.styles._effectiveBgColor) : null) ||
+    (s._effectiveBgColor ? parseColor(s._effectiveBgColor) : null) ||
+    { r: 1, g: 1, b: 1 };
+
   if (isTextClip) {
-    const resolvedBgColor = effectiveBgColor || 
-      (parentFrame && parentFrame.styles?._effectiveBgColor ? parseColor(parentFrame.styles._effectiveBgColor) : null) ||
-      (s._effectiveBgColor ? parseColor(s._effectiveBgColor) : null) ||
-      { r: 1, g: 1, b: 1 };
 
     const textFills = [];
     const bg = parseColor(clipStyle.backgroundColor);
