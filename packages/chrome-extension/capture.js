@@ -748,6 +748,34 @@
                 }
               } catch (e) {}
             }
+            // Remove inline muted-grey colors from elements with color/all transitions.
+            // Removing the JS-set override lets the CSS final-state (revealed) color show.
+            try {
+              (function() {
+                var all = document.querySelectorAll('*');
+                for (var i = 0; i < all.length; i++) {
+                  var el = all[i];
+                  try {
+                    if (!el.style || !el.style.color || el.style.color === '') continue;
+                    var tp = window.getComputedStyle(el).transitionProperty || '';
+                    if (!tp.includes('color') && !tp.includes('all')) continue;
+                    var tmp = document.createElement('span');
+                    tmp.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;color:' + el.style.color;
+                    document.body.appendChild(tmp);
+                    var rc = window.getComputedStyle(tmp).color;
+                    document.body.removeChild(tmp);
+                    var m = rc.match(/rgba?[(](\d+),\s*(\d+),\s*(\d+)/);
+                    if (!m) continue;
+                    var r=+m[1],g=+m[2],b=+m[3],mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+                    var sat=mx===0?0:(mx-mn)/mx;
+                    var lum=0.2126*(r/255)+0.7152*(g/255)+0.0722*(b/255);
+                    if (sat < 0.15 && lum > 0.2 && lum < 0.85) {
+                      el.style.removeProperty('color');
+                    }
+                  } catch(_) {}
+                }
+              })();
+            } catch(_) {}
           } catch(e) {}
         })();
       `;
@@ -1679,16 +1707,68 @@
   }
 
   // Brightens text color alpha to 1 if it has a muted alpha (e.g. rgba(255,255,255,0.2) -> rgba(255,255,255,1))
-  function brightenColorAlpha(colorStr) {
+  function brightenColorAlpha(colorStr, parentColorStr) {
     if (!colorStr) return colorStr;
     const norm = normalizeColor(colorStr);
-    const m = norm.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
-    if (m) {
-      const alpha = parseFloat(m[4]);
+
+    // Case 1: low-alpha color (rgba with alpha < 0.95) → boost to full alpha
+    const ma = norm.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
+    if (ma) {
+      const alpha = parseFloat(ma[4]);
       if (alpha > 0.01 && alpha < 0.95) {
-        return `rgba(${m[1]}, ${m[2]}, ${m[3]}, 1)`;
+        return `rgba(${ma[1]}, ${ma[2]}, ${ma[3]}, 1)`;
       }
     }
+
+    // Case 2: fully-opaque muted/grey color (scroll-scrub color reveal stuck at initial grey state).
+    // Detect by: color is near-grey (low saturation) AND a parent / target color is available.
+    // If we have a parentColor, use it. Otherwise boost the grey toward black/white based on luminance.
+    const mr = norm.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+    if (mr) {
+      const r = parseInt(mr[1], 10);
+      const g = parseInt(mr[2], 10);
+      const b = parseInt(mr[3], 10);
+      const minC = Math.min(r, g, b);
+      const maxC = Math.max(r, g, b);
+      const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
+      const lum = 0.2126 * (r / 255) + 0.7152 * (g / 255) + 0.0722 * (b / 255);
+
+      // If low saturation (grey-ish) and in a mid-range luminance (not pure black/white)
+      // this is likely a muted scroll-reveal color.
+      if (saturation < 0.15 && lum > 0.25 && lum < 0.85) {
+        // If parent color is available and more saturated / darker, use it
+        if (parentColorStr) {
+          const pNorm = normalizeColor(parentColorStr);
+          const mp = pNorm.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+          if (mp) {
+            const pr = parseInt(mp[1], 10);
+            const pg = parseInt(mp[2], 10);
+            const pb = parseInt(mp[3], 10);
+            const pMax = Math.max(pr, pg, pb);
+            const pMin = Math.min(pr, pg, pb);
+            const pSat = pMax === 0 ? 0 : (pMax - pMin) / pMax;
+            const pLum = 0.2126 * (pr / 255) + 0.7152 * (pg / 255) + 0.0722 * (pb / 255);
+            // Parent is more saturated or significantly darker — use parent color
+            if (pSat > saturation + 0.1 || Math.abs(pLum - lum) > 0.25) {
+              return `rgb(${pr}, ${pg}, ${pb})`;
+            }
+          }
+        }
+        // No parent or parent is also grey: push to darkest extreme (most likely it should be dark)
+        // Threshold: if lum >= 0.5 it's a light grey → reveal to dark; if < 0.5 keep as-is
+        if (lum >= 0.5) {
+          // Light grey on a dark background → push to near-white
+          // Light grey on a light background → push to near-black
+          // We can't know bg without extra work, so just saturate toward black (common final state)
+          const factor = lum > 0.7 ? 0.15 : 0.25; // ratio of original lightness to keep
+          const nr = Math.round(r * factor);
+          const ng = Math.round(g * factor);
+          const nb = Math.round(b * factor);
+          return `rgb(${nr}, ${ng}, ${nb})`;
+        }
+      }
+    }
+
     return colorStr;
   }
 
@@ -4737,6 +4817,31 @@
                             'B', 'STRONG', 'EM', 'I', 'LABEL', 'FIGCAPTION', 'BLOCKQUOTE',
                             'DIV', 'SECTION', 'ARTICLE'].includes(tag);
 
+        // Detect scroll-driven COLOR reveal: element has an inline color set to a muted/grey
+        // value while having a color/all transition — the classic GSAP/ScrollTrigger scrub pattern
+        // where text goes from grey → final color as you scroll.
+        let hasMutedInlineColor = false;
+        if (!hasScrollRevealBehavior && el.style && el.style.color && el.style.color !== '') {
+          try {
+            const cs2 = window.getComputedStyle(el);
+            const transProp2 = cs2.transitionProperty || '';
+            if (transProp2.includes('color') || transProp2.includes('all')) {
+              const inlineColor = normalizeColor(el.style.color);
+              const mc = inlineColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+              if (mc) {
+                const cr = parseInt(mc[1], 10), cg = parseInt(mc[2], 10), cb = parseInt(mc[3], 10);
+                const cMin = Math.min(cr, cg, cb), cMax = Math.max(cr, cg, cb);
+                const cSat = cMax === 0 ? 0 : (cMax - cMin) / cMax;
+                const cLum = 0.2126 * (cr / 255) + 0.7152 * (cg / 255) + 0.0722 * (cb / 255);
+                // Grey-ish (low saturation) and mid-range luminance = muted scroll-driven color
+                if (cSat < 0.15 && cLum > 0.25 && cLum < 0.85) {
+                  hasMutedInlineColor = true;
+                }
+              }
+            }
+          } catch (_) {}
+        }
+
         if (isTextLike && (
           // Stuck at low opacity with opacity-transition = classic scroll reveal
           (hasOpacityAnim && inlineOp !== null && inlineOp < 0.98) ||
@@ -4745,7 +4850,9 @@
           // Clip-path entrance state
           hasClipEntrance ||
           // Entrance translate combined with low opacity
-          hasEntranceTranslate
+          hasEntranceTranslate ||
+          // Inline grey color with color transition = scroll-scrub color reveal
+          hasMutedInlineColor
         )) {
           hasScrollRevealBehavior = true;
         }
@@ -4789,9 +4896,14 @@
         }
       }
 
-      // Brighten any muted / darkened text color to its fully-revealed value
+      // Brighten any muted / darkened text color to its fully-revealed value.
+      // Pass parentStyles.color as hint so brightenColorAlpha can resolve the final color
+      // for scroll-scrub grey-to-color reveals.
       if (styles.color) {
-        styles.color = brightenColorAlpha(styles.color);
+        styles.color = brightenColorAlpha(styles.color, parentStyles?.color);
+      }
+      if (styles.webkitTextFillColor && styles.webkitTextFillColor !== styles.color) {
+        styles.webkitTextFillColor = brightenColorAlpha(styles.webkitTextFillColor, parentStyles?.color);
       }
 
       // Reset background-position for background-clip:text gradient reveals
