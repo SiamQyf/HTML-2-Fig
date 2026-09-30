@@ -4680,29 +4680,106 @@
     }
 
     // Detect text scrub animations and scroll-animated targets:
-    // Only apply to actual text elements/spans, never hover overlays or generic section containers
-    const isAnimTarget = !isCarouselOrTab && !isHoverOrOverlay && (
+    // Only apply to actual text elements/spans, never hover overlays or generic section containers.
+    //
+    // Strategy 1: class-name / attribute heuristics (existing logic)
+    const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && (
       /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos-item|scroll-reveal/i.test(cls) ||
       el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') ||
       !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal'))
     );
 
+    // Strategy 2: behavioural heuristics — detect ANY element with a scroll/entrance animation
+    // that is currently stuck in a pre-reveal state, regardless of class names.
+    // This covers generic CSS transitions (opacity 0 → 1) on any text or block element.
+    let hasScrollRevealBehavior = false;
+    if (!isCarouselOrTab && !isHoverOrOverlay && !hasAnimClass) {
+      try {
+        const cs = window.getComputedStyle(el);
+        const curOpacity = parseFloat(styles.opacity);
+        const inlineOp = el.style && el.style.opacity !== '' ? parseFloat(el.style.opacity) : null;
+        const animName = cs.animationName || '';
+        const transProp = cs.transitionProperty || '';
+        const hasOpacityAnim = transProp.includes('opacity') || transProp.includes('all') || animName !== 'none';
+
+        // Check WAAPI/CSS Animation API: if there are running/pending animations on this element
+        let hasActiveAnim = false;
+        if (typeof el.getAnimations === 'function') {
+          try {
+            const anims = el.getAnimations();
+            hasActiveAnim = anims.some(a => a.playState === 'running' || a.playState === 'pending' || a.playState === 'paused');
+          } catch (_) {}
+        }
+
+        // Detect scroll-reveal clip-path entrance (e.g. inset(0% 0% 100% 0%) → inset(0%))
+        const clipPath = cs.clipPath || styles.clipPath || '';
+        const hasClipEntrance = clipPath && clipPath !== 'none' &&
+          /inset\(.*\d+%/.test(clipPath) && !(/inset\(\s*0[^)]*\)/.test(clipPath));
+
+        // Detect translate-Y entrance (element shifted below viewport for reveal)
+        const transform = cs.transform || styles.transform || '';
+        let hasEntranceTranslate = false;
+        if (transform && transform !== 'none') {
+          const matParts = transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+          if (matParts) {
+            const vals = matParts[1].split(',').map(v => parseFloat(v.trim()));
+            // matrix(a,b,c,d,tx,ty) — ty is vals[5]; matrix3d — ty is vals[13]
+            const ty = vals.length >= 16 ? vals[13] : (vals.length >= 6 ? vals[5] : 0);
+            // Entrance offset: element translated Y significantly (> 10px) while opacity < 1
+            if (Math.abs(ty) > 10 && (isNaN(curOpacity) || curOpacity < 0.99)) {
+              hasEntranceTranslate = true;
+            }
+          }
+        }
+
+        // Only flag as scroll-reveal if the element has text content OR is a direct text wrapper
+        const isTextLike = ['SPAN', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'A', 'LI',
+                            'B', 'STRONG', 'EM', 'I', 'LABEL', 'FIGCAPTION', 'BLOCKQUOTE',
+                            'DIV', 'SECTION', 'ARTICLE'].includes(tag);
+
+        if (isTextLike && (
+          // Stuck at low opacity with opacity-transition = classic scroll reveal
+          (hasOpacityAnim && inlineOp !== null && inlineOp < 0.98) ||
+          // Has active WAAPI animation and is not fully visible
+          (hasActiveAnim && (isNaN(curOpacity) || curOpacity < 0.99)) ||
+          // Clip-path entrance state
+          hasClipEntrance ||
+          // Entrance translate combined with low opacity
+          hasEntranceTranslate
+        )) {
+          hasScrollRevealBehavior = true;
+        }
+      } catch (_) {}
+    }
+
+    const isAnimTarget = hasAnimClass || hasScrollRevealBehavior;
+
     if (isAnimTarget) {
-      // If it's a text animation split span (e.g. chars/words), ensure it's visible & brightened
+      // Force element to its final / fully-revealed state
       styles.visibility = 'visible';
       isHidden = false;
+
+      // Opacity → 1 (fully revealed)
       const curOp = parseFloat(styles.opacity);
       if (isNaN(curOp) || curOp < 0.98) {
         styles.opacity = '1';
       }
+
+      // Remove clip-path entrance masks (inset-based reveals)
+      if (styles.clipPath && styles.clipPath !== 'none' &&
+          /inset\(.*\d+%/.test(styles.clipPath) && !(/inset\(\s*0[^)]*\)/.test(styles.clipPath))) {
+        styles.clipPath = 'none';
+      }
+
+      // Neutralize entrance transforms (translateY offsets and tiny tilts)
+      // but preserve structural/deliberate rotations
       if (styles.transform && styles.transform !== 'none') {
         const parts = styles.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
         if (parts) {
           const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
           const a = vals[0], b = vals[1];
           const tAngle = Math.abs(Math.atan2(b, a) * (180 / Math.PI));
-          // Preserve deliberate/structural layout rotations (e.g. 90deg, 180deg, 270deg, 45deg)
-          // Only neutralize minor entrance animation tilts (< 15deg) on individual split chars/words
+          // Preserve structural rotations (≥ 15°), only remove entrance tilts / translateY
           const isStructuralRot = (tAngle >= 15 && tAngle <= 345);
           if (!isStructuralRot) {
             styles.transform = 'none';
@@ -4711,10 +4788,15 @@
           styles.transform = 'none';
         }
       }
+
+      // Brighten any muted / darkened text color to its fully-revealed value
       if (styles.color) {
         styles.color = brightenColorAlpha(styles.color);
       }
-      if ((styles.backgroundClip && styles.backgroundClip.includes('text')) || (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) {
+
+      // Reset background-position for background-clip:text gradient reveals
+      if ((styles.backgroundClip && styles.backgroundClip.includes('text')) ||
+          (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) {
         styles.backgroundPosition = '0% 0%';
       }
     }
