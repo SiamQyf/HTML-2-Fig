@@ -748,6 +748,27 @@
                 }
               } catch (e) {}
             }
+            // Fast-forward any background-clip:text scrub animations (e.g. gt_text_invert, SplitText scrubs)
+            try {
+              (function() {
+                var all = document.querySelectorAll('*');
+                for (var i = 0; i < all.length; i++) {
+                  var el = all[i];
+                  try {
+                    var cs = window.getComputedStyle(el);
+                    var bc = cs.backgroundClip || cs.webkitBackgroundClip || '';
+                    if (bc.includes('text')) {
+                      if (el.style) {
+                        el.style.setProperty('background-position', '0% 0%', 'important');
+                        el.style.setProperty('background-position-x', '0%', 'important');
+                        el.style.setProperty('background-position-y', '0%', 'important');
+                      }
+                    }
+                  } catch(_) {}
+                }
+              })();
+            } catch(_) {}
+
             // Remove inline muted-grey colors from elements with color/all transitions.
             // Removing the JS-set override lets the CSS final-state (revealed) color show.
             try {
@@ -4764,9 +4785,9 @@
     //
     // Strategy 1: class-name / attribute heuristics (existing logic)
     const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && (
-      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos-item|scroll-reveal/i.test(cls) ||
+      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos-item|scroll-reveal|invert|fade_anim/i.test(cls) ||
       el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') ||
-      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal'))
+      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [class*="invert"], [class*="fade_anim"]'))
     );
 
     // Strategy 2: behavioural heuristics — detect ANY element with a scroll/entrance animation
@@ -4842,6 +4863,10 @@
           } catch (_) {}
         }
 
+        const isTextClipScrub = ((styles.backgroundClip && styles.backgroundClip.includes('text')) ||
+                                 (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) &&
+                                (styles.backgroundImage && styles.backgroundImage.includes('gradient'));
+
         if (isTextLike && (
           // Stuck at low opacity with opacity-transition = classic scroll reveal
           (hasOpacityAnim && inlineOp !== null && inlineOp < 0.98) ||
@@ -4852,7 +4877,9 @@
           // Entrance translate combined with low opacity
           hasEntranceTranslate ||
           // Inline grey color with color transition = scroll-scrub color reveal
-          hasMutedInlineColor
+          hasMutedInlineColor ||
+          // Background-clip text gradient scrub
+          isTextClipScrub
         )) {
           hasScrollRevealBehavior = true;
         }
@@ -4910,6 +4937,18 @@
       if ((styles.backgroundClip && styles.backgroundClip.includes('text')) ||
           (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) {
         styles.backgroundPosition = '0% 0%';
+        styles.backgroundPositionX = '0%';
+        styles.backgroundPositionY = '0%';
+      }
+    }
+
+    // Always ensure background-clip text with offset positions are captured in their revealed state (0% 0%)
+    if ((styles.backgroundClip && styles.backgroundClip.includes('text')) ||
+        (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) {
+      if (styles.backgroundPosition && (styles.backgroundPosition.includes('100%') || styles.backgroundPosition.includes('right'))) {
+        styles.backgroundPosition = '0% 0%';
+        styles.backgroundPositionX = '0%';
+        styles.backgroundPositionY = '0%';
       }
     }
 

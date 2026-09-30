@@ -616,7 +616,14 @@ function parseLinearGradient(css, styles = null) {
 
       const isHorizontal = Math.abs(Math.sin(angleDeg * Math.PI / 180)) >= Math.abs(Math.cos(angleDeg * Math.PI / 180));
       const scale = isHorizontal ? scaleX : scaleY;
-      const pos = isHorizontal ? posX : posY;
+      let pos = isHorizontal ? posX : posY;
+
+      const isTextClip = isBackgroundClipText(styles);
+      if (isTextClip) {
+        // Text-clip scrub animations use background-size > 100% and background-position: 100%
+        // to hide text initially. The final revealed position is ALWAYS 0!
+        pos = 0;
+      }
 
       if (scale > 1.05) {
         const wWin = 1 / scale;
@@ -2620,7 +2627,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (!sNode) return;
 
   if (sNode.nodeType === 3 /* TEXT */) {
-    await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip, activeRotation, parentNode, isVerticalInverted, parentUnrotOrigin);
+    await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip, activeRotation, parentNode, isVerticalInverted, parentUnrotOrigin, inheritedBgColor);
     reportProgress();
     return;
   }
@@ -3660,7 +3667,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   }
 
   if (sNode.text && sNode.text.trim()) {
-    await renderTextNode(sNode, frame, trueGlobalX, trueGlobalY, s, currentTextClip, nextRotation, sNode, nextVerticalInverted, myUnrotOrigin);
+    await renderTextNode(sNode, frame, trueGlobalX, trueGlobalY, s, currentTextClip, nextRotation, sNode, nextVerticalInverted, myUnrotOrigin, currentBgColor);
   }
 
   // Handle CSS gradient mask-image (e.g. .feather-shadow left/right text fade)
@@ -3793,45 +3800,54 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   reportProgress();
 }
 
-// Brightens scroll-reveal / scrub text gradients so text is always captured in its brightened state
-function brightenGradientForText(grad) {
+// Brightens / darkens scroll-reveal / scrub text gradients so text is always captured in its final revealed state
+function brightenGradientForText(grad, bgColor = { r: 1, g: 1, b: 1 }) {
   if (!grad || !grad.gradientStops || grad.gradientStops.length === 0) return grad;
   const stops = grad.gradientStops;
 
-  let maxAlpha = 0;
-  let maxLum = -1;
-  let bestColor = stops[0].color;
+  const bg = bgColor || { r: 1, g: 1, b: 1 };
+  const bgLum = 0.2126 * bg.r + 0.7152 * bg.g + 0.0722 * bg.b;
+
+  let maxContrast = -1;
+  let targetColor = stops[0].color;
 
   for (const st of stops) {
     const c = st.color;
-    const a = (c.a !== undefined) ? c.a : 1;
-    if (a > maxAlpha) maxAlpha = a;
     const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-    if (lum > maxLum) {
-      maxLum = lum;
-      bestColor = c;
+    const contrast = Math.abs(lum - bgLum);
+    if (contrast > maxContrast) {
+      maxContrast = contrast;
+      targetColor = c;
     }
+  }
+
+  // If Stop 0 has strong contrast against background, prioritize it as the primary intended text color in scrub reveals
+  const firstLum = 0.2126 * stops[0].color.r + 0.7152 * stops[0].color.g + 0.0722 * stops[0].color.b;
+  const firstContrast = Math.abs(firstLum - bgLum);
+  if (firstContrast >= 0.4 && firstContrast >= maxContrast - 0.15) {
+    targetColor = stops[0].color;
+    maxContrast = firstContrast;
   }
 
   const hasMutedStop = stops.some(st => {
     const a = (st.color.a !== undefined) ? st.color.a : 1;
     return a < 0.75;
   });
-  const hasContrastDifference = (maxLum > 0.5 && stops.some(st => {
+  const hasContrastDifference = stops.some(st => {
     const lum = 0.2126 * st.color.r + 0.7152 * st.color.g + 0.0722 * st.color.b;
-    return (maxLum - lum) > 0.35;
-  }));
+    const contrast = Math.abs(lum - bgLum);
+    return (maxContrast - contrast) > 0.35;
+  });
 
   if (hasMutedStop || hasContrastDifference) {
     for (const st of stops) {
       st.color.a = 1;
-      if (hasContrastDifference) {
-        const lum = 0.2126 * st.color.r + 0.7152 * st.color.g + 0.0722 * st.color.b;
-        if (maxLum - lum > 0.35) {
-          st.color.r = bestColor.r;
-          st.color.g = bestColor.g;
-          st.color.b = bestColor.b;
-        }
+      const lum = 0.2126 * st.color.r + 0.7152 * st.color.g + 0.0722 * st.color.b;
+      const contrast = Math.abs(lum - bgLum);
+      if ((maxContrast - contrast) > 0.35 || ((st.color.a !== undefined) && st.color.a < 0.75)) {
+        st.color.r = targetColor.r;
+        st.color.g = targetColor.g;
+        st.color.b = targetColor.b;
       }
     }
   }
@@ -3850,7 +3866,7 @@ function brightenGradientForText(grad) {
   return grad;
 }
 
-async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false, parentUnrotOrigin = { x: 0, y: 0 }) {
+async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false, parentUnrotOrigin = { x: 0, y: 0 }, effectiveBgColor = null) {
   const s = sNode.styles || inheritedStyles || parentFrame.styles || {};
   let text = (sNode.text || '');
   const ws = s.whiteSpace || 'normal';
@@ -3966,6 +3982,11 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   const fillIsTransparent = !fillColor || fillColor.a < 0.005;
 
   if (isTextClip) {
+    const resolvedBgColor = effectiveBgColor || 
+      (parentFrame && parentFrame.styles?._effectiveBgColor ? parseColor(parentFrame.styles._effectiveBgColor) : null) ||
+      (s._effectiveBgColor ? parseColor(s._effectiveBgColor) : null) ||
+      { r: 1, g: 1, b: 1 };
+
     const textFills = [];
     const bg = parseColor(clipStyle.backgroundColor);
     if (bg && bg.a > 0.005) textFills.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: clamp01(bg.a) });
@@ -3975,13 +3996,13 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
         const bg = bgs[i];
         if (bg.includes('linear-gradient')) {
           const grad = parseLinearGradient(bg, clipStyle);
-          if (grad) textFills.push(brightenGradientForText(grad));
+          if (grad) textFills.push(brightenGradientForText(grad, resolvedBgColor));
         } else if (bg.includes('radial-gradient')) {
           const grad = parseRadialGradient(bg);
-          if (grad) textFills.push(brightenGradientForText(grad));
+          if (grad) textFills.push(brightenGradientForText(grad, resolvedBgColor));
         } else if (bg.includes('conic-gradient')) {
           const grad = parseAngularGradient(bg);
-          if (grad) textFills.push(brightenGradientForText(grad));
+          if (grad) textFills.push(brightenGradientForText(grad, resolvedBgColor));
         }
       }
     }
