@@ -394,7 +394,10 @@
           if (window.ScrollSmoother) {
             const sm = window.ScrollSmoother.get();
             if (sm) {
-              sm.paused(true);
+              try {
+                sm.scrollTop(0);
+                sm.paused(true);
+              } catch(e) {}
               window.__h2f_cleanup.push(() => { try { sm.paused(false); } catch(e){} });
             }
           }
@@ -402,9 +405,22 @@
             const savedTriggers = [];
             window.ScrollTrigger.getAll().forEach(st => {
               try {
+                // NEVER advance or disable pinned triggers! Advancing pinned triggers displaces sections down by thousands of pixels!
+                const isPinned = !!(st.pin || st.vars?.pin);
+                if (isPinned) {
+                  return;
+                }
                 const savedProgress = st.animation ? st.animation.progress() : null;
                 const isCrazyScale = st.vars && st.vars.scrub && st.trigger && (st.trigger.className || '').includes('circle-shape');
-                if (st.animation && !isCrazyScale) {
+                const targets = st.animation?.targets ? st.animation.targets() : [];
+                const isLayout = targets.some(t => {
+                  if (!t || !t.tagName) return false;
+                  const tag = t.tagName.toUpperCase();
+                  if (['SECTION', 'MAIN', 'HEADER', 'FOOTER'].includes(tag)) return true;
+                  const cls = t.className || '';
+                  return typeof cls === 'string' && /section|area|wrapper|pin-|container|row/i.test(cls);
+                });
+                if (st.animation && !isCrazyScale && !isLayout) {
                   st.animation.progress(1);
                 }
                 if (typeof st.vars?.onEnter === 'function') {
@@ -430,7 +446,15 @@
             const savedTweens = [];
             window.gsap.globalTimeline.getChildren().forEach(tween => {
               try {
-                if (tween.scrollTrigger || !tween.paused()) {
+                const targets = tween.targets ? tween.targets() : [];
+                const isLayout = targets.some(t => {
+                  if (!t || !t.tagName) return false;
+                  const tag = t.tagName.toUpperCase();
+                  if (['SECTION', 'MAIN', 'HEADER', 'FOOTER'].includes(tag)) return true;
+                  const cls = t.className || '';
+                  return typeof cls === 'string' && /section|area|wrapper|pin-|container|row/i.test(cls);
+                });
+                if (!isLayout && (tween.scrollTrigger || !tween.paused())) {
                   savedTweens.push({ tween, progress: tween.progress() });
                   tween.progress(1);
                 }
@@ -685,15 +709,24 @@
         }
       } catch (e) {}
 
-      // d) GSAP / ScrollTrigger active in this viewport
+      // d) GSAP / ScrollTrigger active in this viewport (non-pinned, non-layout triggers only)
       try {
         if (window.ScrollTrigger) {
           window.ScrollTrigger.getAll().forEach(st => {
             try {
+              if (st.pin || st.vars?.pin) return;
               if (st.trigger) {
                 const r = st.trigger.getBoundingClientRect();
                 if (r.top < vh && r.bottom > 0) {
-                  if (st.animation) st.animation.progress(1);
+                  const targets = st.animation?.targets ? st.animation.targets() : [];
+                  const isLayout = targets.some(t => {
+                    if (!t || !t.tagName) return false;
+                    const tag = t.tagName.toUpperCase();
+                    if (['SECTION', 'MAIN', 'HEADER', 'FOOTER'].includes(tag)) return true;
+                    const cls = t.className || '';
+                    return typeof cls === 'string' && /section|area|wrapper|pin-|container|row/i.test(cls);
+                  });
+                  if (st.animation && !isLayout) st.animation.progress(1);
                   if (typeof st.vars?.onEnter === 'function') st.vars.onEnter();
                 }
               }
@@ -710,6 +743,21 @@
     window.dispatchEvent(new Event('scroll'));
     await new Promise(r => setTimeout(r, 150));
 
+    // Ensure smooth-wrapper and smooth-content are static, visible and unconstrained
+    const swPost = document.getElementById('smooth-wrapper');
+    const scPost = document.getElementById('smooth-content');
+    if (swPost) {
+      swPost.style.setProperty('position', 'static', 'important');
+      swPost.style.setProperty('height', 'auto', 'important');
+      swPost.style.setProperty('overflow', 'visible', 'important');
+    }
+    if (scPost) {
+      scPost.style.setProperty('position', 'static', 'important');
+      scPost.style.setProperty('height', 'auto', 'important');
+      scPost.style.setProperty('overflow', 'visible', 'important');
+      scPost.style.setProperty('transform', 'none', 'important');
+    }
+
     // Ensure all Swipers remain frozen and reset to slide 0 after scrolling completes
     freezeAndResetSwipers();
 
@@ -722,7 +770,23 @@
             if (window.ScrollTrigger) {
               window.ScrollTrigger.getAll().forEach(st => {
                 try {
-                  if (st.animation) {
+                  const isPinned = !!(st.pin || st.vars?.pin);
+                  if (isPinned) {
+                    try {
+                      if (st.animation) st.animation.progress(0);
+                      st.scroll(0);
+                    } catch(_) {}
+                    return;
+                  }
+                  const targets = st.animation?.targets ? st.animation.targets() : [];
+                  const isLayout = targets.some(t => {
+                    if (!t || !t.tagName) return false;
+                    const tag = t.tagName.toUpperCase();
+                    if (['SECTION', 'MAIN', 'HEADER', 'FOOTER'].includes(tag)) return true;
+                    const cls = t.className || '';
+                    return typeof cls === 'string' && /section|area|wrapper|pin-|container|row/i.test(cls);
+                  });
+                  if (st.animation && !isLayout) {
                     st.animation.progress(1);
                     st.animation.pause();
                   }
@@ -734,8 +798,19 @@
             if (window.gsap) {
               window.gsap.globalTimeline.getChildren(true, true, true).forEach(tween => {
                 try {
-                  tween.progress(1);
-                  tween.pause();
+                  const targets = tween.targets ? tween.targets() : [];
+                  const isLayout = targets.some(t => {
+                    if (!t || !t.tagName) return false;
+                    const tag = t.tagName.toUpperCase();
+                    if (['SECTION', 'MAIN', 'HEADER', 'FOOTER'].includes(tag)) return true;
+                    const cls = t.className || '';
+                    return typeof cls === 'string' && /section|area|wrapper|pin-|container|row/i.test(cls);
+                  });
+                  // Only fast-forward non-layout entrance / text / opacity / clip / counter animations
+                  if (!isLayout) {
+                    tween.progress(1);
+                    tween.pause();
+                  }
                 } catch {}
               });
             }
@@ -1165,6 +1240,17 @@
           box.style.setProperty('max-height', 'none', 'important');
           if (box.classList.contains('pin-spacer') || (box.className && String(box.className).includes('pin-spacer'))) {
             box.style.setProperty('padding-bottom', '0px', 'important');
+            const pinnedChild = box.firstElementChild;
+            if (pinnedChild) {
+              const savedTrans = pinnedChild.style.transform;
+              const savedTop = pinnedChild.style.top;
+              pinnedChild.style.setProperty('transform', 'none', 'important');
+              pinnedChild.style.setProperty('top', '0px', 'important');
+              cleanupTasks.push(() => {
+                pinnedChild.style.transform = savedTrans;
+                pinnedChild.style.top = savedTop;
+              });
+            }
           }
 
           cleanupTasks.push(() => {
@@ -2407,9 +2493,17 @@
   }
 
   function isElementOrAncestorFixed(el, styles) {
-    if (styles && styles.position === 'fixed') return true;
+    if (el && (el.id === 'smooth-wrapper' || el.id === 'smooth-content')) return false;
+    if (styles && styles.position === 'fixed') {
+      if (el && (el.id === 'smooth-wrapper' || el.id === 'smooth-content')) return false;
+      return true;
+    }
     let cur = el ? el.parentElement : null;
     while (cur && cur !== document.body && cur !== document.documentElement) {
+      if (cur.id === 'smooth-wrapper' || cur.id === 'smooth-content') {
+        cur = cur.parentElement;
+        continue;
+      }
       try {
         if (window.getComputedStyle(cur).position === 'fixed') return true;
       } catch {}
@@ -5091,9 +5185,18 @@
       width: clientRect.width,
       height: clientRect.height
     };
-    if (el.offsetWidth !== undefined && el.offsetHeight !== undefined && (el.offsetWidth > 0 || el.offsetHeight > 0)) {
-      docRect.offsetWidth = el.offsetWidth;
-      docRect.offsetHeight = el.offsetHeight;
+    if (el.id === 'smooth-wrapper' || el.id === 'smooth-content') {
+      styles.position = 'static';
+      styles.overflow = 'visible';
+      styles.overflowX = 'visible';
+      styles.overflowY = 'visible';
+      styles.height = 'auto';
+      styles.maxHeight = 'none';
+      styles.transform = 'none';
+      const fullH = Math.max(el.scrollHeight, el.offsetHeight, document.documentElement.scrollHeight);
+      if (fullH > docRect.height) {
+        docRect.height = fullH;
+      }
     }
 
     const isTextClip = (styles.backgroundClip && styles.backgroundClip.includes('text')) ||

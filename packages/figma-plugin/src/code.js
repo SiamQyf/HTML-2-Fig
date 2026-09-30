@@ -2649,6 +2649,21 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     currentTextClip = s;
   }
 
+  const isPageLevelWrapper = sNode.id === 'smooth-wrapper' ||
+                             sNode.id === 'smooth-content' ||
+                             sNode.attributes?.id === 'smooth-wrapper' ||
+                             sNode.attributes?.id === 'smooth-content' ||
+                             (sNode.attributes?.class && /dialog-off-canvas|my-app|page-wrapper|main-wrapper|site-wrapper|root-wrapper/i.test(sNode.attributes.class));
+  if (isPageLevelWrapper) {
+    s.position = 'static';
+    s.overflow = 'visible';
+    s.overflowX = 'visible';
+    s.overflowY = 'visible';
+    s.height = 'auto';
+    s.maxHeight = 'none';
+    s.transform = 'none';
+  }
+
   if (sNode.id && (sNode.id.includes('text-symbol-wrap') || sNode.id.includes('text-wrap'))) {
     s.borderTopWidth = '0px';
     s.borderRightWidth = '0px';
@@ -3540,8 +3555,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
     if (maxB > 0) rectW = Math.max(1, maxB);
   }
 
-  // Expand zero-height/width structural containers (e.g. <header>, <div> wrappers) that contain children
-  if (rectH < 1 && sNode.childNodes && sNode.childNodes.length > 0) {
+  // Expand zero-height/width structural containers and page-level wrappers (e.g. <header>, <div> wrappers, smooth-wrapper)
+  if (sNode.childNodes && sNode.childNodes.length > 0) {
     let maxChildBottom = 0;
     for (const c of sNode.childNodes) {
       if (c.rect) {
@@ -3549,7 +3564,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
       }
     }
     const childrenSpan = maxChildBottom - (sNode.rect?.y || 0);
-    if (childrenSpan > 0) {
+    if (childrenSpan > 0 && (rectH < 1 || childrenSpan > rectH || isPageLevelWrapper)) {
       rectH = Math.max(rectH, Math.round(childrenSpan));
     }
   }
@@ -3568,9 +3583,6 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
   frame.resize(rectW, rectH);
   const clipValues = ['hidden', 'clip', 'auto', 'scroll'];
-  const isPageLevelWrapper = sNode.attributes?.id === 'smooth-wrapper' ||
-                             sNode.attributes?.id === 'smooth-content' ||
-                             (sNode.attributes?.class && /dialog-off-canvas|my-app|page-wrapper|main-wrapper|site-wrapper|root-wrapper/i.test(sNode.attributes.class));
   const isCarouselSlide = sNode.attributes?.class && /swiper-slide|slick-slide|owl-item/i.test(sNode.attributes.class);
   frame.clipsContent = isCarouselSlide || (!isPageLevelWrapper && (clipValues.includes(s.overflow) || clipValues.includes(s.overflowX) || clipValues.includes(s.overflowY)));
 
