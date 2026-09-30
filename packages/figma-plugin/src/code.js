@@ -4408,10 +4408,16 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
   } else if (isMultiLine && w > 0) {
     textNode.textAutoResize = 'HEIGHT';
 
+    const hasSiblings = parentNode && (
+      (parentNode.childNodes && parentNode.childNodes.length > 1) ||
+      parentNode.pseudoElementNodes?.before ||
+      parentNode.pseudoElementNodes?.after
+    );
+
     // For center-aligned multiline text: span parentFrame's content width and anchor at paddingLeft (x=pl).
     // A block-level DOM element spans its container fully, and text-align:center centers
     // relative to that full width. In Figma, this ensures every line centers perfectly.
-    if (alignVal === 'center' && parentFrame) {
+    if (alignVal === 'center' && parentFrame && !hasSiblings) {
       let pl = parentNode?.styles?.paddingLeft ? (parseFloat(parentNode.styles.paddingLeft) || 0) : 0;
       let pr = parentNode?.styles?.paddingRight ? (parseFloat(parentNode.styles.paddingRight) || 0) : 0;
       let fullW = Math.max(1, Math.round(parentFrame.width - pl - pr));
@@ -4423,7 +4429,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
         textNode.x = posX;
         textNode.y = posY;
       }
-    } else if ((alignVal === 'right' || alignVal === 'end') && parentFrame) {
+    } else if ((alignVal === 'right' || alignVal === 'end') && parentFrame && !hasSiblings) {
       let pl = parentNode?.styles?.paddingLeft ? (parseFloat(parentNode.styles.paddingLeft) || 0) : 0;
       let pr = parentNode?.styles?.paddingRight ? (parseFloat(parentNode.styles.paddingRight) || 0) : 0;
       let fullW = Math.max(1, Math.round(parentFrame.width - pl - pr));
@@ -4437,7 +4443,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       }
     } else {
       let layoutW = Math.max(1, Math.ceil(w));
-      if (parentFrame && parentFrame.width > layoutW) {
+      if (parentFrame && parentFrame.width > layoutW && !hasSiblings) {
         layoutW = Math.min(parentFrame.width - Math.max(0, posX), layoutW + 2);
       }
       textNode.resize(layoutW, Math.max(1, Math.ceil(h)));
@@ -4463,14 +4469,20 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       const isFlexCenter = (parentNode?.styles?.justifyContent === 'center' || parentNode?.styles?.alignItems === 'center') ||
                            (parentFrame?.styles?.justifyContent === 'center' || parentFrame?.styles?.alignItems === 'center');
 
-      if (alignVal === 'center' || isFlexCenter || isDomSymmetricCenter) {
+      const hasSiblings = parentNode && (
+        (parentNode.childNodes && parentNode.childNodes.length > 1) ||
+        parentNode.pseudoElementNodes?.before ||
+        parentNode.pseudoElementNodes?.after
+      );
+
+      if ((alignVal === 'center' || isFlexCenter || isDomSymmetricCenter) && !hasSiblings) {
         try { textNode.textAlignHorizontal = 'CENTER'; } catch {}
         if (parentFrame && parentFrame.width > figmaW) {
           textNode.x = Math.round((parentFrame.width - figmaW) / 2);
         } else {
           textNode.x = posX + (w / 2) - (figmaW / 2);
         }
-      } else if (alignVal === 'right' || alignVal === 'end') {
+      } else if ((alignVal === 'right' || alignVal === 'end') && !hasSiblings) {
         if (parentFrame && parentFrame.width > figmaW) {
           textNode.x = parentFrame.width - figmaW;
         } else {
