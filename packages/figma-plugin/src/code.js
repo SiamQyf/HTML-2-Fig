@@ -11,10 +11,13 @@ const NAMED_COLORS = {
   blue: { r: 0, g: 0, b: 1, a: 1 }
 };
 
+const sharedTextDecoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null;
+const sharedTextEncoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
+
 // Safe conversion of byte arrays to strings — avoids V8's 65534 argument limit
 function bytesToString(bytes) {
-  if (typeof TextDecoder !== 'undefined') {
-    return new TextDecoder('utf-8').decode(bytes);
+  if (sharedTextDecoder) {
+    return sharedTextDecoder.decode(bytes);
   }
   let result = '';
   for (let i = 0; i < bytes.length; i += 8192) {
@@ -24,8 +27,23 @@ function bytesToString(bytes) {
   return result;
 }
 
+const COLOR_CACHE = new Map();
+const MAX_COLOR_CACHE = 2500;
+
 function parseColor(css) {
   if (!css || css === 'none' || css === 'initial' || css === 'inherit' || css === 'transparent') return null;
+  const cached = COLOR_CACHE.get(css);
+  if (cached !== undefined) return cached ? { ...cached } : null;
+
+  const result = _parseColorInternal(css);
+  if (COLOR_CACHE.size >= MAX_COLOR_CACHE) {
+    COLOR_CACHE.clear();
+  }
+  COLOR_CACHE.set(css, result ? { ...result } : null);
+  return result ? { ...result } : null;
+}
+
+function _parseColorInternal(css) {
   css = css.trim().toLowerCase();
   if (NAMED_COLORS[css]) return { ...NAMED_COLORS[css] };
 
@@ -190,8 +208,8 @@ function decodeBase64Image(base64Obj) {
       try {
         decoded = decodeURIComponent(raw);
       } catch {}
-      if (typeof TextEncoder !== 'undefined') {
-        return new TextEncoder().encode(decoded);
+      if (sharedTextEncoder) {
+        return sharedTextEncoder.encode(decoded);
       }
       const bytes = new Uint8Array(decoded.length);
       for (let i = 0; i < decoded.length; i++) {
@@ -225,7 +243,20 @@ const FONT_WEIGHT_MAP = {
   'lighter': ['Light']
 };
 
+const FONT_CACHE = new Map();
+const FAILED_FONTS = new Set();
+
 async function loadFont(family, weight, italic, fontStretch, visualDensity, visualStretch) {
+  const cacheKey = `${family || 'Inter'}|${weight || ''}|${!!italic}|${fontStretch || ''}|${visualDensity ?? ''}|${visualStretch ?? ''}`;
+  if (FONT_CACHE.has(cacheKey)) {
+    return FONT_CACHE.get(cacheKey);
+  }
+
+  const cacheAndReturn = (f) => {
+    FONT_CACHE.set(cacheKey, f);
+    return f;
+  };
+
   const familyRaw = (family || 'Inter').replace(/['"]/g, '');
   const fontList = familyRaw.split(',').map(f => f.trim()).filter(Boolean);
   const cleanFamily = fontList[0] || 'Inter';
@@ -343,10 +374,14 @@ async function loadFont(family, weight, italic, fontStretch, visualDensity, visu
       faCandidates.push({ family: 'Font Awesome 5 Free', style: 'Solid' });
     }
     for (const font of faCandidates) {
+      const failureKey = `${font.family}::${font.style}`;
+      if (FAILED_FONTS.has(failureKey)) continue;
       try {
         await figma.loadFontAsync({ family: font.family, style: font.style });
-        return font;
-      } catch {}
+        return cacheAndReturn(font);
+      } catch {
+        FAILED_FONTS.add(failureKey);
+      }
     }
   }
 
@@ -392,10 +427,14 @@ async function loadFont(family, weight, italic, fontStretch, visualDensity, visu
     }
 
     for (const font of directCandidates) {
+      const failureKey = `${font.family}::${font.style}`;
+      if (FAILED_FONTS.has(failureKey)) continue;
       try {
         await figma.loadFontAsync({ family: font.family, style: font.style });
-        return font; // Successfully loaded from installed system fonts / Google Fonts with CSS weight!
-      } catch {}
+        return cacheAndReturn(font); // Successfully loaded from installed system fonts / Google Fonts with CSS weight!
+      } catch {
+        FAILED_FONTS.add(failureKey);
+      }
     }
   }
 
@@ -462,12 +501,16 @@ async function loadFont(family, weight, italic, fontStretch, visualDensity, visu
   if (fallbackGoogleFont !== 'Roboto') candidates.push({ family: 'Roboto', style: 'Regular' });
 
   for (const font of candidates) {
+    const failureKey = `${font.family}::${font.style}`;
+    if (FAILED_FONTS.has(failureKey)) continue;
     try {
       await figma.loadFontAsync({ family: font.family, style: font.style });
-      return font;
-    } catch {}
+      return cacheAndReturn(font);
+    } catch {
+      FAILED_FONTS.add(failureKey);
+    }
   }
-  return { family: 'Inter', style: 'Regular' };
+  return cacheAndReturn({ family: 'Inter', style: 'Regular' });
 }
 
 function splitByTopLevelCommas(str) {
@@ -2858,8 +2901,17 @@ function getUnrotatedRectInRotationRoot(nodeRect, activeRotation, isText = false
   };
 }
 
+let lastYieldTime = Date.now();
+async function yieldIfNeeded() {
+  if (Date.now() - lastYieldTime > 30) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+    lastYieldTime = Date.now();
+  }
+}
+
 async function renderNode(sNode, parentFrame, parentX, parentY, assets, inheritedStyles, inheritedTextClip = null, activeRotation = null, parentNode = null, isVerticalInverted = false, parentUnrotOrigin = { x: 0, y: 0 }, inheritedBgColor = null) {
   if (!sNode) return null;
+  await yieldIfNeeded();
 
   if (sNode.nodeType === 3 /* TEXT */) {
     const textNode = await renderTextNode(sNode, parentFrame, parentX, parentY, inheritedStyles, inheritedTextClip, activeRotation, parentNode, isVerticalInverted, parentUnrotOrigin, inheritedBgColor);
@@ -4773,6 +4825,7 @@ function countNodes(node) {
 
 async function renderTree(data) {
   const startTime = Date.now();
+  lastYieldTime = Date.now();
   totalNodes = countNodes(data.root);
   renderedNodes = 0;
 

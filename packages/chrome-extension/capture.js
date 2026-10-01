@@ -1398,7 +1398,27 @@
       });
     }
 
-    const MAX_SIZE = 4000; // Keep safely under Figma's 4096 absolute limit
+    const MAX_SIZE = 2560; // Keep safely high-res while preventing massive memory blowout in Figma
+
+    function isCanvasOpaque(c, ctx, w, h) {
+      try {
+        // Fast test on downscaled 32x32 canvas for transparent pixels
+        const scW = Math.min(32, w);
+        const scH = Math.min(32, h);
+        const testC = document.createElement('canvas');
+        testC.width = scW;
+        testC.height = scH;
+        const testCtx = testC.getContext('2d', { willReadFrequently: true });
+        testCtx.drawImage(c, 0, 0, scW, scH);
+        const data = testCtx.getImageData(0, 0, scW, scH).data;
+        for (let i = 3; i < data.length; i += 4) {
+          if (data[i] < 250) return false; // Has transparency
+        }
+        return true; // Completely opaque
+      } catch {
+        return false;
+      }
+    }
 
     try {
       if (typeof createImageBitmap === 'function') {
@@ -1415,11 +1435,11 @@
         
         const isSafeFormat = !isWebP && !isAvif && blob.type !== 'image/svg+xml' && (blob.type === 'image/png' || blob.type === 'image/jpeg' || blob.type === 'image/gif');
 
-        if (!isOversized && isSafeFormat) {
+        if (!isOversized && isSafeFormat && !forcePng) {
           return blob; // Safe to return directly!
         }
         
-        // Otherwise, draw to canvas (downscaling if needed, and converting format to PNG)
+        // Otherwise, draw to canvas (downscaling if needed, and converting format to PNG/JPEG)
         const c = document.createElement('canvas');
         let drawWidth = bmp.width;
         let drawHeight = bmp.height;
@@ -1433,7 +1453,13 @@
         const ctx = c.getContext('2d');
         if (ctx) {
           ctx.drawImage(bmp, 0, 0, drawWidth, drawHeight);
-          return new Promise(resolve => c.toBlob(resolve, 'image/png'));
+          if (forcePng) {
+            return new Promise(resolve => c.toBlob(resolve, 'image/png'));
+          }
+          const isOpaque = isCanvasOpaque(c, ctx, drawWidth, drawHeight);
+          const mime = isOpaque ? 'image/jpeg' : 'image/png';
+          const quality = isOpaque ? 0.85 : undefined;
+          return new Promise(resolve => c.toBlob(resolve, mime, quality));
         }
       }
     } catch {}
@@ -1451,7 +1477,7 @@
           const isWebP = bytes[0] === 0x52 && bytes[2] === 0x46; // simplified check
           const isSafeFormat = !isWebP && (blob.type === 'image/png' || blob.type === 'image/jpeg');
 
-          if (!isOversized && isSafeFormat) {
+          if (!isOversized && isSafeFormat && !forcePng) {
             resolve(blob);
             return;
           }
@@ -1468,7 +1494,14 @@
           c.height = drawHeight || 1;
           const ctx = c.getContext('2d');
           ctx.drawImage(img, 0, 0, drawWidth, drawHeight);
-          c.toBlob(b => resolve(b), 'image/png');
+          if (forcePng) {
+            c.toBlob(b => resolve(b), 'image/png');
+            return;
+          }
+          const isOpaque = isCanvasOpaque(c, ctx, drawWidth, drawHeight);
+          const mime = isOpaque ? 'image/jpeg' : 'image/png';
+          const quality = isOpaque ? 0.85 : undefined;
+          c.toBlob(b => resolve(b), mime, quality);
         } catch {
           resolve(blob);
         }
@@ -1493,7 +1526,22 @@
 
   async function rasterizeCanvas(cv) {
     try {
-      const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+      const MAX_CANVAS = 2560;
+      let targetCv = cv;
+      if (cv.width > MAX_CANVAS || cv.height > MAX_CANVAS) {
+        const r = Math.min(MAX_CANVAS / cv.width, MAX_CANVAS / cv.height);
+        const scW = Math.round(cv.width * r);
+        const scH = Math.round(cv.height * r);
+        const c = document.createElement('canvas');
+        c.width = scW;
+        c.height = scH;
+        const ctx = c.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(cv, 0, 0, scW, scH);
+          targetCv = c;
+        }
+      }
+      const blob = await new Promise(res => targetCv.toBlob(res, 'image/png'));
       if (blob) return blobToBase64(blob);
     } catch {}
     try {
@@ -1508,12 +1556,20 @@
     try {
       if (video.videoWidth === 0 || video.videoHeight === 0) return null;
       const c = document.createElement('canvas');
-      c.width = video.videoWidth;
-      c.height = video.videoHeight;
+      let w = video.videoWidth;
+      let h = video.videoHeight;
+      const MAX_VID_DIM = 1280;
+      if (w > MAX_VID_DIM || h > MAX_VID_DIM) {
+        const r = Math.min(MAX_VID_DIM / w, MAX_VID_DIM / h);
+        w = Math.round(w * r);
+        h = Math.round(h * r);
+      }
+      c.width = w;
+      c.height = h;
       const ctx = c.getContext('2d');
       if (!ctx) return null;
-      ctx.drawImage(video, 0, 0);
-      const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+      ctx.drawImage(video, 0, 0, w, h);
+      const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.85));
       return blob ? blobToBase64(blob) : null;
     } catch {
       return null;
@@ -5343,16 +5399,9 @@
       const url = el.currentSrc || el.src || el.getAttribute('data-src') || el.getAttribute('data-lazy-src') || el.getAttribute('data-original') || el.srcset?.split(',')[0]?.trim()?.split(' ')[0];
       if (url) assets.addImage(url);
     } else if (el instanceof HTMLPictureElement) {
-      const sources = el.querySelectorAll('source');
-      for (const s of sources) {
-        if (s.srcset) {
-          const firstUrl = s.srcset.split(',')[0].trim().split(' ')[0];
-          if (firstUrl) assets.addImage(firstUrl);
-        }
-      }
       const imgChild = el.querySelector('img');
       if (imgChild) {
-        const url = imgChild.currentSrc || imgChild.src || imgChild.getAttribute('data-src');
+        const url = imgChild.currentSrc || imgChild.src || imgChild.getAttribute('data-src') || imgChild.getAttribute('data-lazy-src');
         if (url) assets.addImage(url);
       }
     }
