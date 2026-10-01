@@ -786,6 +786,56 @@
                 }
               } catch (e) {}
             }
+
+            // Fast-forward any background-clip:text scrub animations (e.g. gt_text_invert, SplitText scrubs)
+            try {
+              (function() {
+                var all = document.querySelectorAll('*');
+                for (var i = 0; i < all.length; i++) {
+                  var el = all[i];
+                  try {
+                    var cs = window.getComputedStyle(el);
+                    var bc = cs.backgroundClip || cs.webkitBackgroundClip || '';
+                    if (bc.includes('text')) {
+                      if (el.style) {
+                        el.style.setProperty('background-position', '0% 0%', 'important');
+                        el.style.setProperty('background-position-x', '0%', 'important');
+                        el.style.setProperty('background-position-y', '0%', 'important');
+                      }
+                    }
+                  } catch(_) {}
+                }
+              })();
+            } catch(_) {}
+
+            // Remove inline muted-grey colors from elements with color/all transitions.
+            // Removing the JS-set override lets the CSS final-state (revealed) color show.
+            try {
+              (function() {
+                var all = document.querySelectorAll('*');
+                for (var i = 0; i < all.length; i++) {
+                  var el = all[i];
+                  try {
+                    if (!el.style || !el.style.color || el.style.color === '') continue;
+                    var tp = window.getComputedStyle(el).transitionProperty || '';
+                    if (!tp.includes('color') && !tp.includes('all')) continue;
+                    var tmp = document.createElement('span');
+                    tmp.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;color:' + el.style.color;
+                    document.body.appendChild(tmp);
+                    var rc = window.getComputedStyle(tmp).color;
+                    document.body.removeChild(tmp);
+                    var m = rc.match(/rgba?[(](\d+),\s*(\d+),\s*(\d+)/);
+                    if (!m) continue;
+                    var r=+m[1],g=+m[2],b=+m[3],mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+                    var sat=mx===0?0:(mx-mn)/mx;
+                    var lum=0.2126*(r/255)+0.7152*(g/255)+0.0722*(b/255);
+                    if (sat < 0.15 && lum > 0.2 && lum < 0.85) {
+                      el.style.removeProperty('color');
+                    }
+                  } catch(_) {}
+                }
+              })();
+            } catch(_) {}
           } catch(e) {}
         })();
       `;
@@ -1717,16 +1767,68 @@
   }
 
   // Brightens text color alpha to 1 if it has a muted alpha (e.g. rgba(255,255,255,0.2) -> rgba(255,255,255,1))
-  function brightenColorAlpha(colorStr) {
+  function brightenColorAlpha(colorStr, parentColorStr) {
     if (!colorStr) return colorStr;
     const norm = normalizeColor(colorStr);
-    const m = norm.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
-    if (m) {
-      const alpha = parseFloat(m[4]);
+
+    // Case 1: low-alpha color (rgba with alpha < 0.95) → boost to full alpha
+    const ma = norm.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
+    if (ma) {
+      const alpha = parseFloat(ma[4]);
       if (alpha > 0.01 && alpha < 0.95) {
-        return `rgba(${m[1]}, ${m[2]}, ${m[3]}, 1)`;
+        return `rgba(${ma[1]}, ${ma[2]}, ${ma[3]}, 1)`;
       }
     }
+
+    // Case 2: fully-opaque muted/grey color (scroll-scrub color reveal stuck at initial grey state).
+    // Detect by: color is near-grey (low saturation) AND a parent / target color is available.
+    // If we have a parentColor, use it. Otherwise boost the grey toward black/white based on luminance.
+    const mr = norm.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+    if (mr) {
+      const r = parseInt(mr[1], 10);
+      const g = parseInt(mr[2], 10);
+      const b = parseInt(mr[3], 10);
+      const minC = Math.min(r, g, b);
+      const maxC = Math.max(r, g, b);
+      const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
+      const lum = 0.2126 * (r / 255) + 0.7152 * (g / 255) + 0.0722 * (b / 255);
+
+      // If low saturation (grey-ish) and in a mid-range luminance (not pure black/white)
+      // this is likely a muted scroll-reveal color.
+      if (saturation < 0.15 && lum > 0.25 && lum < 0.85) {
+        // If parent color is available and more saturated / darker, use it
+        if (parentColorStr) {
+          const pNorm = normalizeColor(parentColorStr);
+          const mp = pNorm.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+          if (mp) {
+            const pr = parseInt(mp[1], 10);
+            const pg = parseInt(mp[2], 10);
+            const pb = parseInt(mp[3], 10);
+            const pMax = Math.max(pr, pg, pb);
+            const pMin = Math.min(pr, pg, pb);
+            const pSat = pMax === 0 ? 0 : (pMax - pMin) / pMax;
+            const pLum = 0.2126 * (pr / 255) + 0.7152 * (pg / 255) + 0.0722 * (pb / 255);
+            // Parent is more saturated or significantly darker — use parent color
+            if (pSat > saturation + 0.1 || Math.abs(pLum - lum) > 0.25) {
+              return `rgb(${pr}, ${pg}, ${pb})`;
+            }
+          }
+        }
+        // No parent or parent is also grey: push to darkest extreme (most likely it should be dark)
+        // Threshold: if lum >= 0.5 it's a light grey → reveal to dark; if < 0.5 keep as-is
+        if (lum >= 0.5) {
+          // Light grey on a dark background → push to near-white
+          // Light grey on a light background → push to near-black
+          // We can't know bg without extra work, so just saturate toward black (common final state)
+          const factor = lum > 0.7 ? 0.15 : 0.25; // ratio of original lightness to keep
+          const nr = Math.round(r * factor);
+          const ng = Math.round(g * factor);
+          const nb = Math.round(b * factor);
+          return `rgb(${nr}, ${ng}, ${nb})`;
+        }
+      }
+    }
+
     return colorStr;
   }
 
@@ -5015,28 +5117,132 @@
 
     // Detect text scrub animations and scroll-animated targets:
     // Only apply to actual text elements/spans, never hover overlays or generic section containers
-    const isAnimTarget = !isCarouselOrTab && !isHoverOrOverlay && (
-      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos-item|scroll-reveal/i.test(cls) ||
+    const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && (
+      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos-item|scroll-reveal|invert|fade_anim/i.test(cls) ||
       el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') ||
-      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal'))
+      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [class*="invert"], [class*="fade_anim"]'))
     );
 
+    // Strategy 2: behavioural heuristics — detect ANY element with a scroll/entrance animation
+    // that is currently stuck in a pre-reveal state, regardless of class names.
+    // This covers generic CSS transitions (opacity 0 → 1) on any text or block element.
+    let hasScrollRevealBehavior = false;
+    if (!isCarouselOrTab && !isHoverOrOverlay && !hasAnimClass) {
+      try {
+        const cs = window.getComputedStyle(el);
+        const curOpacity = parseFloat(styles.opacity);
+        const inlineOp = el.style && el.style.opacity !== '' ? parseFloat(el.style.opacity) : null;
+        const animName = cs.animationName || '';
+        const transProp = cs.transitionProperty || '';
+        const hasOpacityAnim = transProp.includes('opacity') || transProp.includes('all') || animName !== 'none';
+
+        // Check WAAPI/CSS Animation API: if there are running/pending animations on this element
+        let hasActiveAnim = false;
+        if (typeof el.getAnimations === 'function') {
+          try {
+            const anims = el.getAnimations();
+            hasActiveAnim = anims.some(a => a.playState === 'running' || a.playState === 'pending' || a.playState === 'paused');
+          } catch (_) {}
+        }
+
+        // Detect scroll-reveal clip-path entrance (e.g. inset(0% 0% 100% 0%) → inset(0%))
+        const clipPath = cs.clipPath || styles.clipPath || '';
+        const hasClipEntrance = clipPath && clipPath !== 'none' &&
+          /inset\(.*\d+%/.test(clipPath) && !(/inset\(\s*0[^)]*\)/.test(clipPath));
+
+        // Detect translate-Y entrance (element shifted below viewport for reveal)
+        const transform = cs.transform || styles.transform || '';
+        let hasEntranceTranslate = false;
+        if (transform && transform !== 'none') {
+          const matParts = transform.match(/matrix(?:3d)?\(([^)]+)\)/);
+          if (matParts) {
+            const vals = matParts[1].split(',').map(v => parseFloat(v.trim()));
+            // matrix(a,b,c,d,tx,ty) — ty is vals[5]; matrix3d — ty is vals[13]
+            const ty = vals.length >= 16 ? vals[13] : (vals.length >= 6 ? vals[5] : 0);
+            // Entrance offset: element translated Y significantly (> 10px) while opacity < 1
+            if (Math.abs(ty) > 10 && (isNaN(curOpacity) || curOpacity < 0.99)) {
+              hasEntranceTranslate = true;
+            }
+          }
+        }
+
+        // Only flag as scroll-reveal if the element has text content OR is a direct text wrapper
+        const isTextLike = ['SPAN', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'A', 'LI',
+                            'B', 'STRONG', 'EM', 'I', 'LABEL', 'FIGCAPTION', 'BLOCKQUOTE',
+                            'DIV', 'SECTION', 'ARTICLE'].includes(tag);
+
+        // Detect scroll-driven COLOR reveal: element has an inline color set to a muted/grey
+        // value — the classic GSAP/ScrollTrigger scrub pattern where text goes from grey → final color.
+        let hasMutedInlineColor = false;
+        if (!hasScrollRevealBehavior && el.style && el.style.color && el.style.color !== '') {
+          try {
+            const inlineColor = normalizeColor(el.style.color);
+            const mc = inlineColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+            if (mc) {
+              const cr = parseInt(mc[1], 10), cg = parseInt(mc[2], 10), cb = parseInt(mc[3], 10);
+              const cMin = Math.min(cr, cg, cb), cMax = Math.max(cr, cg, cb);
+              const cSat = cMax === 0 ? 0 : (cMax - cMin) / cMax;
+              const cLum = 0.2126 * (cr / 255) + 0.7152 * (cg / 255) + 0.0722 * (cb / 255);
+              // Grey-ish (low saturation) and mid-range luminance = muted scroll-driven color
+              if (cSat < 0.15 && cLum > 0.25 && cLum < 0.85) {
+                hasMutedInlineColor = true;
+              }
+            }
+          } catch (_) {}
+        }
+
+        const isTextClipScrub = ((styles.backgroundClip && styles.backgroundClip.includes('text')) ||
+                                 (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) &&
+                                (styles.backgroundImage && styles.backgroundImage.includes('gradient'));
+
+        if (isTextLike && (
+          // Stuck at low opacity with opacity-transition or set inline by JS scroll scrub
+          (inlineOp !== null && inlineOp < 0.98) ||
+          (hasOpacityAnim && inlineOp !== null && inlineOp < 0.98) ||
+          // Has active WAAPI animation and is not fully visible
+          (hasActiveAnim && (isNaN(curOpacity) || curOpacity < 0.99)) ||
+          // Clip-path entrance state
+          hasClipEntrance ||
+          // Entrance translate combined with low opacity
+          hasEntranceTranslate ||
+          // Inline grey color = scroll-scrub color reveal
+          hasMutedInlineColor ||
+          // Background-clip text gradient scrub
+          isTextClipScrub
+        )) {
+          hasScrollRevealBehavior = true;
+        }
+      } catch (_) {}
+    }
+
+    const isAnimTarget = hasAnimClass || hasScrollRevealBehavior;
+
     if (isAnimTarget) {
-      // If it's a text animation split span (e.g. chars/words), ensure it's visible & brightened
+      // Force element to its final / fully-revealed state
       styles.visibility = 'visible';
       isHidden = false;
+
+      // Opacity → 1 (fully revealed)
       const curOp = parseFloat(styles.opacity);
       if (isNaN(curOp) || curOp < 0.98) {
         styles.opacity = '1';
       }
+
+      // Remove clip-path entrance masks (inset-based reveals)
+      if (styles.clipPath && styles.clipPath !== 'none' &&
+          /inset\(.*\d+%/.test(styles.clipPath) && !(/inset\(\s*0[^)]*\)/.test(styles.clipPath))) {
+        styles.clipPath = 'none';
+      }
+
+      // Neutralize entrance transforms (translateY offsets and tiny tilts)
+      // but preserve structural/deliberate rotations
       if (styles.transform && styles.transform !== 'none') {
         const parts = styles.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
         if (parts) {
           const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
           const a = vals[0], b = vals[1];
           const tAngle = Math.abs(Math.atan2(b, a) * (180 / Math.PI));
-          // Preserve deliberate/structural layout rotations (e.g. 90deg, 180deg, 270deg, 45deg)
-          // Only neutralize minor entrance animation tilts (< 15deg) on individual split chars/words
+          // Preserve structural rotations (≥ 15°), only remove entrance tilts / translateY
           const isStructuralRot = (tAngle >= 15 && tAngle <= 345);
           if (!isStructuralRot) {
             styles.transform = 'none';
@@ -5045,11 +5251,33 @@
           styles.transform = 'none';
         }
       }
+
+      // Brighten any muted / darkened text color to its fully-revealed value.
+      // Pass parentStyles.color as hint so brightenColorAlpha can resolve the final color
+      // for scroll-scrub grey-to-color reveals.
       if (styles.color) {
-        styles.color = brightenColorAlpha(styles.color);
+        styles.color = brightenColorAlpha(styles.color, parentStyles?.color);
       }
-      if ((styles.backgroundClip && styles.backgroundClip.includes('text')) || (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) {
+      if (styles.webkitTextFillColor && styles.webkitTextFillColor !== styles.color) {
+        styles.webkitTextFillColor = brightenColorAlpha(styles.webkitTextFillColor, parentStyles?.color);
+      }
+
+      // Reset background-position for background-clip:text gradient reveals
+      if ((styles.backgroundClip && styles.backgroundClip.includes('text')) ||
+          (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) {
         styles.backgroundPosition = '0% 0%';
+        styles.backgroundPositionX = '0%';
+        styles.backgroundPositionY = '0%';
+      }
+    }
+
+    // Always ensure background-clip text with offset positions are captured in their revealed state (0% 0%)
+    if ((styles.backgroundClip && styles.backgroundClip.includes('text')) ||
+        (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) {
+      if (styles.backgroundPosition && (styles.backgroundPosition.includes('100%') || styles.backgroundPosition.includes('right'))) {
+        styles.backgroundPosition = '0% 0%';
+        styles.backgroundPositionX = '0%';
+        styles.backgroundPositionY = '0%';
       }
     }
 
