@@ -1522,6 +1522,97 @@
     box-shadow: 0 0 16px rgba(16, 185, 129, 0.75) !important;
   }
 
+  /* ---------------- DIRECT URL INPUT BAR ---------------- */
+  .url-input-card {
+    margin-bottom: 8px;
+  }
+  .url-input-inner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.78);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 5px 6px 5px 12px;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+  .url-input-inner:focus-within {
+    border-color: rgba(56, 189, 248, 0.65);
+    background: rgba(15, 23, 42, 0.95);
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18), 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+  .url-globe-icon {
+    display: flex;
+    align-items: center;
+    color: #38bdf8;
+    flex-shrink: 0;
+  }
+  .url-field {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #f8fafc;
+    font-size: 11.5px;
+    font-family: inherit;
+    font-weight: 500;
+  }
+  .url-field::placeholder {
+    color: #64748b;
+    font-size: 11px;
+  }
+  .btn-fetch-url {
+    background: linear-gradient(135deg, #0284c7 0%, #7c3aed 100%);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.18s ease;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);
+  }
+  .btn-fetch-url:hover {
+    transform: translateY(-0.5px);
+    box-shadow: 0 4px 14px rgba(124, 58, 237, 0.45);
+    filter: brightness(1.1);
+  }
+  .btn-fetch-url:active {
+    transform: translateY(0);
+  }
+  .btn-fetch-url:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .or-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 8px 0;
+  }
+  .or-divider-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  }
+  .or-divider-text {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #64748b;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+  }
+  .url-spinner-icon {
+    animation: spin 0.8s linear infinite;
+  }
+
 </style>
 </head>
 <body>
@@ -1707,6 +1798,33 @@
       </div>
       <button class="btn-deactivate" id="btnDeactivateLicense" type="button">Deactivate Key</button>
     </div>
+  </div>
+
+  <!-- Direct URL Input Bar -->
+  <div class="url-input-card" id="urlInputCard">
+    <div class="url-input-inner">
+      <div class="url-globe-icon">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+      </div>
+      <input type="url" id="webUrlInput" class="url-field" placeholder="Enter webpage URL (e.g. stripe.com)..." autocomplete="off" spellcheck="false" />
+      <button type="button" id="btnFetchUrl" class="btn-fetch-url" title="Capture & paint this URL directly onto canvas">
+        <svg class="url-spinner-icon" id="urlFetchSpinner" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" style="display:none;">
+          <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+          <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+        </svg>
+        <span id="btnFetchUrlText">Capture URL</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="or-divider">
+    <span class="or-divider-line"></span>
+    <span class="or-divider-text">OR PASTE CAPTURE</span>
+    <span class="or-divider-line"></span>
   </div>
 
   <!-- Interactive Drop / Paste Zone (State A) -->
@@ -2031,7 +2149,8 @@
     }
     const trimmed = text.trim();
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      showToast('⚠️ You copied a webpage URL. Please use the Chrome extension to capture the page, then press here.', 'error', 5500);
+      if (webUrlInput) webUrlInput.value = trimmed;
+      fetchFromUrl(trimmed);
       return;
     }
     try {
@@ -2367,6 +2486,92 @@
       licenseActivatedView.style.display = 'none';
       licenseKeyInput.value = '';
     }
+  }
+
+  /* ---------------- DIRECT URL CAPTURE LOGIC ---------------- */
+  let CAPTURE_SERVER_URL = 'https://html2fig-capture-server.onrender.com';
+
+  const webUrlInput = document.getElementById('webUrlInput');
+  const btnFetchUrl = document.getElementById('btnFetchUrl');
+  const btnFetchUrlText = document.getElementById('btnFetchUrlText');
+  const urlFetchSpinner = document.getElementById('urlFetchSpinner');
+
+  async function fetchFromUrl(rawUrl) {
+    if (isImporting) return;
+    let url = (rawUrl || (webUrlInput ? webUrlInput.value : '')).trim();
+    if (!url) {
+      showToast('⚠️ Please enter a webpage URL', 'error');
+      if (webUrlInput) webUrlInput.focus();
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      url = 'https://' + url;
+      if (webUrlInput) webUrlInput.value = url;
+    }
+
+    if (btnFetchUrl) btnFetchUrl.disabled = true;
+    if (urlFetchSpinner) urlFetchSpinner.style.display = 'inline-block';
+    if (btnFetchUrlText) btnFetchUrlText.textContent = 'Rendering...';
+
+    setStatus('Headless server analyzing...', 'info');
+    showToast('🌐 Sending URL to headless browser...', 'info', 4000);
+    updateProgress(15);
+
+    try {
+      // Try cloud server or local fallback
+      let serverEndpoint = CAPTURE_SERVER_URL + '/api/capture';
+      let res;
+      try {
+        res = await fetch(serverEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: url, width: 1440, height: 900 })
+        });
+      } catch (cloudErr) {
+        // Fallback to local server if running locally on developer's machine
+        try {
+          serverEndpoint = 'http://localhost:3000/api/capture';
+          res = await fetch(serverEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url, width: 1440, height: 900 })
+          });
+        } catch (localErr) {
+          throw new Error('Capture server offline. Please deploy on Render.com or start local server (node server/index.js).');
+        }
+      }
+
+      updateProgress(60);
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.payload) {
+        throw new Error(data.error || 'Capture server failed to render page');
+      }
+
+      updateProgress(90);
+      showToast('✅ Webpage rendered into HyperNodes!', 'success', 2500);
+      showPayloadCard(data.payload, JSON.stringify(data.payload).length);
+      executeImport();
+    } catch (err) {
+      console.error('[URL Capture Error]:', err);
+      setStatus('Failed to capture URL', 'error');
+      showToast('❌ ' + (err.message || 'Server error'), 'error', 7000);
+    } finally {
+      if (btnFetchUrl) btnFetchUrl.disabled = false;
+      if (urlFetchSpinner) urlFetchSpinner.style.display = 'none';
+      if (btnFetchUrlText) btnFetchUrlText.textContent = 'Capture URL';
+    }
+  }
+
+  if (btnFetchUrl) {
+    btnFetchUrl.addEventListener('click', () => fetchFromUrl());
+  }
+  if (webUrlInput) {
+    webUrlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        fetchFromUrl();
+      }
+    });
   }
 
   /* ---------------- 1-CLICK BOOKMARKLET LOGIC ---------------- */
