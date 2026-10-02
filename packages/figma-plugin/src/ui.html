@@ -56,7 +56,8 @@
     color: var(--fg-primary);
     font-family: var(--font-sans);
     font-size: 12px;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     user-select: none;
     -webkit-font-smoothing: antialiased;
   }
@@ -114,7 +115,7 @@
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.4px;
-    padding: 3px 9px;
+    padding: 3px 10px;
     border-radius: 999px;
     background: rgba(99, 102, 241, 0.12);
     border: 1px solid rgba(99, 102, 241, 0.32);
@@ -124,7 +125,7 @@
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     line-height: 1.2;
     outline: none;
   }
@@ -133,6 +134,14 @@
     border-color: rgba(99, 102, 241, 0.55);
     color: #ffffff;
     transform: translateY(-0.5px);
+  }
+  .badge-tag:hover .pro-sparkle-icon {
+    transform: scale(1.18) rotate(8deg);
+    filter: drop-shadow(0 0 6px rgba(192, 132, 252, 0.85));
+  }
+  .pro-sparkle-icon {
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), filter 0.22s ease;
+    flex-shrink: 0;
   }
   .badge-tag.active-pro {
     background: rgba(16, 185, 129, 0.12);
@@ -167,17 +176,28 @@
     50% { border-color: rgba(244, 63, 94, 0.85); box-shadow: 0 0 10px rgba(244, 63, 94, 0.3); }
   }
 
+  /* ---------------- GUMROAD LICENSE PANEL (REDESIGNED) ---------------- */
   .license-panel {
     display: none;
     flex-direction: column;
-    gap: 10px;
-    background: rgba(15, 20, 36, 0.97);
-    border: 1px solid rgba(168, 85, 247, 0.4);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 24px rgba(168, 85, 247, 0.16);
-    border-radius: var(--radius-md);
-    padding: 13px 15px;
-    backdrop-filter: blur(20px);
-    animation: fadeIn 0.2s ease-out;
+    gap: 11px;
+    background: linear-gradient(165deg, rgba(22, 19, 48, 0.96) 0%, rgba(12, 14, 27, 0.98) 100%);
+    border: 1px solid rgba(168, 85, 247, 0.38);
+    box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.72), 0 0 26px -4px rgba(147, 51, 234, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+    border-radius: 14px;
+    padding: 15px 16px;
+    backdrop-filter: blur(24px);
+    position: relative;
+    overflow: hidden;
+    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .license-panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 18%; right: 18%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(236, 72, 153, 0.65), rgba(168, 85, 247, 0.75), transparent);
+    pointer-events: none;
   }
   .license-panel.active {
     display: flex;
@@ -190,40 +210,94 @@
   .license-title-row {
     display: flex;
     align-items: center;
-    gap: 7px;
-    font-size: 12.5px;
+    gap: 9px;
+  }
+  .license-icon-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(217, 70, 239, 0.22) 100%);
+    border: 1px solid rgba(168, 85, 247, 0.42);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 10px rgba(168, 85, 247, 0.25);
+    flex-shrink: 0;
+  }
+  .license-title-text {
+    font-size: 13.5px;
     font-weight: 700;
     color: #ffffff;
     letter-spacing: -0.2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
-  .license-title-row svg {
-    color: #c084fc;
-    filter: drop-shadow(0 0 6px rgba(192, 132, 252, 0.6));
+  .pro-gradient-text {
+    background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800;
+    text-shadow: 0 0 16px rgba(236, 72, 153, 0.45);
   }
   .license-close-btn {
-    background: none;
-    border: none;
-    color: var(--fg-muted);
-    font-size: 12px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    padding: 1px 5px;
-    border-radius: 4px;
-    transition: all 0.15s ease;
+    transition: all 0.2s ease;
+    padding: 0;
   }
   .license-close-btn:hover {
-    color: var(--fg-primary);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #ffffff;
+    transform: rotate(90deg);
   }
   .license-desc {
     font-size: 11px;
     color: #94a3b8;
     line-height: 1.45;
     letter-spacing: -0.1px;
+    margin: 0;
+  }
+  .license-pills-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+    margin-bottom: 2px;
+  }
+  .license-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9.5px;
+    font-weight: 600;
+    padding: 2.5px 7.5px;
+    border-radius: 999px;
+    background: rgba(168, 85, 247, 0.1);
+    border: 1px solid rgba(168, 85, 247, 0.26);
+    color: #d8b4fe;
+    letter-spacing: 0.1px;
+  }
+  .pill-sparkle {
+    color: #ec4899;
+    font-size: 8px;
+    line-height: 1;
   }
   .license-input-row {
     display: flex;
-    gap: 7px;
-    margin-top: 3px;
+    gap: 8px;
+    margin-top: 4px;
     align-items: stretch;
   }
   .license-input-wrap {
@@ -232,71 +306,92 @@
     flex: 1;
     align-items: center;
   }
+  .license-input-icon {
+    position: absolute;
+    left: 11px;
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+    opacity: 0.8;
+  }
   .license-input {
     width: 100%;
-    padding: 8px 60px 8px 10px;
-    background: rgba(10, 13, 22, 0.95);
-    border: 1px solid rgba(168, 85, 247, 0.3);
-    border-radius: var(--radius-sm);
+    height: 38px;
+    padding: 0 68px 0 32px;
+    background: rgba(8, 10, 19, 0.9);
+    border: 1px solid rgba(168, 85, 247, 0.32);
+    border-radius: 8px;
     color: #f8fafc;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.3px;
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    letter-spacing: 0.2px;
     outline: none;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-sizing: border-box;
     user-select: text !important;
     -webkit-user-select: text !important;
   }
+  .license-input::placeholder {
+    color: #475569;
+    font-size: 11px;
+  }
   .license-input:focus {
     border-color: #c084fc;
-    box-shadow: 0 0 14px rgba(168, 85, 247, 0.35);
+    background: rgba(11, 14, 26, 0.98);
+    box-shadow: 0 0 0 2.5px rgba(168, 85, 247, 0.22), 0 0 16px rgba(192, 132, 252, 0.22);
   }
   .btn-license-paste {
     position: absolute;
     right: 5px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    color: #cbd5e1;
-    border-radius: 4px;
+    height: 26px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #e2e8f0;
+    border-radius: 6px;
     font-size: 10.5px;
     font-weight: 600;
-    padding: 3px 8px;
+    padding: 0 8px;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.18s ease;
     font-family: inherit;
-    line-height: 1.2;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    line-height: 1;
   }
   .btn-license-paste:hover {
-    background: rgba(168, 85, 247, 0.3);
-    border-color: rgba(168, 85, 247, 0.6);
+    background: rgba(168, 85, 247, 0.32);
+    border-color: rgba(192, 132, 252, 0.6);
     color: #ffffff;
     transform: translateY(-0.5px);
   }
   .btn-license-activate {
-    padding: 8px 15px;
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%);
+    height: 38px;
+    padding: 0 18px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 45%, #d946ef 100%);
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: 8px;
     color: #ffffff;
     font-family: inherit;
-    font-size: 11.5px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 700;
     letter-spacing: -0.1px;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 5px;
-    transition: all 0.2s ease;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     flex-shrink: 0;
-    box-shadow: 0 2px 12px rgba(139, 92, 246, 0.35);
+    box-shadow: 0 3px 14px rgba(139, 92, 246, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.3);
   }
   .btn-license-activate:hover {
     filter: brightness(1.12);
-    transform: translateY(-0.5px);
-    box-shadow: 0 4px 18px rgba(168, 85, 247, 0.5);
+    transform: translateY(-1px);
+    box-shadow: 0 5px 20px rgba(168, 85, 247, 0.58), inset 0 1px 0 rgba(255, 255, 255, 0.35);
   }
   .btn-license-activate:active {
-    transform: translateY(0.5px);
+    transform: translateY(0.5px) scale(0.99);
   }
   .btn-license-activate:disabled {
     opacity: 0.5;
@@ -316,80 +411,101 @@
     align-items: center;
     justify-content: space-between;
     font-size: 10.5px;
-    padding-top: 2px;
+    padding-top: 3px;
+    min-height: 20px;
   }
   .license-link {
-    color: #38bdf8;
+    color: #c084fc;
     text-decoration: none;
-    font-weight: 500;
+    font-weight: 600;
     display: inline-flex;
     align-items: center;
     gap: 4px;
     cursor: pointer;
-    transition: color 0.15s ease;
+    transition: all 0.18s ease;
+  }
+  .license-link .ext-arrow {
+    transition: transform 0.18s ease;
   }
   .license-link:hover {
-    color: #7dd3fc;
-    text-decoration: underline;
-    text-underline-offset: 2px;
+    color: #e879f9;
+    text-shadow: 0 0 8px rgba(232, 121, 249, 0.5);
+  }
+  .license-link:hover .ext-arrow {
+    transform: translate(2px, -2px);
   }
   .license-status-msg {
-    font-size: 9.5px;
-    font-weight: 500;
+    font-size: 10px;
+    font-weight: 600;
   }
-  .license-status-msg.ok { color: #34d399; }
-  .license-status-msg.err { color: #f87171; }
-  .license-status-msg.info { color: #38bdf8; }
+  .license-status-msg.ok { color: #34d399; text-shadow: 0 0 6px rgba(52, 211, 153, 0.4); }
+  .license-status-msg.err { color: #fb7185; text-shadow: 0 0 6px rgba(251, 113, 133, 0.4); }
+  .license-status-msg.info { color: #38bdf8; text-shadow: 0 0 6px rgba(56, 189, 248, 0.4); }
 
   .license-active-box {
-    background: rgba(16, 185, 129, 0.08);
-    border: 1px solid rgba(16, 185, 129, 0.25);
-    border-radius: var(--radius-sm);
-    padding: 8px 10px;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(6, 95, 70, 0.15) 100%);
+    border: 1px solid rgba(52, 211, 153, 0.35);
+    border-radius: 9px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 4px;
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.12);
   }
   .active-badge-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #34d399;
+    gap: 7px;
   }
   .active-dot {
-    width: 6px;
-    height: 6px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     background: #10b981;
-    box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.85);
+  }
+  .active-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #34d399;
+    letter-spacing: -0.1px;
+  }
+  .active-pill-tag {
+    font-size: 8.5px;
+    font-weight: 800;
+    padding: 1.5px 6px;
+    border-radius: 999px;
+    background: rgba(52, 211, 153, 0.2);
+    border: 1px solid rgba(52, 211, 153, 0.4);
+    color: #6ee7b7;
+    letter-spacing: 0.6px;
   }
   .active-key-text {
     font-family: var(--font-mono);
-    font-size: 9.5px;
-    color: var(--fg-secondary);
+    font-size: 10px;
+    color: #cbd5e1;
   }
   .active-email-text {
     font-size: 9.5px;
-    color: var(--fg-muted);
+    color: #94a3b8;
   }
   .btn-deactivate {
     align-self: flex-start;
     margin-top: 4px;
-    background: none;
-    border: 1px solid var(--border-card);
-    border-radius: 4px;
-    color: var(--fg-muted);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 5px;
+    color: #94a3b8;
     font-size: 9.5px;
-    padding: 3px 7px;
+    font-weight: 500;
+    padding: 4px 9px;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.18s ease;
   }
   .btn-deactivate:hover {
-    color: #f87171;
-    border-color: rgba(244, 63, 94, 0.4);
-    background: rgba(244, 63, 94, 0.08);
+    color: #fb7185;
+    border-color: rgba(251, 113, 133, 0.4);
+    background: rgba(251, 113, 133, 0.1);
   }
 
 
@@ -399,20 +515,28 @@
     border-radius: var(--radius-lg);
     background: var(--bg-card);
     border: 1.5px dashed var(--border-card);
-    padding: 18px 14px;
+    padding: 28px 16px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 15px;
     text-align: center;
     cursor: pointer;
-    min-height: 135px;
+    min-height: 250px;
     backdrop-filter: blur(16px);
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
   }
   .drop-zone:hover {
-    border-color: rgba(99, 102, 241, 0.4);
-    background: rgba(22, 28, 46, 0.85);
+    border-color: rgba(168, 85, 247, 0.5);
+    background: rgba(22, 28, 48, 0.88);
+    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.15);
+  }
+  .drop-zone:active,
+  .drop-zone.zone-pressed {
+    transform: scale(0.985);
+    border-color: #ec4899;
   }
   .drop-zone.dragover {
     border-color: var(--brand-cyan) !important;
@@ -421,46 +545,320 @@
     transform: scale(1.01);
   }
 
+  .paste-hitbox {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.0001;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    z-index: 10;
+    resize: none;
+    color: transparent;
+    caret-color: transparent;
+    outline: none;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+  }
+
+  /* ---------------- GORGEOUS PASTING ANIMATION ICON ---------------- */
   .drop-icon-wrap {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: rgba(99, 102, 241, 0.12);
-    border: 1px solid rgba(99, 102, 241, 0.25);
+    position: relative;
+    width: 54px;
+    height: 54px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--brand-cyan);
-    margin-bottom: 9px;
-    transition: transform 0.2s ease;
+    margin-bottom: 0;
   }
-  .drop-zone:hover .drop-icon-wrap {
-    transform: translateY(-2px);
-    background: rgba(99, 102, 241, 0.2);
-    border-color: rgba(99, 102, 241, 0.4);
+  .press-ripple {
+    position: absolute;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(168, 85, 247, 0.4);
+    box-shadow: 0 0 14px rgba(168, 85, 247, 0.25);
+    pointer-events: none;
+    animation: pasteRippleAnim 2.2s cubic-bezier(0.1, 0.4, 0.6, 1) infinite;
+  }
+  .press-ripple-2 {
+    animation-delay: 1.1s;
+  }
+  @keyframes pasteRippleAnim {
+    0% {
+      transform: scale(0.85);
+      opacity: 0.9;
+      border-color: rgba(236, 72, 153, 0.75);
+      box-shadow: 0 0 16px rgba(236, 72, 153, 0.4);
+    }
+    45% {
+      opacity: 0.5;
+      border-color: rgba(168, 85, 247, 0.55);
+    }
+    100% {
+      transform: scale(1.75);
+      opacity: 0;
+      border-color: rgba(56, 189, 248, 0);
+    }
+  }
+
+  .press-icon-core {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(30, 27, 75, 0.9) 0%, rgba(79, 70, 229, 0.4) 50%, rgba(147, 51, 234, 0.45) 100%);
+    border: 1px solid rgba(192, 132, 252, 0.5);
+    box-shadow: 0 4px 18px rgba(147, 51, 234, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 2;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .drop-zone:hover .press-icon-core {
+    transform: scale(1.08);
+    border-color: rgba(236, 72, 153, 0.7);
+    box-shadow: 0 6px 24px rgba(236, 72, 153, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+  .drop-zone:active .press-icon-core,
+  .drop-zone.zone-pressed .press-icon-core {
+    transform: scale(0.9);
+    box-shadow: 0 2px 10px rgba(147, 51, 234, 0.7);
+  }
+
+  .paste-animated-svg {
+    overflow: visible;
+  }
+
+  /* Document Sheet Pasting Motion */
+  .pasting-doc {
+    animation: pasteDocAnim 2.2s cubic-bezier(0.2, 0.8, 0.3, 1) infinite;
+    transform-origin: 15px 16px;
+  }
+  @keyframes pasteDocAnim {
+    0% {
+      transform: translateY(-9px) scale(0.88) rotate(-4deg);
+      opacity: 0.25;
+      filter: drop-shadow(0 10px 8px rgba(0, 0, 0, 0.4));
+    }
+    18% {
+      transform: translateY(-4px) scale(0.95) rotate(-1.5deg);
+      opacity: 0.8;
+    }
+    34% {
+      transform: translateY(1px) scale(1.03, 0.97) rotate(0deg);
+      opacity: 1;
+      filter: drop-shadow(0 2px 8px rgba(168, 85, 247, 0.6));
+    }
+    42% {
+      transform: translateY(0) scale(1) rotate(0deg);
+      opacity: 1;
+      filter: drop-shadow(0 2px 6px rgba(124, 58, 237, 0.4));
+    }
+    76% {
+      transform: translateY(0) scale(1) rotate(0deg);
+      opacity: 1;
+    }
+    90% {
+      transform: translateY(-4px) scale(0.94);
+      opacity: 0.45;
+    }
+    100% {
+      transform: translateY(-9px) scale(0.88) rotate(-4deg);
+      opacity: 0.25;
+    }
+  }
+
+  /* Clipboard Top Clip Grip Reaction */
+  .clipboard-clip {
+    animation: clipFlexAnim 2.2s ease-in-out infinite;
+    transform-origin: 15px 3px;
+  }
+  @keyframes clipFlexAnim {
+    0%, 30% { transform: translateY(0); }
+    34% { transform: translateY(-0.8px) scaleY(0.92); }
+    40% { transform: translateY(0.4px); }
+    48%, 100% { transform: translateY(0); }
+  }
+
+  /* Twinkling Star Sparkles on Dock */
+  .paste-sparkle {
+    transform-origin: center;
+    animation: pasteSparkleAnim 2.2s ease-in-out infinite;
+  }
+  .paste-sparkle-1 {
+    transform-origin: 23px 7px;
+  }
+  .paste-sparkle-2 {
+    transform-origin: 5px 21px;
+    animation-delay: 0.08s;
+  }
+  @keyframes pasteSparkleAnim {
+    0%, 28% {
+      transform: scale(0);
+      opacity: 0;
+    }
+    38% {
+      transform: scale(1.35) rotate(20deg);
+      opacity: 1;
+      filter: drop-shadow(0 0 5px #ec4899);
+    }
+    54% {
+      transform: scale(0.9) rotate(40deg);
+      opacity: 0.85;
+      filter: drop-shadow(0 0 3px #c084fc);
+    }
+    72%, 100% {
+      transform: scale(0) rotate(60deg);
+      opacity: 0;
+    }
   }
 
   .drop-title {
-    font-size: 13.5px;
-    font-weight: 600;
-    color: #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
-    letter-spacing: -0.2px;
+    padding: 0;
+    margin: 0;
   }
-  .kbd-key {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-    padding: 2px 7px;
-    border-radius: 5px;
-    font-size: 12px;
+  .press-here-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    line-height: 1.2;
+    background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 55%, #c084fc 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 16px rgba(192, 132, 252, 0.4);
+    transition: all 0.2s ease;
+  }
+  .drop-zone:hover .press-here-title {
+    background: linear-gradient(135deg, #ffffff 0%, #f472b6 45%, #c084fc 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    transform: translateY(-0.5px);
+  }
+  .drop-subtitle {
+    font-size: 10.5px;
+    color: #94a3b8;
+    margin: 0;
+    line-height: 1.25;
+    font-weight: 500;
+    letter-spacing: -0.1px;
+    transition: color 0.2s ease;
+  }
+  .drop-zone:hover .drop-subtitle {
+    color: #cbd5e1;
+  }
+
+  /* Focusable invisible paste textarea covering drop zone */
+  .paste-listener-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.001;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    z-index: 10;
+    resize: none;
+    outline: none;
+    padding: 0;
+    margin: 0;
+    color: transparent;
+    overflow: hidden;
+  }
+
+  /* Waiting for paste pulse state */
+  .drop-zone.waiting-paste {
+    border-color: #ec4899 !important;
+    background: rgba(30, 27, 75, 0.72) !important;
+    box-shadow: 0 0 24px rgba(236, 72, 153, 0.3) !important;
+  }
+  .drop-zone.waiting-paste .press-ripple {
+    border-color: #ec4899 !important;
+    animation-duration: 1.2s !important;
+  }
+  .paste-pulse-text {
+    color: #f472b6 !important;
+    font-weight: 600 !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    animation: pulseColor 1.4s ease-in-out infinite alternate;
+  }
+  .kbd-pill {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: inherit;
+    font-size: 10px;
     font-weight: 700;
     color: #ffffff;
-    font-family: inherit;
-    line-height: 1.2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+  @keyframes pulseColor {
+    from { color: #f472b6; text-shadow: 0 0 6px rgba(244, 114, 182, 0.4); }
+    to { color: #38bdf8; text-shadow: 0 0 8px rgba(56, 189, 248, 0.6); }
+  }
+
+  /* Toast Notification Container */
+  .toast-container {
+    position: fixed;
+    bottom: 10px;
+    left: 14px;
+    right: 14px;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    pointer-events: none;
+  }
+  .toast {
+    background: rgba(15, 20, 36, 0.96);
+    border: 1px solid rgba(168, 85, 247, 0.45);
+    border-radius: 8px;
+    padding: 9px 13px;
+    color: #f8fafc;
+    font-size: 11px;
+    font-weight: 500;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 16px rgba(124, 58, 237, 0.25);
+    backdrop-filter: blur(14px);
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    animation: toastIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.2s ease;
+  }
+  .toast.error {
+    border-color: rgba(244, 63, 94, 0.6);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 16px rgba(244, 63, 94, 0.3);
+    color: #fecdd3;
+  }
+  .toast.success {
+    border-color: rgba(52, 211, 153, 0.6);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 16px rgba(52, 211, 153, 0.3);
+    color: #a7f3d0;
+  }
+  .toast.info {
+    border-color: rgba(56, 189, 248, 0.6);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 16px rgba(56, 189, 248, 0.3);
+    color: #bae6fd;
+  }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateY(8px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
 
 
@@ -552,11 +950,76 @@
     text-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
   }
 
-  /* ---------------- CTA BUTTON ---------------- */
+  /* ---------------- FREE EXPORTS NOTE (BETWEEN COPY & BUTTON) ---------------- */
+  .free-exports-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    font-size: 11px;
+    color: #94a3b8;
+    text-align: center;
+    margin: 1px 0 2px 0;
+    user-select: none;
+    transition: all 0.2s ease;
+    line-height: 1.3;
+  }
+  .free-exports-note .asterisk {
+    color: #c084fc;
+    font-weight: 700;
+    font-size: 13px;
+    line-height: 1;
+  }
+  .free-exports-note .count-tag {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10.5px;
+  }
+  .free-exports-note.limit-reached {
+    color: #fb7185;
+    cursor: pointer;
+  }
+  .free-exports-note.limit-reached .asterisk {
+    color: #f43f5e;
+  }
+  .free-exports-note.limit-reached .count-tag {
+    color: #fb7185;
+    background: rgba(244, 63, 94, 0.12);
+    border-color: rgba(244, 63, 94, 0.35);
+  }
+  .free-exports-note.limit-reached .upgrade-link-text {
+    color: #ec4899;
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    margin-left: 2px;
+    transition: color 0.15s ease;
+  }
+  .free-exports-note.limit-reached:hover .upgrade-link-text {
+    color: #ffffff;
+  }
+  .free-exports-note.pro-unlocked {
+    color: #34d399;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .free-exports-note.pro-unlocked .pro-sparkle {
+    color: #34d399;
+    font-size: 11px;
+  }
+
+  /* ---------------- CTA BUTTON (HIDDEN AS PER REQUEST) ---------------- */
   .btn-primary {
+    display: none !important;
     position: relative;
     width: 100%;
-    padding: 13px 16px;
+    height: 44px;
+    padding: 0 16px;
     background: var(--btn-gradient);
     border: none;
     border-radius: var(--radius-md);
@@ -573,6 +1036,7 @@
     gap: 8px;
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     overflow: hidden;
+    box-sizing: border-box;
   }
   .btn-primary::before {
     content: '';
@@ -612,6 +1076,96 @@
     to { transform: rotate(360deg); }
   }
   .btn-primary.loading .spinner-icon { display: block; }
+
+  /* ---------------- ULTIMATE FEATURES & ASSETS DIARY ---------------- */
+  .ultimate-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin: 3px 0;
+    user-select: none;
+  }
+  .ultimate-divider::before,
+  .ultimate-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(168, 85, 247, 0.4));
+  }
+  .ultimate-divider::after {
+    background: linear-gradient(90deg, rgba(168, 85, 247, 0.4), transparent);
+  }
+  .ultimate-text {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #c084fc;
+    text-transform: uppercase;
+    white-space: nowrap;
+    text-shadow: 0 0 10px rgba(192, 132, 252, 0.4);
+  }
+
+  .btn-assets-diary {
+    position: relative;
+    width: 100%;
+    height: 44px;
+    padding: 0 16px;
+    background: linear-gradient(135deg, rgba(30, 27, 75, 0.82) 0%, rgba(55, 48, 163, 0.7) 50%, rgba(91, 33, 182, 0.8) 100%);
+    border: 1px solid rgba(168, 85, 247, 0.45);
+    border-radius: var(--radius-md);
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    cursor: pointer;
+    box-shadow: 0 4px 18px rgba(91, 33, 182, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-decoration: none;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    box-sizing: border-box;
+  }
+  .btn-assets-diary::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+    transform: skewX(-20deg);
+    transition: left 0.6s ease;
+  }
+  .btn-assets-diary:hover::before {
+    left: 150%;
+  }
+  .btn-assets-diary:hover {
+    background: linear-gradient(135deg, rgba(30, 27, 75, 0.95) 0%, rgba(67, 56, 202, 0.85) 50%, rgba(109, 40, 217, 0.9) 100%);
+    border-color: rgba(192, 132, 252, 0.75);
+    box-shadow: 0 6px 22px rgba(124, 58, 237, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    transform: translateY(-1.5px);
+    color: #ffffff;
+    filter: brightness(1.08);
+  }
+  .btn-assets-diary:active {
+    transform: translateY(0.5px) scale(0.99);
+  }
+  .btn-assets-diary .arrow-icon {
+    width: 15px;
+    height: 15px;
+    color: #c084fc;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease;
+    flex-shrink: 0;
+  }
+  .btn-assets-diary:hover .arrow-icon {
+    transform: translateX(3px);
+    color: #ffffff;
+  }
 
   /* ---------------- PROGRESS BAR ---------------- */
   .progress-card {
@@ -747,7 +1301,21 @@
   <!-- Top Utility Bar -->
   <header class="header">
     <div class="header-actions">
-      <button class="badge-tag" id="btnLicenseBadge" type="button" title="View License Details">8 FREE</button>
+      <button class="badge-tag" id="btnLicenseBadge" type="button" title="Upgrade to Lifetime PRO">
+        <svg class="pro-sparkle-icon" viewBox="0 0 24 24" width="13" height="13" fill="none">
+          <path d="M12 2L14.6 9.4L22 12L14.6 14.6L12 22L9.4 14.6L2 12L9.4 9.4L12 2Z" fill="url(#proSparkleGrad)" stroke="#c084fc" stroke-width="1.2" stroke-linejoin="round"/>
+          <circle cx="19" cy="5" r="1.5" fill="#38bdf8"/>
+          <circle cx="5" cy="19" r="1.2" fill="#e879f9"/>
+          <defs>
+            <linearGradient id="proSparkleGrad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#38bdf8"/>
+              <stop offset="0.5" stop-color="#a855f7"/>
+              <stop offset="1" stop-color="#ec4899"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <span>Upgrade to Pro</span>
+      </button>
       <span id="statusIndicator" style="display:none;"></span>
       <span id="statusDot" style="display:none;"></span>
       <span id="appSubtitle" style="display:none;"></span>
@@ -758,21 +1326,57 @@
   <div class="license-panel" id="licensePanel">
     <div class="license-panel-header">
       <div class="license-title-row">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
-        </svg>
-        <span id="licensePanelTitle">Lifetime PRO License</span>
+        <div class="license-icon-badge">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none">
+            <path d="M12 2L14.6 9.4L22 12L14.6 14.6L12 22L9.4 14.6L2 12L9.4 9.4L12 2Z" fill="url(#licenseStarGrad)" stroke="#c084fc" stroke-width="1.2" stroke-linejoin="round"/>
+            <circle cx="19" cy="5" r="1.5" fill="#38bdf8"/>
+            <circle cx="5" cy="19" r="1.2" fill="#ec4899"/>
+            <defs>
+              <linearGradient id="licenseStarGrad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#38bdf8"/>
+                <stop offset="0.5" stop-color="#a855f7"/>
+                <stop offset="1" stop-color="#ec4899"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="license-title-text" id="licensePanelTitle">
+          Lifetime <span class="pro-gradient-text">PRO</span> License
+        </div>
       </div>
-      <button class="license-close-btn" id="btnCloseLicense" type="button" title="Close panel">✕</button>
+      <button class="license-close-btn" id="btnCloseLicense" type="button" title="Close panel">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
     </div>
 
     <!-- Unactivated State -->
     <div id="licenseUnactivatedView">
       <p class="license-desc">Unlock unlimited canvas exports forever. One-time purchase, zero subscriptions.</p>
+      
+      <div class="license-pills-row">
+        <span class="license-pill"><span class="pill-sparkle">✦</span> Unlimited Exports</span>
+        <span class="license-pill"><span class="pill-sparkle">✦</span> Lifetime Access</span>
+        <span class="license-pill"><span class="pill-sparkle">✦</span> Zero Subscriptions</span>
+      </div>
+
       <div class="license-input-row">
         <div class="license-input-wrap">
+          <div class="license-input-icon">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 2l-2 2m-1.5 1.5L16 7l-2-2 1.5-1.5M15 8l-5.5 5.5a4.5 4.5 0 1 1-2-2L13 6"></path>
+            </svg>
+          </div>
           <input type="text" class="license-input" id="licenseKeyInput" placeholder="Paste Gumroad license key..." autocomplete="off" spellcheck="false" />
-          <button class="btn-license-paste" id="btnPasteLicense" type="button" title="Paste key from clipboard">Paste</button>
+          <button class="btn-license-paste" id="btnPasteLicense" type="button" title="Paste key from clipboard">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+            </svg>
+            <span>Paste</span>
+          </button>
         </div>
         <button class="btn-license-activate" id="btnActivateLicense" type="button">
           <svg class="license-spinner" id="licenseSpinner" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -783,7 +1387,13 @@
         </button>
       </div>
       <div class="license-footer-links">
-        <a href="https://7566387198230.gumroad.com/l/H2Fperfect" target="_blank" class="license-link" id="linkBuyGumroad">Get Lifetime License on Gumroad ↗</a>
+        <a href="https://7566387198230.gumroad.com/l/H2Fperfect" target="_blank" class="license-link" id="linkBuyGumroad">
+          <span>Get Lifetime License on Gumroad</span>
+          <svg class="ext-arrow" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="7" y1="17" x2="17" y2="7"></line>
+            <polyline points="7 7 17 7 17 17"></polyline>
+          </svg>
+        </a>
         <span class="license-status-msg" id="licenseMsg"></span>
       </div>
     </div>
@@ -793,7 +1403,8 @@
       <div class="license-active-box">
         <div class="active-badge-row">
           <span class="active-dot"></span>
-          <span>⭐ Lifetime PRO Active</span>
+          <span class="active-title">Lifetime PRO Active</span>
+          <span class="active-pill-tag">UNLIMITED</span>
         </div>
         <div class="active-key-text" id="activeKeyText">Key: ••••••••••••</div>
         <div class="active-email-text" id="activeEmailText">Unlimited canvas exports unlocked forever</div>
@@ -803,24 +1414,83 @@
   </div>
 
   <!-- Interactive Drop / Paste Zone (State A) -->
-  <div class="drop-zone" id="dropZone" title="Click or drop capture JSON here">
+  <div class="drop-zone" id="dropZone" role="button" title="Press here to start canvas painting">
+    <textarea id="pasteInput" class="paste-hitbox" tabindex="0" spellcheck="false" autocomplete="off" aria-label="Press here to start canvas painting"></textarea>
     <div class="drop-icon-wrap">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="16 16 12 12 8 16"></polyline>
-        <line x1="12" y1="12" x2="12" y2="21"></line>
-        <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path>
-        <polyline points="16 16 12 12 8 16"></polyline>
-      </svg>
+      <div class="press-ripple"></div>
+      <div class="press-ripple press-ripple-2"></div>
+      <div class="press-icon-core">
+        <svg class="paste-animated-svg" viewBox="0 0 30 30" width="28" height="28" fill="none">
+          <!-- Radiant Gradients -->
+          <defs>
+            <linearGradient id="boardGrad" x1="5" y1="4" x2="25" y2="28" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#1e1b4b"/>
+              <stop offset="0.6" stop-color="#312e81"/>
+              <stop offset="1" stop-color="#4338ca"/>
+            </linearGradient>
+            <linearGradient id="boardBorderGrad" x1="4" y1="3" x2="26" y2="29" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#818cf8"/>
+              <stop offset="0.5" stop-color="#c084fc"/>
+              <stop offset="1" stop-color="#ec4899"/>
+            </linearGradient>
+            <linearGradient id="clipGrad" x1="11" y1="1" x2="19" y2="5" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#38bdf8"/>
+              <stop offset="0.5" stop-color="#c084fc"/>
+              <stop offset="1" stop-color="#f472b6"/>
+            </linearGradient>
+            <linearGradient id="sheetGrad" x1="8" y1="6" x2="22" y2="25" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#ffffff"/>
+              <stop offset="0.65" stop-color="#f1f5f9"/>
+              <stop offset="1" stop-color="#e2e8f0"/>
+            </linearGradient>
+            <linearGradient id="sheetBorderGrad" x1="8" y1="6" x2="22" y2="25" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#ffffff"/>
+              <stop offset="0.45" stop-color="#c084fc"/>
+              <stop offset="1" stop-color="#818cf8"/>
+            </linearGradient>
+            <linearGradient id="lineGrad" x1="10.5" y1="0" x2="19.5" y2="0" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#6366f1"/>
+              <stop offset="1" stop-color="#ec4899"/>
+            </linearGradient>
+            <linearGradient id="pasteSparkGrad" x1="20" y1="4" x2="26" y2="10" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#38bdf8"/>
+              <stop offset="1" stop-color="#ec4899"/>
+            </linearGradient>
+          </defs>
+
+          <!-- 1. Clipboard Base Board -->
+          <rect class="clipboard-board" x="5" y="4.5" width="20" height="23" rx="3.5" fill="url(#boardGrad)" stroke="url(#boardBorderGrad)" stroke-width="1.3"/>
+
+          <!-- 2. Metallic Top Clip -->
+          <path class="clipboard-clip" d="M11.5 2C11.5 1.4 12 1 12.6 1H17.4C18 1 18.5 1.4 18.5 2V3.5H11.5V2Z" fill="url(#clipGrad)"/>
+          <rect x="10" y="3" width="10" height="2" rx="1" fill="#c084fc" fill-opacity="0.9"/>
+
+          <!-- 3. Animated Floating & Pasting Document Sheet -->
+          <g class="pasting-doc">
+            <!-- Paper Sheet -->
+            <path class="doc-body" d="M8 8C8 6.9 8.9 6 10 6H16.5L21.5 11V23C21.5 24.1 20.6 25 19.5 25H10C8.9 25 8 24.1 8 23V8Z" fill="url(#sheetGrad)" stroke="url(#sheetBorderGrad)" stroke-width="1.2"/>
+            <!-- Folded Corner -->
+            <path class="doc-corner" d="M16.5 6V11H21.5" stroke="url(#sheetBorderGrad)" stroke-width="1.2" stroke-linejoin="round" fill="rgba(192, 132, 252, 0.4)"/>
+            <!-- Simulated Content Lines -->
+            <rect class="doc-line doc-line-1" x="10.5" y="13.2" width="8.5" height="1.6" rx="0.8" fill="url(#lineGrad)"/>
+            <rect class="doc-line doc-line-2" x="10.5" y="16.5" width="6.5" height="1.4" rx="0.7" fill="#818cf8" fill-opacity="0.85"/>
+            <rect class="doc-line doc-line-3" x="10.5" y="19.7" width="5" height="1.4" rx="0.7" fill="#c084fc" fill-opacity="0.75"/>
+          </g>
+
+          <!-- 4. Dynamic Sparkles on Paste Docking -->
+          <path class="paste-sparkle paste-sparkle-1" d="M23 4L23.7 5.8L25.5 6.5L23.7 7.2L23 9L22.3 7.2L20.5 6.5L22.3 5.8Z" fill="url(#pasteSparkGrad)"/>
+          <path class="paste-sparkle paste-sparkle-2" d="M5.5 19L6 20.3L7.3 20.8L6 21.3L5.5 22.5L5 21.3L3.8 20.8L5 20.3Z" fill="#38bdf8"/>
+        </svg>
+      </div>
     </div>
     <div class="drop-title">
-      <span>Press</span>
-      <span class="kbd-key">⌘V</span>
-      <span>/</span>
-      <span class="kbd-key">Ctrl+V</span>
-      <span>anywhere</span>
+      <span class="press-here-title">Click here and</span>
     </div>
+    <div class="drop-subtitle" id="dropSubtitle">Press <span class="kbd-pill">Ctrl+V</span> / <span class="kbd-pill">⌘V</span> to paint on canvas</div>
   </div>
-  <textarea id="pasteInput" style="display:none;"></textarea>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
 
   <!-- Loaded Payload Card (State B) -->
   <div class="payload-card" id="payloadCard">
@@ -838,8 +1508,15 @@
     </div>
   </div>
 
-  <!-- Primary CTA Button -->
-  <button class="btn-primary" id="btnImport" disabled>
+  <!-- Free Exports Counter Note (Between copy field & button) -->
+  <div class="free-exports-note" id="freeExportsNote">
+    <span class="asterisk">*</span>
+    <span id="freeExportsText">8 Free Exports for New Users</span>
+    <span class="count-tag" id="freeExportsCount">0/8</span>
+  </div>
+
+  <!-- Primary CTA Button (Hidden as requested: rendering is automated and clears automatically) -->
+  <button class="btn-primary" id="btnImport" disabled style="display: none !important;">
     <svg class="spinner-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5">
       <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
       <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
@@ -864,6 +1541,20 @@
       <div class="progress-fill" id="progressBar"></div>
     </div>
   </div>
+
+  <!-- Ultimate Features Divider -->
+  <div class="ultimate-divider">
+    <span class="ultimate-text">Ultimate features</span>
+  </div>
+
+  <!-- Assets Diary Companion Button -->
+  <button class="btn-assets-diary" id="btnAssetsDiary" type="button">
+    <span>Assets Diary</span>
+    <svg class="arrow-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="5" y1="12" x2="19" y2="12"></line>
+      <polyline points="12 5 19 12 12 19"></polyline>
+    </svg>
+  </button>
 </div>
 
 <script>
@@ -884,6 +1575,20 @@
 
   let currentPayloadData = null;
   let isImporting = false;
+
+  function showToast(msg, type = 'info', duration = 3800) {
+    const toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = msg;
+    toastContainer.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(8px)';
+      setTimeout(() => toast.remove(), 250);
+    }, duration);
+  }
 
   function setStatus(text, type = '') {
     if (type === 'error') {
@@ -962,17 +1667,39 @@
       statViewport.textContent = 'Auto (Responsive)';
     }
 
-    btnImport.disabled = false;
-    btnImportText.textContent = 'Import into Canvas';
+    if (!isPro && freeExportsUsed >= MAX_FREE_EXPORTS) {
+      btnImport.disabled = false;
+      btnImportText.textContent = 'Proceed to Upgrade';
+    } else {
+      btnImport.disabled = false;
+      btnImportText.textContent = 'Import into Canvas';
+    }
   }
 
+  let autoClearTimeout = null;
+
   function clearPayload() {
+    if (autoClearTimeout) {
+      clearTimeout(autoClearTimeout);
+      autoClearTimeout = null;
+    }
     currentPayloadData = null;
-    pasteInput.value = '';
+    if (pasteInput) pasteInput.value = '';
     payloadCard.classList.remove('active');
     dropZone.style.display = 'flex';
-    btnImport.disabled = true;
-    btnImportText.textContent = 'Import into Canvas';
+    const dropSubtitle = document.getElementById('dropSubtitle');
+    if (dropSubtitle) {
+      dropSubtitle.innerHTML = 'Press <span class="kbd-pill">Ctrl+V</span> / <span class="kbd-pill">⌘V</span> to paint on canvas';
+    }
+    if (btnImport) {
+      if (!isPro && freeExportsUsed >= MAX_FREE_EXPORTS) {
+        btnImport.disabled = false;
+        if (btnImportText) btnImportText.textContent = 'Proceed to Upgrade';
+      } else {
+        btnImport.disabled = true;
+        if (btnImportText) btnImportText.textContent = 'Import into Canvas';
+      }
+    }
     if (progressHideTimeout) clearTimeout(progressHideTimeout);
     progressWrap.classList.remove('active', 'completed');
     setStatus('Ready', '');
@@ -983,22 +1710,38 @@
     clearPayload();
   });
 
+  const btnAssetsDiary = document.getElementById('btnAssetsDiary');
+  if (btnAssetsDiary) {
+    btnAssetsDiary.addEventListener('click', () => {
+      parent.postMessage({ pluginMessage: { type: 'switch_to_assets_diary' } }, '*');
+    });
+  }
+
   function processPayload(text) {
     if (isImporting) return;
+    if (autoClearTimeout) {
+      clearTimeout(autoClearTimeout);
+      autoClearTimeout = null;
+    }
     if (!text || text.trim().length < 15) {
-      setStatus('Please paste the capture JSON data first.', 'error');
+      showToast('⚠️ No capture data found. Please copy from Chrome extension first.', 'error');
+      return;
+    }
+    const trimmed = text.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      showToast('⚠️ You copied a webpage URL. Please use the Chrome extension to capture the page, then press here.', 'error', 5500);
       return;
     }
     try {
-      const data = JSON.parse(text.trim());
+      const data = JSON.parse(trimmed);
       if (!data.root || !data.version) {
-        setStatus('Invalid capture payload structure', 'error');
+        showToast('⚠️ Invalid capture payload structure. Please re-capture using the Chrome extension.', 'error');
         return;
       }
-      showPayloadCard(data, text.length);
+      showPayloadCard(data, trimmed.length);
       executeImport(); // Automatically start rendering immediately on paste/drop!
     } catch (e) {
-      setStatus('JSON Parse Error: ' + e.message, 'error');
+      showToast('❌ JSON Parse Error: Please copy valid capture data from the Chrome extension.', 'error');
     }
   }
 
@@ -1006,6 +1749,7 @@
     if (isImporting || !currentPayloadData) return;
     if (!isPro && freeExportsUsed >= MAX_FREE_EXPORTS) {
       setStatus('Free export limit reached (8/8 used). Purchase for lifetime access.', 'error');
+      showToast('⚠️ Free export limit reached (8/8 used). Purchase for lifetime access.', 'error', 6000);
       toggleLicensePanel(true);
       return;
     }
@@ -1014,7 +1758,7 @@
     btnImport.classList.add('loading');
     btnImportText.textContent = 'Painting.....';
     btnRemovePayload.disabled = true;
-    pasteInput.disabled = true;
+    if (pasteInput) pasteInput.disabled = true;
 
     setStatus('Painting.....', 'info');
     resetPaintingProgress();
@@ -1028,37 +1772,136 @@
       btnImport.classList.remove('loading');
       btnImportText.textContent = 'Import into Canvas';
       btnRemovePayload.disabled = false;
-      pasteInput.disabled = false;
+      if (pasteInput) pasteInput.disabled = false;
       setStatus('Bridge Error: ' + (bridgeErr.message || bridgeErr), 'error');
+      showToast('❌ Bridge Error: ' + (bridgeErr.message || bridgeErr), 'error', 6000);
     }
   }
 
-  btnImport.addEventListener('click', executeImport);
+  let isReadingClipboard = false;
+  async function handlePasteAndRender(e) {
+    if (isImporting || isReadingClipboard) return;
+    isReadingClipboard = true;
+    try {
+      dropZone.classList.add('zone-pressed');
+      setTimeout(() => dropZone.classList.remove('zone-pressed'), 250);
 
-  async function handlePasteEvent(e) {
-    if (isImporting) return;
-    let text = (e?.clipboardData || window.clipboardData)?.getData('text');
-    if (!text && navigator.clipboard && navigator.clipboard.readText) {
-      try {
-        text = await navigator.clipboard.readText();
-      } catch (clipErr) {
-        // Fallback or permission prompt
+      if (currentPayloadData) {
+        executeImport();
+        return;
       }
-    }
-    if (text && text.trim().length > 20) {
-      if (e && e.preventDefault) e.preventDefault();
-      pasteInput.value = text.slice(0, 100) + '... (' + (text.length / 1024).toFixed(1) + ' KB)';
-      processPayload(text);
-    } else if (text === '') {
-      setStatus('Clipboard is empty or inaccessible.', 'error');
+
+      // 0. If triggered by native paste event, use clipboardData directly
+      let text = (e?.clipboardData || window.clipboardData)?.getData('text');
+      if (text && text.trim().length > 20) {
+        if (e && e.preventDefault) e.preventDefault();
+        if (pasteInput) pasteInput.value = '';
+        processPayload(text);
+        return;
+      }
+
+      // 1. Ensure pasteInput has active focus and cursor
+      if (pasteInput) {
+        try {
+          pasteInput.focus();
+          pasteInput.select();
+        } catch (err) {}
+      }
+
+      // 2. Try modern async clipboard API directly (works in browser & when permission is granted)
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        try {
+          text = await navigator.clipboard.readText();
+          if (text && text.trim().length > 20) {
+            if (pasteInput) pasteInput.value = '';
+            processPayload(text);
+            return;
+          }
+        } catch (clipErr) {
+          console.warn('Clipboard readText failed:', clipErr);
+        }
+      }
+
+      // 3. Try Blob ClipboardItems API
+      if (navigator.clipboard && navigator.clipboard.read) {
+        try {
+          const items = await navigator.clipboard.read();
+          for (const item of items) {
+            for (const t of item.types) {
+              if (t === 'text/plain') {
+                const blob = await item.getType(t);
+                text = await blob.text();
+                if (text && text.trim().length > 20) {
+                  if (pasteInput) pasteInput.value = '';
+                  processPayload(text);
+                  return;
+                }
+                break;
+              }
+            }
+          }
+        } catch (err) {}
+      }
+
+      // 4. Try document.execCommand('paste') while pasteInput is focused & selected
+      try {
+        const execOk = document.execCommand('paste');
+        if (execOk) {
+          await new Promise(r => setTimeout(r, 60));
+          if (pasteInput && pasteInput.value && pasteInput.value.trim().length > 20) {
+            const val = pasteInput.value;
+            pasteInput.value = '';
+            processPayload(val);
+            return;
+          }
+        }
+      } catch (err) {}
+
+      // 5. Check if pasteInput already has content
+      if (pasteInput && pasteInput.value && pasteInput.value.trim().length > 20) {
+        const val = pasteInput.value;
+        pasteInput.value = '';
+        processPayload(val);
+        return;
+      }
+
+      // 6. If programmatic silent reading was blocked by host sandbox:
+      // Focus is locked onto pasteInput! Guide user gracefully without any error toast:
+      const dropSubtitle = document.getElementById('dropSubtitle');
+      if (dropSubtitle) {
+        dropSubtitle.innerHTML = '<span class="paste-pulse-text">Press <span class="kbd-pill">Ctrl+V</span> / <span class="kbd-pill">⌘V</span> to paint on canvas</span>';
+      }
+      setStatus('Ready — press Ctrl+V / ⌘V to start painting', 'info');
+    } finally {
+      setTimeout(() => { isReadingClipboard = false; }, 300);
     }
   }
+
+  // Button click
+  btnImport.addEventListener('click', () => {
+    if (currentPayloadData) {
+      executeImport();
+    } else {
+      handlePasteAndRender();
+    }
+  });
+
+  // DropZone & pasteInput click / pointerdown: Automatically reads clipboard and renders canvas!
+  dropZone.addEventListener('click', (e) => handlePasteAndRender(e));
+  pasteInput.addEventListener('click', (e) => handlePasteAndRender(e));
+  pasteInput.addEventListener('pointerdown', () => {
+    if (pasteInput) {
+      try { pasteInput.focus(); } catch (err) {}
+    }
+  });
 
   // Paste into textarea
-  pasteInput.addEventListener('paste', handlePasteEvent);
+  pasteInput.addEventListener('paste', (e) => handlePasteAndRender(e));
   pasteInput.addEventListener('input', () => {
     if (!isImporting && pasteInput.value.trim().length > 20) {
-      processPayload(pasteInput.value);
+      const val = pasteInput.value;
+      pasteInput.value = '';
+      processPayload(val);
     }
   });
 
@@ -1067,14 +1910,11 @@
     if (isImporting) return;
     // CRITICAL: Do NOT hijack paste if the user is typing or pasting into an input (e.g. licenseKeyInput)!
     const target = e.target;
-    if (target && (target.id === 'licenseKeyInput' || target.tagName === 'INPUT' || (target.tagName === 'TEXTAREA' && target.id !== 'pasteInput') || target.isContentEditable)) {
+    if (target && (target.id === 'licenseKeyInput' || (target.tagName === 'INPUT' && target.id !== 'pasteInput'))) {
       return;
     }
-    handlePasteEvent(e);
+    handlePasteAndRender(e);
   });
-
-
-
 
   // Drag & drop support on dropZone & window
   ['dragenter', 'dragover'].forEach(eventName => {
@@ -1105,9 +1945,10 @@
     }
   });
 
-  dropZone.addEventListener('click', () => {
-    if (!isImporting) {
-      handlePasteEvent();
+  payloadCard.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'btnRemovePayload') return;
+    if (!isImporting && currentPayloadData) {
+      executeImport();
     }
   });
 
@@ -1138,6 +1979,60 @@
   let activeLicenseKey = '';
   let activeLicenseEmail = '';
 
+  const PRO_BADGE_ICON_HTML = `
+    <svg class="pro-sparkle-icon" viewBox="0 0 24 24" width="13" height="13" fill="none">
+      <path d="M12 2L14.6 9.4L22 12L14.6 14.6L12 22L9.4 14.6L2 12L9.4 9.4L12 2Z" fill="url(#proSparkleGrad)" stroke="#c084fc" stroke-width="1.2" stroke-linejoin="round"/>
+      <circle cx="19" cy="5" r="1.5" fill="#38bdf8"/>
+      <circle cx="5" cy="19" r="1.2" fill="#e879f9"/>
+      <defs>
+        <linearGradient id="proSparkleGrad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#38bdf8"/>
+          <stop offset="0.5" stop-color="#a855f7"/>
+          <stop offset="1" stop-color="#ec4899"/>
+        </linearGradient>
+      </defs>
+    </svg>
+  `;
+
+  const freeExportsNote = document.getElementById('freeExportsNote');
+
+  function updateFreeExportsNote() {
+    if (!freeExportsNote) return;
+
+    if (isPro) {
+      freeExportsNote.className = 'free-exports-note pro-unlocked';
+      freeExportsNote.innerHTML = '<span class="pro-sparkle">✦</span> <span>Lifetime PRO Active</span> <span class="count-tag" style="color:#34d399;background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.3);">UNLIMITED</span>';
+      freeExportsNote.title = 'Lifetime PRO Active — Unlimited canvas exports unlocked';
+      freeExportsNote.onclick = () => toggleLicensePanel(true);
+      return;
+    }
+
+    const used = typeof freeExportsUsed === 'number' ? freeExportsUsed : 0;
+    const max = MAX_FREE_EXPORTS;
+
+    if (used >= max) {
+      freeExportsNote.className = 'free-exports-note limit-reached';
+      freeExportsNote.innerHTML = `<span class="asterisk">*</span> <span>8 Free Exports for New Users</span> <span class="count-tag">${used}/${max}</span> <span class="upgrade-link-text">Proceed to Upgrade ↗</span>`;
+      freeExportsNote.title = 'Free export limit reached (8/8) — Click to upgrade to Lifetime PRO';
+      freeExportsNote.onclick = () => toggleLicensePanel(true);
+
+      if (!isImporting) {
+        btnImport.disabled = false;
+        btnImportText.textContent = 'Proceed to Upgrade';
+      }
+    } else {
+      freeExportsNote.className = 'free-exports-note';
+      freeExportsNote.innerHTML = `<span class="asterisk">*</span> <span>8 Free Exports for New Users</span> <span class="count-tag">${used}/${max}</span>`;
+      freeExportsNote.title = `${max - used} of ${max} free exports remaining`;
+      freeExportsNote.onclick = null;
+
+      if (!isImporting && !currentPayloadData) {
+        btnImport.disabled = true;
+        btnImportText.textContent = 'Import into Canvas';
+      }
+    }
+  }
+
   function updateBadgeAndSubtitle() {
     const appSubtitle = document.getElementById('appSubtitle');
     if (isPro) {
@@ -1146,19 +2041,12 @@
       btnLicenseBadge.title = 'Lifetime PRO Active — Unlimited canvas exports unlocked';
       if (appSubtitle) appSubtitle.style.display = 'none';
     } else {
-      const remaining = Math.max(0, MAX_FREE_EXPORTS - freeExportsUsed);
-      if (remaining > 0) {
-        btnLicenseBadge.textContent = `${remaining} FREE`;
-        btnLicenseBadge.className = 'badge-tag';
-        btnLicenseBadge.title = `${remaining} of ${MAX_FREE_EXPORTS} free exports remaining • Click to unlock Lifetime PRO`;
-        if (appSubtitle) appSubtitle.style.display = 'none';
-      } else {
-        btnLicenseBadge.textContent = 'UNLOCK PRO';
-        btnLicenseBadge.className = 'badge-tag limit-reached';
-        btnLicenseBadge.title = 'Free export limit reached (8/8 used) • Click to unlock Lifetime PRO';
-        if (appSubtitle) appSubtitle.style.display = 'none';
-      }
+      btnLicenseBadge.innerHTML = `${PRO_BADGE_ICON_HTML}<span>Upgrade to Pro</span>`;
+      btnLicenseBadge.className = 'badge-tag' + (freeExportsUsed >= MAX_FREE_EXPORTS ? ' limit-reached' : '');
+      btnLicenseBadge.title = 'Click to upgrade to Lifetime PRO';
+      if (appSubtitle) appSubtitle.style.display = 'none';
     }
+    updateFreeExportsNote();
   }
 
   function setProState(pro, key = '', email = '') {
@@ -1189,7 +2077,7 @@
         pluginMessage: {
           type: 'resize',
           width: 380,
-          height: shouldOpen ? 510 : 380
+          height: shouldOpen ? 700 : 632
         }
       }, '*');
     } catch {}
@@ -1323,12 +2211,13 @@
       isImporting = false;
       freeExportsUsed = typeof msg.freeUsed === 'number' ? msg.freeUsed : MAX_FREE_EXPORTS;
       updateBadgeAndSubtitle();
-      setStatus(msg.message || 'Free export limit reached (8/8 used). Purchase for lifetime access.', 'error');
+      setStatus(msg.message || 'Free export limit reached (8/8 used). Proceed to upgrade for lifetime access.', 'error');
+      showToast('⚠️ Free export limit reached (8/8 used). Please upgrade to PRO for unlimited canvas painting.', 'error', 6000);
       btnImport.disabled = false;
       btnImport.classList.remove('loading');
-      btnImportText.textContent = 'Unlock Lifetime Access';
+      btnImportText.textContent = 'Proceed to Upgrade';
       btnRemovePayload.disabled = false;
-      pasteInput.disabled = false;
+      if (pasteInput) pasteInput.disabled = false;
       toggleLicensePanel(true);
     } else if (msg.type === 'progress') {
       updateProgress(msg.percent);
@@ -1336,21 +2225,37 @@
       isImporting = false;
       finishPaintingProgress();
       setStatus('Complete', 'success');
-      btnImport.disabled = false;
-      btnImport.classList.remove('loading');
-      btnImportText.textContent = 'Import Again';
+      showToast('🎨 Canvas painting complete!', 'success', 3000);
+      if (btnImport) {
+        btnImport.classList.remove('loading');
+        if (!isPro && freeExportsUsed >= MAX_FREE_EXPORTS) {
+          btnImport.disabled = false;
+          if (btnImportText) btnImportText.textContent = 'Proceed to Upgrade';
+        } else {
+          btnImport.disabled = false;
+          if (btnImportText) btnImportText.textContent = 'Import Again';
+        }
+      }
       btnRemovePayload.disabled = false;
-      pasteInput.disabled = false;
+      if (pasteInput) pasteInput.disabled = false;
+
+      // Automatically clear after three seconds as requested
+      if (autoClearTimeout) clearTimeout(autoClearTimeout);
+      autoClearTimeout = setTimeout(() => {
+        clearPayload();
+      }, 3000);
     } else if (msg.type === 'error') {
       isImporting = false;
       if (progressHideTimeout) clearTimeout(progressHideTimeout);
       progressWrap.classList.remove('active', 'completed');
-      setStatus('Render error', 'error');
+      const errText = msg.message || 'Render failed. Please try again.';
+      setStatus(errText, 'error');
+      showToast('❌ ' + errText, 'error', 6000);
       btnImport.disabled = false;
       btnImport.classList.remove('loading');
       btnImportText.textContent = 'Try Again';
       btnRemovePayload.disabled = false;
-      pasteInput.disabled = false;
+      if (pasteInput) pasteInput.disabled = false;
     }
   };
 </script>

@@ -10,8 +10,11 @@
   "documentAccess": "dynamic-page",
   "networkAccess": {
     "allowedDomains": [
-      "https://api.gumroad.com"
+      "https://api.gumroad.com",
+      "https://www.googleapis.com",
+      "https://oauth2.googleapis.com",
+      "https://accounts.google.com"
     ],
-    "reasoning": "Verify customer Gumroad license keys for PRO activation."
+    "reasoning": "Verify customer Gumroad license keys and connect to Google Drive for Assets Diary."
   }
 }
