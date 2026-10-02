@@ -15,19 +15,17 @@ RUN apt-get update && apt-get install -y \
 # Point Puppeteer to system Chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
-    NODE_ENV=production
+    NODE_ENV=production \
+    PORT=3000
 
 WORKDIR /app
 
-# Copy dependency files
-COPY package*.json ./
+# Copy server package configuration and install dependencies
+COPY server/package*.json ./
+RUN npm install --only=production
 
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy application files and capture engine
+# Copy application files
 COPY . .
-COPY packages/chrome-extension/capture.js ./packages/chrome-extension/capture.js
 
 EXPOSE 3000
 
