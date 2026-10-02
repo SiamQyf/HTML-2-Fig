@@ -318,12 +318,20 @@ function installFrameMachinery(nonce) {
 // ── Capture Execution Pipeline ──────────────────────────────────────────────
 async function executeCaptureOnTab(tabId) {
   // Focus the window and active tab so clipboard writing has document focus
+  let winId = null;
   try {
     const tabInfo = await chrome.tabs.get(tabId);
     if (tabInfo && tabInfo.windowId) {
+      winId = tabInfo.windowId;
       await chrome.windows.update(tabInfo.windowId, { focused: true });
     }
     await chrome.tabs.update(tabId, { active: true });
+  } catch (e) {}
+
+  // Capture viewport screenshot as fallback for any cleared WebGL canvases or protected media
+  let viewportScreenshot = null;
+  try {
+    viewportScreenshot = await chrome.tabs.captureVisibleTab(winId, { format: 'png' });
   } catch (e) {}
 
   // 1. Inject woff2, opentype, potrace and capture engine into ALL frames (including cross-origin iframes)
@@ -359,7 +367,8 @@ async function executeCaptureOnTab(tabId) {
   // 3. Trigger capture ONLY on the top frame
   const execResults = await chrome.scripting.executeScript({
     target: { tabId: tabId },
-    func: () => {
+    func: (screenshot) => {
+      if (screenshot) window.__html2FigViewportScreenshot = screenshot;
       if (!window.html2Fig || typeof window.html2Fig.startCapture !== 'function') {
         return { ok: false, error: 'HTML-2-Fig engine failed to initialize in page' };
       }
@@ -369,7 +378,8 @@ async function executeCaptureOnTab(tabId) {
       } catch (err) {
         return { ok: false, error: err.message || String(err) };
       }
-    }
+    },
+    args: [viewportScreenshot]
   });
 
   if (execResults && execResults[0] && execResults[0].result && !execResults[0].result.ok) {

@@ -588,7 +588,7 @@ function fixPremultipliedStops(stops) {
   return result;
 }
 
-function parseLinearGradient(css, styles = null) {
+function parseLinearGradient(css, styles = null, nodeW = 100, nodeH = 100) {
   if (!css || !css.includes('linear-gradient(')) return null;
   try {
     const start = css.indexOf('linear-gradient(');
@@ -626,11 +626,17 @@ function parseLinearGradient(css, styles = null) {
       else if (angleExpr === 'to right') angleDeg = 90;
       else if (angleExpr === 'to bottom') angleDeg = 180;
       else if (angleExpr === 'to left') angleDeg = 270;
-      else if (angleExpr === 'to top right' || angleExpr === 'to right top') angleDeg = 45;
-      else if (angleExpr === 'to bottom right' || angleExpr === 'to right bottom') angleDeg = 135;
-      else if (angleExpr === 'to bottom left' || angleExpr === 'to left bottom') angleDeg = 225;
-      else if (angleExpr === 'to top left' || angleExpr === 'to left top') angleDeg = 315;
+      else {
+        // Corner angles depend on aspect ratio in CSS!
+        const cornerAngle = Math.atan2(nodeW || 100, nodeH || 100) * (180 / Math.PI);
+        if (angleExpr === 'to top right' || angleExpr === 'to right top') angleDeg = cornerAngle;
+        else if (angleExpr === 'to bottom right' || angleExpr === 'to right bottom') angleDeg = 180 - cornerAngle;
+        else if (angleExpr === 'to bottom left' || angleExpr === 'to left bottom') angleDeg = 180 + cornerAngle;
+        else if (angleExpr === 'to top left' || angleExpr === 'to left top') angleDeg = 360 - cornerAngle;
+      }
     }
+
+    angleDeg = ((angleDeg % 360) + 360) % 360;
 
     // Split stops safely
     const rawStops = splitByTopLevelCommas(stopsStr);
@@ -652,8 +658,6 @@ function parseLinearGradient(css, styles = null) {
         if (pctMatch) pos = parseFloat(pctMatch[1]) / 100;
       }
 
-      // CSS Rule: If a color stop's position is less than the specified position 
-      // of any stop before it, set its position to the largest position before it.
       pos = Math.max(pos, maxPos);
       maxPos = pos;
 
@@ -764,14 +768,56 @@ function parseLinearGradient(css, styles = null) {
     }
 
     const rad = ((angleDeg - 90) * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
+    const dx = Math.cos(rad);
+    const dy = Math.sin(rad);
+
+    const length = Math.abs(nodeW * dx) + Math.abs(nodeH * dy);
+    
+    let A = length > 0 ? (nodeW * dx) / length : dx;
+    let B = length > 0 ? (nodeH * dy) / length : dy;
+    let C = 0.5 - 0.5 * (A + B);
+    let A2 = -B;
+    let B2 = A;
+    let C2 = 0.5 - 0.5 * (-B + A);
+
+    if (styles && styles._bgClipRect) {
+      // Scale and translate the gradient so it spans the original bgClipRect
+      // instead of squishing into the current text node's bounding box.
+      const origW = Math.max(1, styles._bgClipRect.width);
+      const origH = Math.max(1, styles._bgClipRect.height);
+      const fragX = styles._sNodeRect?.x || 0;
+      const fragY = styles._sNodeRect?.y || 0;
+      const fragW = Math.max(1, nodeW);
+      const fragH = Math.max(1, nodeH);
+
+      const origLength = Math.abs(origW * dx) + Math.abs(origH * dy);
+      const A_orig = origLength > 0 ? (origW * dx) / origLength : dx;
+      const B_orig = origLength > 0 ? (origH * dy) / origLength : dy;
+      const C_orig = 0.5 - 0.5 * (A_orig + B_orig);
+
+      const scaleX = fragW / origW;
+      const scaleY = fragH / origH;
+      const transX = (fragX - styles._bgClipRect.x) / origW;
+      const transY = (fragY - styles._bgClipRect.y) / origH;
+
+      A = A_orig * scaleX;
+      B = B_orig * scaleY;
+      C = A_orig * transX + B_orig * transY + C_orig;
+      
+      const A2_orig = -B_orig;
+      const B2_orig = A_orig;
+      const C2_orig = 0.5 - 0.5 * (A2_orig + B2_orig);
+
+      A2 = A2_orig * scaleX;
+      B2 = B2_orig * scaleY;
+      C2 = A2_orig * transX + B2_orig * transY + C2_orig;
+    }
 
     return {
       type: 'GRADIENT_LINEAR',
       gradientTransform: [
-        [cos, sin, 0.5 - 0.5 * (cos + sin)],
-        [-sin, cos, 0.5 - 0.5 * (-sin + cos)]
+        [A, B, C],
+        [A2, B2, C2]
       ],
       gradientStops: fixPremultipliedStops(stops)
     };
@@ -1525,7 +1571,7 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
       for (let i = bgs.length - 1; i >= 0; i--) {
         const bg = bgs[i];
         if (bg.includes('linear-gradient')) {
-          const grad = parseLinearGradient(bg, styles);
+          const grad = parseLinearGradient(bg, styles, rectW, rectH);
           if (grad) gradFills.push(grad);
         } else if (bg.includes('radial-gradient')) {
           const grad = parseRadialGradient(bg);
@@ -1571,7 +1617,7 @@ function applyStrokes(node, styles) {
 
   let gradientStroke = null;
   if (styles.borderImageSource && styles.borderImageSource !== 'none') {
-    const parsedGrad = parseLinearGradient(styles.borderImageSource);
+    const parsedGrad = parseLinearGradient(styles.borderImageSource, styles, rectW, rectH);
     if (parsedGrad) gradientStroke = parsedGrad;
   }
 
@@ -2931,6 +2977,9 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   let currentTextClip = inheritedTextClip;
   if (isBackgroundClipText(s)) {
     currentTextClip = s;
+    if (sNode.bgClipRect) {
+      currentTextClip = { ...s, _bgClipRect: sNode.bgClipRect, _sNodeRect: sNode.rect };
+    }
   }
 
   let activeTextDecoration = inheritedStyles?._activeTextDecoration || null;
@@ -4068,7 +4117,7 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
   if (maskGradientStr) {
     let maskFill = null;
     if (maskGradientStr.includes('linear-gradient')) {
-      maskFill = parseLinearGradient(maskGradientStr, s);
+      maskFill = parseLinearGradient(maskGradientStr, s, rectW, rectH);
     } else if (maskGradientStr.includes('radial-gradient')) {
       maskFill = parseRadialGradient(maskGradientStr);
     } else if (maskGradientStr.includes('conic-gradient')) {
@@ -4396,7 +4445,9 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       for (let i = bgs.length - 1; i >= 0; i--) {
         const bg = bgs[i];
         if (bg.includes('linear-gradient')) {
-          const grad = parseLinearGradient(bg, clipStyle);
+          const textW = sNode.rect?.width || textNode.width || 100;
+          const textH = sNode.rect?.height || textNode.height || 100;
+          const grad = parseLinearGradient(bg, clipStyle, textW, textH);
           if (grad) textFills.push(brightenGradientForText(grad, resolvedBgColor));
         } else if (bg.includes('radial-gradient')) {
           const grad = parseRadialGradient(bg);

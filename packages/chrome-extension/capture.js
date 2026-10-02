@@ -5876,6 +5876,7 @@
               attributes: getAttributes(el),
               styles: fragStyles,
               rect: fragRect,
+              bgClipRect: { x: docRect.x, y: docRect.y, width: docRect.width, height: docRect.height },
               childNodes: fragChildNodes,
               pseudoElementNodes: Object.keys(fragPseudo).length > 0 ? fragPseudo : undefined
             });
