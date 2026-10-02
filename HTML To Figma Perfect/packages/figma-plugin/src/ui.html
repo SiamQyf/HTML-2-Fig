@@ -211,6 +211,200 @@
     50% { border-color: rgba(244, 63, 94, 0.85); box-shadow: 0 0 10px rgba(244, 63, 94, 0.3); }
   }
 
+  /* ---------------- 1-CLICK BOOKMARKLET PANEL ---------------- */
+  .bookmarklet-panel {
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    background: linear-gradient(165deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 15, 30, 0.99) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.75), 0 0 26px -4px rgba(56, 189, 248, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    border-radius: 14px;
+    padding: 15px 16px;
+    backdrop-filter: blur(24px);
+    position: relative;
+    overflow: hidden;
+    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .bookmarklet-panel.active {
+    display: flex;
+  }
+  .bookmarklet-panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 15%; right: 15%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.8), rgba(168, 85, 247, 0.8), transparent);
+    pointer-events: none;
+  }
+  .bm-icon-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.22) 0%, rgba(168, 85, 247, 0.22) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    box-shadow: 0 2px 10px rgba(56, 189, 248, 0.25);
+    flex-shrink: 0;
+  }
+  .bm-gradient-text {
+    background: linear-gradient(135deg, #38bdf8 0%, #a855f7 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800;
+  }
+  .bm-subtext {
+    font-size: 10px;
+    color: #94a3b8;
+    margin-top: 2px;
+  }
+  .bm-drag-box, .bm-copy-box {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .bm-drag-label {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #94a3b8;
+    letter-spacing: 0.5px;
+  }
+  .bm-draggable-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: linear-gradient(135deg, #0284c7 0%, #6366f1 50%, #9333ea 100%);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 8px;
+    padding: 9px 16px;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: grab;
+    user-select: none;
+    box-shadow: 0 4px 16px rgba(14, 165, 233, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .bm-draggable-btn:hover {
+    filter: brightness(1.15);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 22px rgba(14, 165, 233, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  }
+  .bm-draggable-btn:active {
+    cursor: grabbing;
+    transform: scale(0.98);
+  }
+  .bm-drag-tag {
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    color: #bae6fd;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+  .bm-drag-instruction {
+    font-size: 10px;
+    color: #94a3b8;
+    line-height: 1.35;
+  }
+  .bm-drag-instruction b {
+    color: #f1f5f9;
+  }
+  .btn-primary-compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    border-radius: 8px;
+    padding: 8px 14px;
+    color: #38bdf8;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    font-family: inherit;
+  }
+  .btn-primary-compact:hover {
+    background: rgba(56, 189, 248, 0.22);
+    border-color: rgba(56, 189, 248, 0.7);
+    color: #ffffff;
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.3);
+  }
+  .bm-copied-msg {
+    display: none;
+    font-size: 10.5px;
+    color: #34d399;
+    font-weight: 600;
+  }
+  .bm-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 8px;
+    padding: 8px 12px;
+  }
+  .bm-step {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 10px;
+    color: #cbd5e1;
+  }
+  .step-num {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: rgba(56, 189, 248, 0.2);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    color: #38bdf8;
+    font-size: 8.5px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .bookmarklet-quick-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    font-size: 10.5px;
+    color: #94a3b8;
+    cursor: pointer;
+    margin-top: 1px;
+    user-select: none;
+    transition: all 0.2s ease;
+  }
+  .bookmarklet-quick-hint:hover {
+    color: #38bdf8;
+  }
+  .bookmarklet-quick-hint .hint-link {
+    color: #38bdf8;
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .bookmarklet-quick-hint .hint-zap {
+    color: #f59e0b;
+    font-size: 11.5px;
+  }
+
   /* ---------------- GUMROAD LICENSE PANEL (REDESIGNED) ---------------- */
   .license-panel {
     display: none;
@@ -1335,24 +1529,19 @@
 <div class="app-shell" id="appShell">
   <!-- Top Utility Bar -->
   <header class="header">
-    <a href="https://chromewebstore.google.com/detail/html-to-perfect-figma" target="_blank" class="ext-link-badge" id="btnChromeExtensionLink" title="Get the companion Chrome Extension">
+    <button class="ext-link-badge" id="btnBookmarkletModal" type="button" title="Get 1-Click Web Capture Bookmarklet (No Extension Required)">
       <svg class="ext-chrome-icon" viewBox="0 0 24 24" width="13" height="13" fill="none">
-        <circle cx="12" cy="12" r="9.5" stroke="url(#extChromeGrad)" stroke-width="1.3"/>
-        <circle cx="12" cy="12" r="3.8" fill="#38bdf8"/>
+        <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="url(#extChromeGrad)" stroke="#38bdf8" stroke-width="1.2" stroke-linejoin="round"/>
         <defs>
-          <linearGradient id="extChromeGrad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+          <linearGradient id="extChromeGrad" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
             <stop stop-color="#38bdf8"/>
             <stop offset="0.5" stop-color="#a855f7"/>
             <stop offset="1" stop-color="#ec4899"/>
           </linearGradient>
         </defs>
       </svg>
-      <span>Chrome Extension</span>
-      <svg class="ext-arrow-mini" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="7" y1="17" x2="17" y2="7"></line>
-        <polyline points="7 7 17 7 17 17"></polyline>
-      </svg>
-    </a>
+      <span>⚡ 1-Click Bookmarklet</span>
+    </button>
     <div class="header-actions">
       <button class="badge-tag" id="btnLicenseBadge" type="button" title="Upgrade to Lifetime PRO">
         <svg class="pro-sparkle-icon" viewBox="0 0 24 24" width="13" height="13" fill="none">
@@ -1374,6 +1563,60 @@
       <span id="appSubtitle" style="display:none;"></span>
     </div>
   </header>
+
+  <!-- 1-Click Browser Bookmarklet Panel (No Extension Required) -->
+  <div class="bookmarklet-panel" id="bookmarkletPanel">
+    <div class="license-panel-header">
+      <div class="license-title-row">
+        <div class="bm-icon-badge">⚡</div>
+        <div>
+          <div class="license-title-text">
+            1-Click <span class="bm-gradient-text">Web Capture</span>
+          </div>
+          <div class="bm-subtext">No Chrome Extension or downloads required</div>
+        </div>
+      </div>
+      <button class="license-close-btn" id="btnCloseBookmarklet" type="button" title="Close panel">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Draggable Button Box -->
+    <div class="bm-drag-box">
+      <div class="bm-drag-label">METHOD 1: DRAG TO BOOKMARKS BAR</div>
+      <a href="#" class="bm-draggable-btn" id="bmDragLink" draggable="true" title="Drag this button to your Bookmarks Bar">
+        <span class="bm-drag-zap">⚡</span>
+        <span>Capture to Figma</span>
+        <span class="bm-drag-tag">DRAG ME</span>
+      </a>
+      <div class="bm-drag-instruction">
+        Drag this button up to your browser's Bookmarks Bar (press <b>Ctrl+Shift+B</b> or <b>⌘+Shift+B</b> to show bookmarks bar).
+      </div>
+    </div>
+
+    <!-- Copy Code Box -->
+    <div class="bm-copy-box">
+      <div class="bm-drag-label">METHOD 2: OR 1-CLICK COPY JAVASCRIPT</div>
+      <button class="btn-primary-compact" id="btnCopyBookmarklet" type="button">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+        <span id="bmCopyText">Copy Bookmarklet Code</span>
+      </button>
+      <div class="bm-copied-msg" id="bmCopiedMsg"></div>
+    </div>
+
+    <!-- Quick How It Works -->
+    <div class="bm-steps">
+      <div class="bm-step"><span class="step-num">1</span> Open any webpage (e.g. stripe.com)</div>
+      <div class="bm-step"><span class="step-num">2</span> Click <b>⚡ Capture to Figma</b> in your bookmarks</div>
+      <div class="bm-step"><span class="step-num">3</span> Return here & press <b>Ctrl+V</b> to paint on canvas!</div>
+    </div>
+  </div>
 
   <!-- Gumroad License Panel (Collapsible) -->
   <div class="license-panel" id="licensePanel">
@@ -1540,6 +1783,12 @@
       <span class="press-here-title">Click here and</span>
     </div>
     <div class="drop-subtitle" id="dropSubtitle">Press <span class="kbd-pill">Ctrl+V</span> / <span class="kbd-pill">⌘V</span> to paint on canvas</div>
+  </div>
+
+  <!-- Bookmarklet Quick Hint (No Extension Required) -->
+  <div class="bookmarklet-quick-hint" id="openBookmarkletHint">
+    <span class="hint-zap">⚡</span>
+    <span>No extension installed? <span class="hint-link">Get 1-Click Bookmarklet ↗</span></span>
   </div>
 
   <!-- Toast Notification Container -->
@@ -2120,9 +2369,101 @@
     }
   }
 
+  /* ---------------- 1-CLICK BOOKMARKLET LOGIC ---------------- */
+  const BOOKMARKLET_CODE = `javascript:(function(){if(window.__html2FigRunning)return;if(typeof window.html2Fig!=='undefined'&&typeof window.html2Fig.startCapture==='function'){window.html2Fig.startCapture();return;}var toast=document.createElement('div');toast.id='h2f-bm-loading';toast.innerHTML='<span style="font-size:16px;">⚡</span> <b>Loading HTML To Figma...</b>';toast.style.cssText='position:fixed;top:20px;right:20px;z-index:999999999;background:rgba(15,23,42,0.95);color:#f8fafc;padding:12px 20px;border-radius:12px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:13px;display:flex;align-items:center;gap:10px;box-shadow:0 12px 36px rgba(0,0,0,0.6);border:1px solid #38bdf8;backdrop-filter:blur(16px);pointer-events:none;transition:all 0.3s ease;';document.body.appendChild(toast);var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/SiamQyf/HTML-2-Fig@Final/packages/chrome-extension/capture.js?v='+Date.now();s.onload=function(){toast.innerHTML='<span style="font-size:16px;">🎨</span> <b>Capturing Webpage...</b>';setTimeout(function(){if(toast.parentNode)toast.parentNode.removeChild(toast);if(window.html2Fig&&typeof window.html2Fig.startCapture==='function'){window.html2Fig.startCapture();}},400);};s.onerror=function(){toast.innerHTML='<span style="font-size:16px;">❌</span> <b>Failed to load capture script</b>';toast.style.borderColor='#ef4444';setTimeout(function(){if(toast.parentNode)toast.parentNode.removeChild(toast);},4000);};document.head.appendChild(s);})();`;
+
+  const bookmarkletPanel = document.getElementById('bookmarkletPanel');
+  const btnBookmarkletModal = document.getElementById('btnBookmarkletModal');
+  const btnCloseBookmarklet = document.getElementById('btnCloseBookmarklet');
+  const openBookmarkletHint = document.getElementById('openBookmarkletHint');
+  const bmDragLink = document.getElementById('bmDragLink');
+  const btnCopyBookmarklet = document.getElementById('btnCopyBookmarklet');
+  const bmCopyText = document.getElementById('bmCopyText');
+  const bmCopiedMsg = document.getElementById('bmCopiedMsg');
+
+  if (bmDragLink) {
+    bmDragLink.href = BOOKMARKLET_CODE;
+    bmDragLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      copyBookmarkletSnippet();
+    });
+  }
+
+  function toggleBookmarkletPanel(show) {
+    if (!bookmarkletPanel) return;
+    const shouldOpen = show !== undefined ? show : !bookmarkletPanel.classList.contains('active');
+    bookmarkletPanel.classList.toggle('active', shouldOpen);
+    if (shouldOpen && licensePanel && licensePanel.classList.contains('active')) {
+      licensePanel.classList.remove('active');
+    }
+
+    try {
+      parent.postMessage({
+        pluginMessage: {
+          type: 'resize',
+          width: 380,
+          height: shouldOpen ? 720 : (licensePanel && licensePanel.classList.contains('active') ? 700 : 632)
+        }
+      }, '*');
+    } catch {}
+  }
+
+  if (btnBookmarkletModal) {
+    btnBookmarkletModal.addEventListener('click', () => toggleBookmarkletPanel());
+  }
+  if (btnCloseBookmarklet) {
+    btnCloseBookmarklet.addEventListener('click', () => toggleBookmarkletPanel(false));
+  }
+  if (openBookmarkletHint) {
+    openBookmarkletHint.addEventListener('click', () => toggleBookmarkletPanel(true));
+  }
+
+  async function copyBookmarkletSnippet() {
+    let copied = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(BOOKMARKLET_CODE);
+        copied = true;
+      }
+    } catch (err) {}
+
+    if (!copied) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = BOOKMARKLET_CODE;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        copied = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch (e) {}
+    }
+
+    if (bmCopyText) bmCopyText.textContent = '✅ Copied to Clipboard!';
+    if (bmCopiedMsg) {
+      bmCopiedMsg.textContent = 'Paste into browser bookmark URL or press in bookmarks bar!';
+      bmCopiedMsg.style.display = 'block';
+    }
+    showToast('⚡ Bookmarklet code copied to clipboard!', 'success', 3500);
+
+    setTimeout(() => {
+      if (bmCopyText) bmCopyText.textContent = 'Copy Bookmarklet Code';
+      if (bmCopiedMsg) bmCopiedMsg.style.display = 'none';
+    }, 4500);
+  }
+
+  if (btnCopyBookmarklet) {
+    btnCopyBookmarklet.addEventListener('click', copyBookmarkletSnippet);
+  }
+
   function toggleLicensePanel(show) {
     const shouldOpen = show !== undefined ? show : !licensePanel.classList.contains('active');
     licensePanel.classList.toggle('active', shouldOpen);
+    if (shouldOpen && bookmarkletPanel && bookmarkletPanel.classList.contains('active')) {
+      bookmarkletPanel.classList.remove('active');
+    }
 
     // Dynamic resize of plugin dialog
     try {
@@ -2130,7 +2471,7 @@
         pluginMessage: {
           type: 'resize',
           width: 380,
-          height: shouldOpen ? 700 : 632
+          height: shouldOpen ? 700 : (bookmarkletPanel && bookmarkletPanel.classList.contains('active') ? 720 : 632)
         }
       }, '*');
     } catch {}
