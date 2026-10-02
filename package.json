@@ -10,7 +10,8 @@
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "protect:ext": "node scripts/protect_extension.js"
+    "protect:ext": "node scripts/protect_extension.js",
+    "build:webstore": "node scripts/package_webstore.js"
   },
   "keywords": [
     "figma",

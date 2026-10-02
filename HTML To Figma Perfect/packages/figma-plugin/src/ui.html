@@ -100,9 +100,44 @@
   .header {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
     padding: 0 0 2px 0;
     user-select: none;
+  }
+
+  .ext-link-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(56, 189, 248, 0.09);
+    border: 1px solid rgba(56, 189, 248, 0.32);
+    color: #38bdf8;
+    cursor: pointer;
+    font-family: inherit;
+    text-decoration: none;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    line-height: 1.2;
+    outline: none;
+  }
+  .ext-link-badge:hover {
+    background: rgba(56, 189, 248, 0.22);
+    border-color: rgba(56, 189, 248, 0.65);
+    color: #ffffff;
+    transform: translateY(-0.5px);
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);
+  }
+  .ext-link-badge .ext-arrow-mini {
+    opacity: 0.75;
+    transition: transform 0.18s ease;
+  }
+  .ext-link-badge:hover .ext-arrow-mini {
+    opacity: 1;
+    transform: translate(1px, -1px);
   }
 
   .header-actions {
@@ -1300,6 +1335,24 @@
 <div class="app-shell" id="appShell">
   <!-- Top Utility Bar -->
   <header class="header">
+    <a href="https://chromewebstore.google.com/detail/html-to-perfect-figma" target="_blank" class="ext-link-badge" id="btnChromeExtensionLink" title="Get the companion Chrome Extension">
+      <svg class="ext-chrome-icon" viewBox="0 0 24 24" width="13" height="13" fill="none">
+        <circle cx="12" cy="12" r="9.5" stroke="url(#extChromeGrad)" stroke-width="1.3"/>
+        <circle cx="12" cy="12" r="3.8" fill="#38bdf8"/>
+        <defs>
+          <linearGradient id="extChromeGrad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#38bdf8"/>
+            <stop offset="0.5" stop-color="#a855f7"/>
+            <stop offset="1" stop-color="#ec4899"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <span>Chrome Extension</span>
+      <svg class="ext-arrow-mini" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="7" y1="17" x2="17" y2="7"></line>
+        <polyline points="7 7 17 7 17 17"></polyline>
+      </svg>
+    </a>
     <div class="header-actions">
       <button class="badge-tag" id="btnLicenseBadge" type="button" title="Upgrade to Lifetime PRO">
         <svg class="pro-sparkle-icon" viewBox="0 0 24 24" width="13" height="13" fill="none">
