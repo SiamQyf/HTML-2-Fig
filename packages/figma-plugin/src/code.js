@@ -1571,7 +1571,7 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
       for (let i = bgs.length - 1; i >= 0; i--) {
         const bg = bgs[i];
         if (bg.includes('linear-gradient')) {
-          const grad = parseLinearGradient(bg, styles, rectW, rectH);
+          const grad = parseLinearGradient(bg, styles, nodeW, nodeH);
           if (grad) gradFills.push(grad);
         } else if (bg.includes('radial-gradient')) {
           const grad = parseRadialGradient(bg);
@@ -1617,7 +1617,7 @@ function applyStrokes(node, styles) {
 
   let gradientStroke = null;
   if (styles.borderImageSource && styles.borderImageSource !== 'none') {
-    const parsedGrad = parseLinearGradient(styles.borderImageSource, styles, rectW, rectH);
+    const parsedGrad = parseLinearGradient(styles.borderImageSource, styles, node.width, node.height);
     if (parsedGrad) gradientStroke = parsedGrad;
   }
 
