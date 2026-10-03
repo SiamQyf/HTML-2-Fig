@@ -1,5 +1,5 @@
 let currentPluginView = 'html2fig';
-figma.showUI(__html__, { width: 323, height: 632, themeColors: true });
+figma.showUI(__html__, { width: 380, height: 632, themeColors: true });
 
 const MAX_FREE_EXPORTS = 8;
 
@@ -5930,7 +5930,7 @@ figma.ui.onmessage = async (msg) => {
 
   if (msg.type === 'switch_to_html2fig') {
     currentPluginView = 'html2fig';
-    figma.showUI(__html__, { width: 323, height: 632, themeColors: true });
+    figma.showUI(__html__, { width: 380, height: 632, themeColors: true });
     checkLicenseAndUsage().then((info) => {
       figma.ui.postMessage({ type: 'license_info', ...info });
     }).catch(() => {
@@ -5978,7 +5978,7 @@ figma.ui.onmessage = async (msg) => {
     const info = await checkLicenseAndUsage();
     figma.ui.postMessage({ type: 'license_info', ...info });
     } else if (msg.type === 'resize') {
-    figma.ui.resize(msg.width || 323, msg.height || 632);
+    figma.ui.resize(msg.width || 380, msg.height || 632);
   } else {
     try {
       await handleAssetsDiaryMessage(msg);

@@ -92,7 +92,7 @@ let h2fCode = execSync('git show 0256023:packages/figma-plugin/src/code.js', { e
 // Add currentPluginView and set initial UI height to 445
 h2fCode = h2fCode.replace(
   /figma\.showUI\(__html__,\s*\{\s*width:\s*380,\s*height:\s*380,\s*themeColors:\s*true\s*\}\);/,
-  `let currentPluginView = 'html2fig';\nfigma.showUI(__html__, { width: 323, height: 445, themeColors: true });`
+  `let currentPluginView = 'html2fig';\nfigma.showUI(__html__, { width: 380, height: 445, themeColors: true });`
 );
 
 // Update figma.ui.onmessage to handle switch_to_assets_diary, switch_to_html2fig, and delegate unhandled messages
@@ -112,7 +112,7 @@ const targetOnMessage = `figma.ui.onmessage = async (msg) => {
 
   if (msg.type === 'switch_to_html2fig') {
     currentPluginView = 'html2fig';
-    figma.showUI(__html__, { width: 323, height: 445, themeColors: true });
+    figma.showUI(__html__, { width: 380, height: 445, themeColors: true });
     checkLicenseAndUsage().then((info) => {
       figma.ui.postMessage({ type: 'license_info', ...info });
     }).catch(() => {
