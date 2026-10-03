@@ -10,6 +10,56 @@ const PORT = process.env.PORT || 3000;
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '50mb' }));
 
+const { execSync } = require('child_process');
+
+// Auto-detect or download Chrome executable path dynamically
+let cachedChromeExecutable = process.env.PUPPETEER_EXECUTABLE_PATH || null;
+
+function getChromeExecutablePath() {
+  if (cachedChromeExecutable && fs.existsSync(cachedChromeExecutable)) {
+    return cachedChromeExecutable;
+  }
+
+  // 1. Check common system paths
+  const systemPaths = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser'
+  ];
+  for (const p of systemPaths) {
+    if (fs.existsSync(p)) {
+      cachedChromeExecutable = p;
+      return p;
+    }
+  }
+
+  // 2. Install Chrome via puppeteer CLI if not present
+  try {
+    console.log('[Puppeteer] Ensuring Chrome is installed...');
+    const out = execSync('npx puppeteer browsers install chrome', { encoding: 'utf8' }).trim();
+    console.log('[Puppeteer] Installer output:', out);
+    const parts = out.split(/\s+/);
+    const lastPart = parts[parts.length - 1];
+    if (lastPart && fs.existsSync(lastPart)) {
+      cachedChromeExecutable = lastPart;
+      return lastPart;
+    }
+  } catch (err) {
+    console.warn('[Puppeteer] Auto-install warning:', err.message);
+  }
+
+  return undefined;
+}
+
+// Pre-check and download Chrome on startup
+setTimeout(() => {
+  try {
+    const p = getChromeExecutablePath();
+    console.log('⚡ [Puppeteer] Ready with Chrome at:', p || 'default');
+  } catch (e) {}
+}, 1000);
+
 // Read local capture script for instant injection without external network delay
 let captureScript = '';
 const localCapturePath = path.join(__dirname, '..', 'packages', 'chrome-extension', 'capture.js');
@@ -45,10 +95,11 @@ app.post('/api/capture', async (req, res) => {
 
   let browser = null;
   try {
-    console.log(`[Capture] Launching headless browser for: ${targetUrl}`);
+    const execPath = getChromeExecutablePath();
+    console.log(`[Capture] Launching headless browser for: ${targetUrl} (bin: ${execPath || 'auto'})`);
     browser = await puppeteer.launch({
       headless: 'new',
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      executablePath: execPath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
