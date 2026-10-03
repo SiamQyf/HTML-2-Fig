@@ -863,88 +863,19 @@
     overflow: visible;
   }
 
-  /* Document Sheet Pasting Motion */
+  /* Static Document Sheet on Clipboard (No jumping motion) */
   .pasting-doc {
-    animation: pasteDocAnim 2.2s cubic-bezier(0.2, 0.8, 0.3, 1) infinite;
-    transform-origin: 15px 16px;
-  }
-  @keyframes pasteDocAnim {
-    0% {
-      transform: translateY(-9px) scale(0.88) rotate(-4deg);
-      opacity: 0.25;
-      filter: drop-shadow(0 10px 8px rgba(0, 0, 0, 0.4));
-    }
-    18% {
-      transform: translateY(-4px) scale(0.95) rotate(-1.5deg);
-      opacity: 0.8;
-    }
-    34% {
-      transform: translateY(1px) scale(1.03, 0.97) rotate(0deg);
-      opacity: 1;
-      filter: drop-shadow(0 2px 8px rgba(168, 85, 247, 0.6));
-    }
-    42% {
-      transform: translateY(0) scale(1) rotate(0deg);
-      opacity: 1;
-      filter: drop-shadow(0 2px 6px rgba(124, 58, 237, 0.4));
-    }
-    76% {
-      transform: translateY(0) scale(1) rotate(0deg);
-      opacity: 1;
-    }
-    90% {
-      transform: translateY(-4px) scale(0.94);
-      opacity: 0.45;
-    }
-    100% {
-      transform: translateY(-9px) scale(0.88) rotate(-4deg);
-      opacity: 0.25;
-    }
+    transform: none;
+    opacity: 1;
+    filter: drop-shadow(0 2px 5px rgba(124, 58, 237, 0.35));
   }
 
-  /* Clipboard Top Clip Grip Reaction */
   .clipboard-clip {
-    animation: clipFlexAnim 2.2s ease-in-out infinite;
-    transform-origin: 15px 3px;
-  }
-  @keyframes clipFlexAnim {
-    0%, 30% { transform: translateY(0); }
-    34% { transform: translateY(-0.8px) scaleY(0.92); }
-    40% { transform: translateY(0.4px); }
-    48%, 100% { transform: translateY(0); }
+    transform: none;
   }
 
-  /* Twinkling Star Sparkles on Dock */
   .paste-sparkle {
-    transform-origin: center;
-    animation: pasteSparkleAnim 2.2s ease-in-out infinite;
-  }
-  .paste-sparkle-1 {
-    transform-origin: 23px 7px;
-  }
-  .paste-sparkle-2 {
-    transform-origin: 5px 21px;
-    animation-delay: 0.08s;
-  }
-  @keyframes pasteSparkleAnim {
-    0%, 28% {
-      transform: scale(0);
-      opacity: 0;
-    }
-    38% {
-      transform: scale(1.35) rotate(20deg);
-      opacity: 1;
-      filter: drop-shadow(0 0 5px #ec4899);
-    }
-    54% {
-      transform: scale(0.9) rotate(40deg);
-      opacity: 0.85;
-      filter: drop-shadow(0 0 3px #c084fc);
-    }
-    72%, 100% {
-      transform: scale(0) rotate(60deg);
-      opacity: 0;
-    }
+    display: none;
   }
 
   .drop-title {
