@@ -1746,7 +1746,7 @@
         type="text" 
         id="underlineUrlInput" 
         class="url-underline-input" 
-        placeholder="enter website url here" 
+        placeholder="Paste Here Or Type URL" 
         autocomplete="off" 
         spellcheck="false" 
       />
@@ -2436,6 +2436,12 @@
         e.preventDefault();
         const val = underlineUrlInput.value.trim();
         if (val) {
+          if ((val.startsWith('{') && val.endsWith('}')) || (val.length > 50 && (val.includes('"nodes"') || val.includes('"html"')))) {
+            underlineUrlInput.value = '';
+            underlineUrlInput.blur();
+            processPayload(val);
+            return;
+          }
           underlineUrlInput.blur();
           fetchFromUrl(val);
         }
@@ -2444,9 +2450,17 @@
     underlineUrlInput.addEventListener('paste', (e) => {
       setTimeout(() => {
         const val = underlineUrlInput.value.trim();
-        if (val && (/^https?:\/\//i.test(val) || /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}(\/.*)?$/i.test(val))) {
-          underlineUrlInput.blur();
-          fetchFromUrl(val);
+        if (val) {
+          if ((val.startsWith('{') && val.endsWith('}')) || (val.length > 50 && (val.includes('"nodes"') || val.includes('"html"')))) {
+            underlineUrlInput.value = '';
+            underlineUrlInput.blur();
+            processPayload(val);
+            return;
+          }
+          if (/^https?:\/\//i.test(val) || /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}(\/.*)?$/i.test(val)) {
+            underlineUrlInput.blur();
+            fetchFromUrl(val);
+          }
         }
       }, 40);
     });
