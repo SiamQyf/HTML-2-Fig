@@ -52,13 +52,65 @@ function getChromeExecutablePath() {
   return undefined;
 }
 
-// Pre-check and download Chrome on startup
+// Warm Browser Pool (keeps a running headless Chromium instance to avoid 5-second launch overhead)
+let warmBrowser = null;
+let warmBrowserPromise = null;
+
+async function getWarmBrowser() {
+  if (warmBrowser && warmBrowser.connected) {
+    return warmBrowser;
+  }
+  if (warmBrowserPromise) {
+    return warmBrowserPromise;
+  }
+
+  const execPath = getChromeExecutablePath();
+  console.log(`[Puppeteer] Launching warm browser instance (bin: ${execPath || 'auto'})...`);
+  warmBrowserPromise = puppeteer.launch({
+    headless: 'new',
+    executablePath: execPath,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-gpu',
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-sync',
+      '--disable-translate',
+      '--mute-audio',
+      '--no-default-browser-check',
+      '--window-size=1440,900'
+    ]
+  }).then((b) => {
+    warmBrowser = b;
+    warmBrowserPromise = null;
+    b.on('disconnected', () => {
+      console.warn('[Puppeteer] Warm browser disconnected, will recreate on next request');
+      warmBrowser = null;
+      warmBrowserPromise = null;
+    });
+    return b;
+  }).catch((err) => {
+    console.error('[Puppeteer] Warm browser launch failed:', err.message);
+    warmBrowserPromise = null;
+    throw err;
+  });
+
+  return warmBrowserPromise;
+}
+
+// Pre-warm browser in background immediately on boot
 setTimeout(() => {
-  try {
-    const p = getChromeExecutablePath();
-    console.log('⚡ [Puppeteer] Ready with Chrome at:', p || 'default');
-  } catch (e) {}
-}, 1000);
+  getWarmBrowser().then(() => {
+    console.log('⚡ [Puppeteer] Headless Chrome pre-warmed and ready for instant captures!');
+  }).catch((err) => {
+    console.warn('[Puppeteer] Pre-warm notice:', err.message);
+  });
+}, 1500);
 
 // Read local capture script for instant injection without external network delay
 let captureScript = '';
@@ -93,26 +145,10 @@ app.post('/api/capture', async (req, res) => {
     targetUrl = 'https://' + targetUrl;
   }
 
-  let browser = null;
+  let page = null;
   try {
-    const execPath = getChromeExecutablePath();
-    console.log(`[Capture] Launching headless browser for: ${targetUrl} (bin: ${execPath || 'auto'})`);
-    browser = await puppeteer.launch({
-      headless: 'new',
-      executablePath: execPath,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu',
-        '--window-size=1440,900'
-      ]
-    });
-
-    const page = await browser.newPage();
+    const browser = await getWarmBrowser();
+    page = await browser.newPage();
     await page.setViewport({
       width: parseInt(width, 10) || 1440,
       height: parseInt(height, 10) || 900,
@@ -124,7 +160,7 @@ app.post('/api/capture', async (req, res) => {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
     );
 
-    // Abort media (video/audio streams) to prevent timeouts and conserve bandwidth
+    // Abort media to save CPU/bandwidth
     await page.setRequestInterception(true);
     page.on('request', (req) => {
       const type = req.resourceType();
@@ -139,7 +175,7 @@ app.post('/api/capture', async (req, res) => {
     try {
       await page.goto(targetUrl, {
         waitUntil: 'domcontentloaded',
-        timeout: 25000
+        timeout: 20000
       });
     } catch (navErr) {
       console.warn(`[Capture] Navigation notice: ${navErr.message}`);
@@ -149,11 +185,11 @@ app.post('/api/capture', async (req, res) => {
       }
     }
 
-    // Wait a brief moment for dynamic fonts and layouts to settle
+    // Wait a brief moment for dynamic layout
     try {
-      await page.waitForFunction(() => document.readyState === 'complete', { timeout: 3000 });
+      await page.waitForFunction(() => document.readyState === 'complete', { timeout: 2500 });
     } catch (_) {}
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 400));
 
     // Inject capture engine
     console.log('[Capture] Injecting capture script...');
@@ -165,10 +201,8 @@ app.post('/api/capture', async (req, res) => {
       });
     }
 
-    // Wait 300ms for capture engine readiness
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 200));
 
-    // Run DOM extraction in browser context
     console.log('[Capture] Extracting HyperNodes...');
     const payload = await page.evaluate(async () => {
       if (window.html2Fig && typeof window.html2Fig.captureRaw === 'function') {
@@ -186,9 +220,9 @@ app.post('/api/capture', async (req, res) => {
       error: err.message || 'Failed to capture webpage'
     });
   } finally {
-    if (browser) {
+    if (page) {
       try {
-        await browser.close();
+        await page.close();
       } catch (e) {}
     }
   }
