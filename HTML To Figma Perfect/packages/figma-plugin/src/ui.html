@@ -1737,8 +1737,8 @@
   </div>
 
   <!-- Interactive Drop / Paste Zone (State A) -->
-  <div class="drop-zone" id="dropZone" role="button" title="Press here to start canvas painting">
-    <textarea id="pasteInput" class="paste-hitbox" tabindex="0" spellcheck="false" autocomplete="off" aria-label="Press here to start canvas painting"></textarea>
+  <div class="drop-zone" id="dropZone" role="button" title="Enter Url and Click Here">
+    <textarea id="pasteInput" class="paste-hitbox" tabindex="0" spellcheck="false" autocomplete="off" aria-label="Enter Url and Click Here"></textarea>
     <div class="drop-icon-wrap">
       <div class="press-ripple"></div>
       <div class="press-ripple press-ripple-2"></div>
@@ -1807,7 +1807,7 @@
       </div>
     </div>
     <div class="drop-title">
-      <span class="press-here-title">Click here and</span>
+      <span class="press-here-title">Enter Url and Click Here</span>
     </div>
     <div class="drop-subtitle" id="dropSubtitle" style="display: none;"></div>
     <div class="url-underline-wrap" onclick="event.stopPropagation();" onpointerdown="event.stopPropagation();" onmousedown="event.stopPropagation();">
@@ -2126,6 +2126,15 @@
 
       if (currentPayloadData) {
         executeImport();
+        return;
+      }
+
+      // Check if user typed or pasted a URL into underlineUrlInput before clicking
+      const underlineUrlInput = document.getElementById('underlineUrlInput');
+      const urlInputVal = underlineUrlInput?.value?.trim();
+      if (urlInputVal && (/^https?:\/\//i.test(urlInputVal) || /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}(\/.*)?$/i.test(urlInputVal))) {
+        underlineUrlInput.blur();
+        fetchFromUrl(urlInputVal);
         return;
       }
 
