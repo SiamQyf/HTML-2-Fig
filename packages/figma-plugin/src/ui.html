@@ -1945,25 +1945,43 @@
 
   let progressHideTimeout = null;
 
-  function resetPaintingProgress() {
+  function resetPaintingProgress(label = 'Painting') {
     if (progressHideTimeout) {
       clearTimeout(progressHideTimeout);
       progressHideTimeout = null;
     }
     progressWrap.classList.remove('completed');
+    progressBar.style.width = '0%';
+    progressPercent.textContent = '0%';
     progressLabel.innerHTML = `
       <svg class="paint-brush-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <path d="m14 11 4.5-4.5a2.12 2.12 0 1 0-3-3L11 8" />
         <path d="M12.5 12.5 9 16c-1.5 1.5-2.5 2-4 2 0-1.5.5-2.5 2-4l3.5-3.5" />
         <path d="M4 20h2" />
       </svg>
-      <span class="painting-text">Painting</span><span class="paint-dots"><span style="--d:0">.</span><span style="--d:1">.</span><span style="--d:2">.</span><span style="--d:3">.</span><span style="--d:4">.</span></span>
+      <span class="painting-text">${label}</span><span class="paint-dots"><span style="--d:0">.</span><span style="--d:1">.</span><span style="--d:2">.</span><span style="--d:3">.</span><span style="--d:4">.</span></span>
     `;
   }
 
-  function updateProgress(pct) {
-    if (progressWrap.classList.contains('completed')) return;
+  function updateProgress(pct, label) {
+    if (progressHideTimeout) {
+      clearTimeout(progressHideTimeout);
+      progressHideTimeout = null;
+    }
+    progressWrap.classList.remove('completed');
     progressWrap.classList.add('active');
+
+    if (label) {
+      const textSpan = progressLabel.querySelector('.painting-text');
+      if (textSpan) {
+        textSpan.textContent = label;
+      } else {
+        resetPaintingProgress(label);
+      }
+    } else if (!progressLabel.querySelector('.painting-text')) {
+      resetPaintingProgress('Painting');
+    }
+
     const safePct = Math.min(100, Math.max(0, typeof pct === 'number' ? pct : 0));
     progressBar.style.width = safePct + '%';
     progressPercent.textContent = safePct + '%';
@@ -2434,7 +2452,8 @@
 
     setStatus('Headless browser analyzing...', 'info');
     showToast(`🌐 Headless browser capturing ${domainName}...`, 'info', 4500);
-    updateProgress(20);
+    resetPaintingProgress('Capturing');
+    updateProgress(20, 'Capturing');
 
     try {
       let serverEndpoint = CAPTURE_SERVER_URL + '/api/capture';
@@ -2457,13 +2476,13 @@
         });
       }
 
-      updateProgress(65);
+      updateProgress(65, 'Analyzing');
       const data = await res.json();
       if (!res.ok || !data.success || !data.payload) {
         throw new Error(data.error || 'Capture server failed to render page');
       }
 
-      updateProgress(90);
+      updateProgress(90, 'Preparing');
       showToast('✅ Webpage rendered into HyperNodes!', 'success', 2500);
       showPayloadCard(data.payload, JSON.stringify(data.payload).length);
       executeImport();
@@ -2747,7 +2766,7 @@
       if (pasteInput) pasteInput.disabled = false;
       toggleLicensePanel(true);
     } else if (msg.type === 'progress') {
-      updateProgress(msg.percent);
+      updateProgress(msg.percent, msg.label || 'Painting');
     } else if (msg.type === 'complete') {
       isImporting = false;
       finishPaintingProgress();
