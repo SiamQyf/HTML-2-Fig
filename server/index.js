@@ -3,6 +3,7 @@ const cors = require('cors');
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -175,6 +176,17 @@ app.post('/api/capture', async (req, res) => {
       }
     });
 
+    // Inject capture engine ahead-of-time before DOM begins building
+    if (captureScript) {
+      await page.evaluateOnNewDocument(captureScript);
+    } else {
+      await page.evaluateOnNewDocument(() => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/gh/SiamQyf/HTML-2-Fig@Final/packages/chrome-extension/capture.js';
+        document.documentElement.appendChild(s);
+      });
+    }
+
     console.log(`[Capture] Navigating to ${targetUrl}...`);
     try {
       await page.goto(targetUrl, {
@@ -194,14 +206,16 @@ app.post('/api/capture', async (req, res) => {
       await page.waitForFunction(() => document.readyState === 'complete', { timeout: 1500 });
     } catch (_) {}
 
-    // Inject capture engine
-    console.log('[Capture] Injecting capture script...');
-    if (captureScript) {
-      await page.evaluate(captureScript);
-    } else {
-      await page.addScriptTag({
-        url: 'https://cdn.jsdelivr.net/gh/SiamQyf/HTML-2-Fig@Final/packages/chrome-extension/capture.js'
-      });
+    // Fallback script injection if evaluateOnNewDocument missed (e.g. cached page)
+    const engineReady = await page.evaluate(() => typeof window.html2Fig !== 'undefined' && typeof window.html2Fig.captureRaw === 'function').catch(() => false);
+    if (!engineReady) {
+      if (captureScript) {
+        await page.evaluate(captureScript);
+      } else {
+        await page.addScriptTag({
+          url: 'https://cdn.jsdelivr.net/gh/SiamQyf/HTML-2-Fig@Final/packages/chrome-extension/capture.js'
+        });
+      }
     }
 
     console.log('[Capture] Extracting HyperNodes...');
@@ -213,6 +227,17 @@ app.post('/api/capture', async (req, res) => {
     });
 
     console.log(`[Capture] Successfully captured ${targetUrl}`);
+
+    // Gzip compressed response for ultra-fast network transfer (5MB -> ~400KB)
+    const jsonStr = JSON.stringify({ success: true, payload });
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+    if (acceptEncoding.includes('gzip')) {
+      const gzipped = zlib.gzipSync(Buffer.from(jsonStr));
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Encoding', 'gzip');
+      return res.send(gzipped);
+    }
+
     return res.json({ success: true, payload });
   } catch (err) {
     console.error(`[Capture Error] ${targetUrl}:`, err.message);
