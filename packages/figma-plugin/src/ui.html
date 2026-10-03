@@ -100,7 +100,7 @@
   .header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     padding: 0 0 2px 0;
     user-select: none;
   }
@@ -1620,19 +1620,6 @@
 <div class="app-shell" id="appShell">
   <!-- Top Utility Bar -->
   <header class="header">
-    <button class="ext-link-badge" id="btnBookmarkletModal" type="button" title="Get 1-Click Web Capture Bookmarklet (No Extension Required)">
-      <svg class="ext-chrome-icon" viewBox="0 0 24 24" width="13" height="13" fill="none">
-        <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="url(#extChromeGrad)" stroke="#38bdf8" stroke-width="1.2" stroke-linejoin="round"/>
-        <defs>
-          <linearGradient id="extChromeGrad" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#38bdf8"/>
-            <stop offset="0.5" stop-color="#a855f7"/>
-            <stop offset="1" stop-color="#ec4899"/>
-          </linearGradient>
-        </defs>
-      </svg>
-      <span>⚡ 1-Click Bookmarklet</span>
-    </button>
     <div class="header-actions">
       <button class="badge-tag" id="btnLicenseBadge" type="button" title="Upgrade to Lifetime PRO">
         <svg class="pro-sparkle-icon" viewBox="0 0 24 24" width="13" height="13" fill="none">
