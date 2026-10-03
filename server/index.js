@@ -124,11 +124,36 @@ app.post('/api/capture', async (req, res) => {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
     );
 
-    console.log(`[Capture] Navigating to ${targetUrl}...`);
-    await page.goto(targetUrl, {
-      waitUntil: 'networkidle2',
-      timeout: 35000
+    // Abort media (video/audio streams) to prevent timeouts and conserve bandwidth
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      const type = req.resourceType();
+      if (type === 'media') {
+        req.abort();
+      } else {
+        req.continue();
+      }
     });
+
+    console.log(`[Capture] Navigating to ${targetUrl}...`);
+    try {
+      await page.goto(targetUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 25000
+      });
+    } catch (navErr) {
+      console.warn(`[Capture] Navigation notice: ${navErr.message}`);
+      const hasBody = await page.evaluate(() => !!document.body).catch(() => false);
+      if (!hasBody) {
+        throw navErr;
+      }
+    }
+
+    // Wait a brief moment for dynamic fonts and layouts to settle
+    try {
+      await page.waitForFunction(() => document.readyState === 'complete', { timeout: 3000 });
+    } catch (_) {}
+    await new Promise((r) => setTimeout(r, 600));
 
     // Inject capture engine
     console.log('[Capture] Injecting capture script...');
@@ -140,8 +165,8 @@ app.post('/api/capture', async (req, res) => {
       });
     }
 
-    // Wait 400ms for dynamic fonts and layouts to settle
-    await new Promise((r) => setTimeout(r, 400));
+    // Wait 300ms for capture engine readiness
+    await new Promise((r) => setTimeout(r, 300));
 
     // Run DOM extraction in browser context
     console.log('[Capture] Extracting HyperNodes...');
