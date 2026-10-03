@@ -2387,7 +2387,7 @@
     updateProgress(20, 'Capturing');
 
     try {
-      let serverEndpoint = CAPTURE_SERVER_URL + '/api/capture';
+      const serverEndpoint = CAPTURE_SERVER_URL + '/api/capture';
       console.log('[HTML-2-Fig] Fetching from cloud server:', serverEndpoint, url);
       let res;
       try {
@@ -2396,15 +2396,21 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: url, width: 1440, height: 900 })
         });
-      } catch (cloudErr) {
-        console.warn('[HTML-2-Fig] Cloud server fetch error:', cloudErr);
-        // Fallback to local server if running locally on developer's machine
-        serverEndpoint = 'http://localhost:3000/api/capture';
-        res = await fetch(serverEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: url, width: 1440, height: 900 })
-        });
+      } catch (firstErr) {
+        console.warn('[HTML-2-Fig] Initial cloud fetch error:', firstErr);
+        // If server was sleeping or cold-starting, inform user and retry once
+        setStatus('Waking up server, kindly wait...', 'info');
+        showToast('⏳ Waking up render server, retrying in 2s...', 'info', 3000);
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          res = await fetch(serverEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url, width: 1440, height: 900 })
+          });
+        } catch (retryErr) {
+          throw new Error('Capture server connection error: ' + (retryErr.message || firstErr.message || 'Server waking up. Please retry.'));
+        }
       }
 
       updateProgress(65, 'Analyzing');
