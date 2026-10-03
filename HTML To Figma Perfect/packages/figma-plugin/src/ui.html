@@ -987,6 +987,46 @@
     color: #cbd5e1;
   }
 
+  /* ---------------- SIMPLE UNDERLINE URL INPUT ---------------- */
+  .url-underline-wrap {
+    position: relative;
+    z-index: 25;
+    width: 82%;
+    max-width: 270px;
+    margin: 8px auto 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .url-underline-input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-bottom: 1.5px solid rgba(255, 255, 255, 0.22);
+    color: #f8fafc;
+    font-size: 11.5px;
+    font-family: inherit;
+    font-weight: 500;
+    text-align: center;
+    padding: 6px 4px;
+    outline: none;
+    border-radius: 0;
+    transition: all 0.22s ease;
+  }
+  .url-underline-input::placeholder {
+    color: rgba(148, 163, 184, 0.55);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.2px;
+  }
+  .url-underline-input:hover {
+    border-bottom-color: rgba(255, 255, 255, 0.45);
+  }
+  .url-underline-input:focus {
+    border-bottom-color: #38bdf8;
+    box-shadow: 0 1px 0 #38bdf8, 0 6px 14px -4px rgba(56, 189, 248, 0.35);
+  }
+
   /* Focusable invisible paste textarea covering drop zone */
   .paste-listener-input {
     position: absolute;
@@ -1770,6 +1810,16 @@
       <span class="press-here-title">Click here and</span>
     </div>
     <div class="drop-subtitle" id="dropSubtitle">Press <span class="kbd-pill">Ctrl+V</span> / <span class="kbd-pill">⌘V</span> to paint on canvas</div>
+    <div class="url-underline-wrap" onclick="event.stopPropagation();" onpointerdown="event.stopPropagation();" onmousedown="event.stopPropagation();">
+      <input 
+        type="text" 
+        id="underlineUrlInput" 
+        class="url-underline-input" 
+        placeholder="enter website url here" 
+        autocomplete="off" 
+        spellcheck="false" 
+      />
+    </div>
   </div>
 
   <!-- Bookmarklet Quick Hint (No Extension Required) -->
@@ -1974,6 +2024,8 @@
     }
     currentPayloadData = null;
     if (pasteInput) pasteInput.value = '';
+    const underlineUrlInput = document.getElementById('underlineUrlInput');
+    if (underlineUrlInput) underlineUrlInput.value = '';
     payloadCard.classList.remove('active');
     dropZone.style.display = 'flex';
     const dropSubtitle = document.getElementById('dropSubtitle');
@@ -2418,6 +2470,30 @@
         dropSubtitle.innerHTML = 'Press <span class="kbd-pill">Ctrl+V</span> / <span class="kbd-pill">⌘V</span> to paint on canvas';
       }
     }
+  }
+
+  // Underline URL Input listeners
+  const underlineUrlInput = document.getElementById('underlineUrlInput');
+  if (underlineUrlInput) {
+    underlineUrlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const val = underlineUrlInput.value.trim();
+        if (val) {
+          underlineUrlInput.blur();
+          fetchFromUrl(val);
+        }
+      }
+    });
+    underlineUrlInput.addEventListener('paste', (e) => {
+      setTimeout(() => {
+        const val = underlineUrlInput.value.trim();
+        if (val && (/^https?:\/\//i.test(val) || /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}(\/.*)?$/i.test(val))) {
+          underlineUrlInput.blur();
+          fetchFromUrl(val);
+        }
+      }, 40);
+    });
   }
 
   /* ---------------- 1-CLICK BOOKMARKLET LOGIC ---------------- */
