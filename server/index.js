@@ -160,11 +160,15 @@ app.post('/api/capture', async (req, res) => {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
     );
 
-    // Abort media to save CPU/bandwidth
+    // Abort media & tracking/analytics to maximize speed & save CPU
     await page.setRequestInterception(true);
     page.on('request', (req) => {
       const type = req.resourceType();
-      if (type === 'media') {
+      const reqUrl = req.url();
+      if (
+        type === 'media' ||
+        /googletagmanager|google-analytics|doubleclick|facebook\.net|hotjar|segment\.io|sentry\.io|clarity\.ms/i.test(reqUrl)
+      ) {
         req.abort();
       } else {
         req.continue();
@@ -175,7 +179,7 @@ app.post('/api/capture', async (req, res) => {
     try {
       await page.goto(targetUrl, {
         waitUntil: 'domcontentloaded',
-        timeout: 20000
+        timeout: 18000
       });
     } catch (navErr) {
       console.warn(`[Capture] Navigation notice: ${navErr.message}`);
@@ -187,9 +191,8 @@ app.post('/api/capture', async (req, res) => {
 
     // Wait a brief moment for dynamic layout
     try {
-      await page.waitForFunction(() => document.readyState === 'complete', { timeout: 2500 });
+      await page.waitForFunction(() => document.readyState === 'complete', { timeout: 1500 });
     } catch (_) {}
-    await new Promise((r) => setTimeout(r, 400));
 
     // Inject capture engine
     console.log('[Capture] Injecting capture script...');
@@ -200,8 +203,6 @@ app.post('/api/capture', async (req, res) => {
         url: 'https://cdn.jsdelivr.net/gh/SiamQyf/HTML-2-Fig@Final/packages/chrome-extension/capture.js'
       });
     }
-
-    await new Promise((r) => setTimeout(r, 200));
 
     console.log('[Capture] Extracting HyperNodes...');
     const payload = await page.evaluate(async () => {
