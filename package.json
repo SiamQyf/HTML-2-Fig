@@ -12,6 +12,7 @@
     "test": "npm run test --workspaces --if-present",
     "protect:ext": "node scripts/protect_extension.js",
     "build:webstore": "node scripts/package_webstore.js",
+    "postinstall": "npx puppeteer browsers install chrome",
     "start": "node server/index.js"
   },
   "keywords": [

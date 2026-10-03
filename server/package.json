@@ -4,6 +4,7 @@
   "description": "Free headless browser capture microservice for HTML-to-Figma",
   "main": "index.js",
   "scripts": {
+    "postinstall": "npx puppeteer browsers install chrome",
     "start": "node index.js"
   },
   "dependencies": {
