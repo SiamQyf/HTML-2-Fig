@@ -1809,7 +1809,7 @@
     <div class="drop-title">
       <span class="press-here-title">Click here and</span>
     </div>
-    <div class="drop-subtitle" id="dropSubtitle">Press <span class="kbd-pill">Ctrl+V</span> / <span class="kbd-pill">⌘V</span> to paint on canvas</div>
+    <div class="drop-subtitle" id="dropSubtitle" style="display: none;"></div>
     <div class="url-underline-wrap" onclick="event.stopPropagation();" onpointerdown="event.stopPropagation();" onmousedown="event.stopPropagation();">
       <input 
         type="text" 
@@ -1820,12 +1820,6 @@
         spellcheck="false" 
       />
     </div>
-  </div>
-
-  <!-- Bookmarklet Quick Hint (No Extension Required) -->
-  <div class="bookmarklet-quick-hint" id="openBookmarkletHint">
-    <span class="hint-zap">⚡</span>
-    <span>No extension installed? <span class="hint-link">Get 1-Click Bookmarklet ↗</span></span>
   </div>
 
   <!-- Toast Notification Container -->
@@ -2030,7 +2024,8 @@
     dropZone.style.display = 'flex';
     const dropSubtitle = document.getElementById('dropSubtitle');
     if (dropSubtitle) {
-      dropSubtitle.innerHTML = 'Press <span class="kbd-pill">Ctrl+V</span> / <span class="kbd-pill">⌘V</span> to paint on canvas';
+      dropSubtitle.innerHTML = '';
+      dropSubtitle.style.display = 'none';
     }
     if (btnImport) {
       if (!isPro && freeExportsUsed >= MAX_FREE_EXPORTS) {
@@ -2212,7 +2207,7 @@
       // Focus is locked onto pasteInput! Guide user gracefully without any error toast:
       const dropSubtitle = document.getElementById('dropSubtitle');
       if (dropSubtitle) {
-        dropSubtitle.innerHTML = '<span class="paste-pulse-text">Press <span class="kbd-pill">Ctrl+V</span> / <span class="kbd-pill">⌘V</span> to paint on canvas</span>';
+        dropSubtitle.style.display = 'none';
       }
       setStatus('Ready — press Ctrl+V / ⌘V to start painting', 'info');
     } finally {
@@ -2424,6 +2419,7 @@
     const dropSubtitle = document.getElementById('dropSubtitle');
     const domainName = url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
     if (dropSubtitle) {
+      dropSubtitle.style.display = 'block';
       dropSubtitle.innerHTML = `<span style="color:#38bdf8; font-weight:600;">🌐 Capturing ${domainName}...</span>`;
     }
 
@@ -2467,7 +2463,8 @@
       setStatus('Capture failed', 'error');
       showToast('❌ ' + (err.message || 'Capture failed'), 'error', 7000);
       if (dropSubtitle) {
-        dropSubtitle.innerHTML = 'Press <span class="kbd-pill">Ctrl+V</span> / <span class="kbd-pill">⌘V</span> to paint on canvas';
+        dropSubtitle.innerHTML = '';
+        dropSubtitle.style.display = 'none';
       }
     }
   }
