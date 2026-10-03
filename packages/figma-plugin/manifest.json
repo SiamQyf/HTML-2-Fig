@@ -13,8 +13,15 @@
       "https://api.gumroad.com",
       "https://www.googleapis.com",
       "https://oauth2.googleapis.com",
-      "https://accounts.google.com"
+      "https://accounts.google.com",
+      "https://*.onrender.com",
+      "https://html-2-fig.onrender.com",
+      "https://cdn.jsdelivr.net",
+      "http://localhost:3000"
     ],
-    "reasoning": "Verify customer Gumroad license keys and connect to Google Drive for Assets Diary."
+    "devAllowedDomains": [
+      "http://localhost:3000"
+    ],
+    "reasoning": "Verify customer Gumroad license keys, connect to headless capture server, and load assets."
   }
 }
