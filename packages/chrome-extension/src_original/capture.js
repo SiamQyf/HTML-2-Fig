@@ -211,10 +211,16 @@
           100% { transform: scale(1.05); opacity: 0.62; }
         }
 
-        /* 4. Smartphone Dynamic Island / Notification Pill */
-        .notification-pill {
+        /* 4. Smartphone Dynamic Island / Notification Pill Container */
+        .notification-container {
           position: fixed; top: 22px; left: 50%;
           transform: translateX(-50%);
+          display: flex; align-items: center; gap: 4px;
+          z-index: 2147483647; pointer-events: auto;
+          transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .notification-pill {
           background: rgba(13, 15, 24, 0.92);
           backdrop-filter: blur(24px) saturate(180%);
           -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -225,9 +231,9 @@
           border: 1.5px solid rgba(0, 242, 254, 0.4);
           box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 20px rgba(0, 242, 254, 0.25);
           display: flex; align-items: center; gap: 10px;
-          z-index: 2147483647; pointer-events: auto;
           cursor: ${onClick ? 'pointer' : 'default'};
           transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+          white-space: nowrap;
         }
         .notification-pill.compact {
           padding: 10px 18px;
@@ -247,6 +253,50 @@
           50% { opacity: 0.35; transform: scale(0.75); }
         }
 
+        /* 5. Companion Figma Link Pill (4px gap after notification pill) */
+        .figma-link-pill {
+          display: none;
+          align-items: center;
+          gap: 6px;
+          background: rgba(13, 15, 24, 0.92);
+          backdrop-filter: blur(24px) saturate(180%);
+          -webkit-backdrop-filter: blur(24px) saturate(180%);
+          color: #f8fafc;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          font-size: 13px;
+          font-weight: 500;
+          padding: 10px 16px;
+          border-radius: 999px;
+          border: 1.5px solid rgba(0, 242, 254, 0.4);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 20px rgba(0, 242, 254, 0.25);
+          text-decoration: none;
+          cursor: pointer;
+          white-space: nowrap;
+          user-select: none;
+          transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .figma-link-pill.visible {
+          display: flex;
+        }
+        .figma-link-pill:hover {
+          background: rgba(26, 32, 52, 0.96);
+          border-color: #38bdf8;
+          color: #ffffff;
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75), 0 0 22px rgba(56, 189, 248, 0.45);
+          transform: translateY(-1px);
+        }
+        .figma-link-pill:active {
+          transform: translateY(0);
+        }
+        .figma-link-arrow {
+          opacity: 0.75;
+          transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+        .figma-link-pill:hover .figma-link-arrow {
+          opacity: 1;
+          transform: translate(1px, -1px);
+        }
+
         /* Success & Error State Enhancements */
         .h2f-edge-wrapper.success .halo-ambient-glow {
           box-shadow:
@@ -262,6 +312,10 @@
         .h2f-edge-wrapper.success .notification-pill {
           border-color: rgba(52, 211, 153, 0.6);
           box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 25px rgba(52, 211, 153, 0.45);
+        }
+        .h2f-edge-wrapper.success .figma-link-pill {
+          border-color: rgba(52, 211, 153, 0.55);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 20px rgba(52, 211, 153, 0.35);
         }
         .h2f-edge-wrapper.success .pill-dot {
           background: #34d399; box-shadow: 0 0 10px #34d399;
@@ -300,19 +354,45 @@
         <div class="corner-radiance bottom-right"></div>
         <div class="corner-radiance bottom-left"></div>
 
-        <div class="notification-pill ${message ? '' : 'compact'}" id="notificationPill">
-          <div class="pill-dot"></div>
-          <span class="pill-text" id="pillText">${message || ''}</span>
+        <div class="notification-container" id="notificationContainer">
+          <div class="notification-pill ${message ? '' : 'compact'}" id="notificationPill">
+            <div class="pill-dot"></div>
+            <span class="pill-text" id="pillText">${message || ''}</span>
+          </div>
+          <a href="https://www.figma.com" target="_blank" rel="noopener noreferrer" class="figma-link-pill ${message ? 'visible' : ''}" id="figmaLinkPill" title="Open Figma">
+            <svg viewBox="0 0 38 57" width="10" height="15" fill="none" style="flex-shrink:0; display:block;">
+              <path d="M19 28.5C19 23.2533 23.2533 19 28.5 19C33.7467 19 38 23.2533 38 28.5C38 33.7467 33.7467 38 28.5 38C23.2533 38 19 33.7467 19 28.5Z" fill="#1ABCFE"/>
+              <path d="M0 47.5C0 42.2533 4.25329 38 9.5 38H19V47.5C19 52.7467 14.7467 57 9.5 57C4.25329 57 0 52.7467 0 47.5Z" fill="#0ACF83"/>
+              <path d="M19 0V19H28.5C33.7467 19 38 14.7467 38 9.5C38 4.25329 33.7467 0 28.5 0H19Z" fill="#FF7262"/>
+              <path d="M0 9.5C0 14.7467 4.25329 19 9.5 19H19V0H9.5C4.25329 0 0 4.25329 0 9.5Z" fill="#F24E1E"/>
+              <path d="M0 28.5C0 33.7467 4.25329 38 9.5 38H19V19H9.5C4.25329 19 0 23.2533 0 28.5Z" fill="#A259FF"/>
+            </svg>
+            <span class="figma-link-text">Figma</span>
+            <svg class="figma-link-arrow" viewBox="0 0 24 24" width="10.5" height="10.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="7" y1="17" x2="17" y2="7"></line>
+              <polyline points="7 7 17 7 17 17"></polyline>
+            </svg>
+          </a>
         </div>
       </div>
     `;
 
     const wrapper = root.getElementById('edgeWrapper');
+    const container = root.getElementById('notificationContainer');
     const pill = root.getElementById('notificationPill');
     const pillText = root.getElementById('pillText');
+    const figmaPill = root.getElementById('figmaLinkPill');
 
     if (onClick && pill) {
       pill.addEventListener('click', () => onClick(pill));
+    }
+
+    if (figmaPill) {
+      figmaPill.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        window.open('https://www.figma.com', '_blank');
+      });
     }
 
     document.documentElement.appendChild(host);
@@ -324,8 +404,10 @@
     const controller = {
       host,
       wrapper,
+      container,
       pill,
       pillText,
+      figmaPill,
       update(text) {
         if (pillText) pillText.textContent = text || '';
         if (pill) {
@@ -338,6 +420,11 @@
         if (pill) {
           if (text) pill.classList.remove('compact');
           else pill.classList.add('compact');
+        }
+        if (success && figmaPill) {
+          figmaPill.classList.add('visible');
+        } else if (figmaPill) {
+          figmaPill.classList.remove('visible');
         }
         if (wrapper) {
           wrapper.classList.remove('success', 'error');
@@ -2292,6 +2379,33 @@
     styles.borderLeftColor = convertColors(cs.borderLeftColor);
     styles.borderRightColor = convertColors(cs.borderRightColor);
 
+    if (el instanceof HTMLInputElement || el.tagName === 'INPUT') {
+      const inputType = (el.getAttribute('type') || el.type || '').toLowerCase();
+      if (inputType === 'checkbox' || inputType === 'radio') {
+        if (!styles.backgroundColor || styles.backgroundColor === 'transparent' || styles.backgroundColor === 'rgba(0, 0, 0, 0)') {
+          styles.backgroundColor = (el.checked && inputType === 'checkbox' && !styles.accentColor) ? '#0d6efd' : '#ffffff';
+        }
+        const hasBorder = styles.borderTopStyle && styles.borderTopStyle !== 'none' && parseFloat(styles.borderTopWidth) > 0;
+        if (!hasBorder) {
+          styles.borderTopStyle = 'solid';
+          styles.borderBottomStyle = 'solid';
+          styles.borderLeftStyle = 'solid';
+          styles.borderRightStyle = 'solid';
+          styles.borderTopWidth = '1px';
+          styles.borderBottomWidth = '1px';
+          styles.borderLeftWidth = '1px';
+          styles.borderRightWidth = '1px';
+          styles.borderTopColor = 'rgb(118, 118, 118)';
+          styles.borderBottomColor = 'rgb(118, 118, 118)';
+          styles.borderLeftColor = 'rgb(118, 118, 118)';
+          styles.borderRightColor = 'rgb(118, 118, 118)';
+        }
+        if (!styles.borderRadius || styles.borderRadius === '0px' || parseFloat(styles.borderRadius) === 0) {
+          styles.borderRadius = inputType === 'radio' ? '50%' : '3px';
+        }
+      }
+    }
+
     return styles;
   }
 
@@ -2310,6 +2424,7 @@
       if (el.src) attrs.src = el.src;
     }
     if (el instanceof HTMLInputElement) {
+      if (el.type) attrs.type = el.type;
       if ((el.type === 'checkbox' || el.type === 'radio') && el.checked) {
         attrs.checked = 'true';
       }
@@ -4226,8 +4341,26 @@
         } else {
           const isCenteredText = parentCs.textAlign === 'center' || cs.textAlign === 'center';
           const isIconContainer = isIconPseudo || (parentRect.width > 0 && parentRect.width <= 64 && Math.abs(parentRect.width - parentRect.height) <= 6);
-          
-          if (pseudo === '::before') {
+          const isFloatRight = cs.float === 'right' || cs.cssFloat === 'right';
+          const isFloatLeft = cs.float === 'left' || cs.cssFloat === 'left';
+
+          if (isFloatRight) {
+            pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0) - (parseFloat(cs.marginRight) || 0);
+            const parentLineH = parseFloat(parentCs.lineHeight);
+            if (!isNaN(parentLineH) && parentLineH >= pseudoRect.height) {
+              pseudoRect.y = parentRect.y + (parentLineH - pseudoRect.height) / 2;
+            } else {
+              pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
+            }
+          } else if (isFloatLeft) {
+            pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0) + (parseFloat(cs.marginLeft) || 0);
+            const parentLineH = parseFloat(parentCs.lineHeight);
+            if (!isNaN(parentLineH) && parentLineH >= pseudoRect.height) {
+              pseudoRect.y = parentRect.y + (parentLineH - pseudoRect.height) / 2;
+            } else {
+              pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
+            }
+          } else if (pseudo === '::before') {
             if (isCenteredText || (isIconContainer && !el.childNodes?.length)) {
               pseudoRect.x = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
             } else {
@@ -4243,7 +4376,7 @@
               pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
             }
           } else if (pseudo === '::after') {
-            const isWideOverlay = (pseudoRect.width >= parentRect.width * 0.4) || cs.display === 'block';
+            const isWideOverlay = (pseudoRect.width >= parentRect.width * 0.4) || (cs.display === 'block' && !isIconPseudo && (!text || text.length === 0));
             if (isWideOverlay) {
               pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0) + (parseFloat(cs.marginLeft) || 0);
               if (cs.position === 'static') {
@@ -4278,6 +4411,23 @@
               pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
             }
           }
+        }
+      }
+
+      if (cs.position === 'relative') {
+        const relTop = parseFloat(cs.top);
+        const relBottom = parseFloat(cs.bottom);
+        const relLeft = parseFloat(cs.left);
+        const relRight = parseFloat(cs.right);
+        if (!isNaN(relLeft) && cs.left !== 'auto') {
+          pseudoRect.x += relLeft;
+        } else if (!isNaN(relRight) && cs.right !== 'auto') {
+          pseudoRect.x -= relRight;
+        }
+        if (!isNaN(relTop) && cs.top !== 'auto') {
+          pseudoRect.y += relTop;
+        } else if (!isNaN(relBottom) && cs.bottom !== 'auto') {
+          pseudoRect.y -= relBottom;
         }
       }
 
@@ -6702,7 +6852,7 @@
 
       const ok = await writeClipboard(json);
 
-      const completionMsg = 'HyperNodes captured, Open our Figma plugin and paste (Ctrl/ Cmd + V)';
+      const completionMsg = 'Open our Figma plugin and paste (Ctrl/ Cmd + V)';
       if (ok) {
         if (halo) {
           halo.finish(true, completionMsg, 6000);

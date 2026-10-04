@@ -72,6 +72,9 @@ To inspect DOM structures, computed styles, fonts, and assets of active web page
 * **`scripting`**:
   > "Used to inject the capture engine, font decoders, and canvas WebGL buffer hooks into the target page to serialize styling and layout."
 
+* **`tabs`**:
+  > "Used to query the active tab's metadata (URL, page title, window dimensions) during capture."
+
 * **`clipboardWrite`**:
   > "Required to copy the serialized Figma HyperNodes data to the user's system clipboard so they can paste directly into the Figma canvas plugin."
 

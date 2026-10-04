@@ -1,14 +1,20 @@
 /**
- * Safe Obfuscation & Protection Script for HTML-to-Fig Chrome Extension
- * 
- * Transforms all letters/identifiers into hexadecimal cipher tokens and encodes
- * strings with base64 + index shifting, without breaking Chrome Extension Manifest V3.
+ * CWS-Compliant Minification Script for HTML-to-Fig Chrome Extension
+ *
+ * Uses Terser (minification only) — fully compliant with Chrome Web Store policies.
+ * NO obfuscation: no string arrays, no identifier renaming beyond natural bundler output,
+ * no control flow flattening, no dead code injection.
+ *
+ * What this does (all CWS-allowed):
+ *   - Removes whitespace and comments
+ *   - Shortens local variable names (mangle)
+ *   - Removes dead/unreachable code
+ *   - Compresses expressions (e.g. `true` → `!0`, `false` → `!1`)
  */
 
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
-const JavaScriptObfuscator = require('javascript-obfuscator');
+const { minify } = require('terser');
 
 const rootDir = path.resolve(__dirname, '..');
 const extDir = path.join(rootDir, 'packages/chrome-extension');
@@ -62,105 +68,84 @@ const LEGAL_HEADER = `/* =======================================================
  * DMCA (17 U.S.C. § 1201), COMPUTER FRAUD AND ABUSE (CFAA), AND TRADE SECRET LAWS.
  * ============================================================================ */\n`;
 
-// Obfuscator options designed to NEVER break Chrome Manifest V3:
-// - selfDefending: false (prevents extension lockups & call-stack overflows)
-// - renameGlobals: false (preserves window, document, chrome, etc.)
-// - reservedNames / reservedStrings (protects critical APIs and messages)
-const OBFUSCATOR_OPTIONS = {
-  compact: true,
-  target: 'browser',
-  controlFlowFlattening: false,
-  deadCodeInjection: false,
-  identifierNamesGenerator: 'hexadecimal',
-  identifiersPrefix: 'h2f',
-  renameGlobals: false,
-  selfDefending: false,
-  debugProtection: false,
-  simplify: true,
-  splitStrings: true,
-  splitStringsChunkLength: 10,
-  stringArray: true,
-  stringArrayThreshold: 0.8,
-  stringArrayEncoding: ['base64'],
-  stringArrayRotate: true,
-  stringArrayIndexShift: true,
-  stringArrayShuffle: true,
-  transformObjectKeys: false,
-  unicodeEscapeSequence: false,
-  reservedNames: [
-    'html2Fig',
-    'startCapture',
-    'captureRaw',
-    '__html2FigRunning',
-    '__html2FigViewportScreenshot',
-    '__e2fFrameRefs',
-    '__e2fResponder',
-    'woff2',
-    'opentype',
-    'potrace'
-  ],
-  reservedStrings: [
-    'html2Fig',
-    'startCapture',
-    'captureRaw',
-    'START_CAPTURE'
-  ]
+// Terser options — minification only, fully CWS-compliant.
+// No string encoding, no identifier hex-renaming, no control flow changes.
+const TERSER_OPTIONS = {
+  compress: {
+    drop_console: false,   // keep console.log (used by capture engine)
+    drop_debugger: true,   // remove any stray debugger statements
+    dead_code: true,       // remove unreachable code
+    passes: 2,             // two passes for better compression
+  },
+  mangle: {
+    // Shorten local variable names — standard bundler output, NOT obfuscation.
+    reserved: [
+      'html2Fig', 'startCapture', 'captureRaw',
+      '__html2FigRunning', '__html2FigViewportScreenshot',
+      '__e2fFrameRefs', '__e2fResponder',
+      'woff2', 'opentype', 'potrace',
+      'chrome', 'window', 'document', 'navigator',
+    ],
+  },
+  format: {
+    comments: false,   // strip all inline comments
+    beautify: false,   // keep output compact
+  },
+  sourceMap: false,
 };
 
 async function protect() {
-  console.log('🛡️  Starting Safe Extension Obfuscation & Protection...\n');
+  console.log('✅  Starting CWS-Compliant Minification (No Obfuscation)...\n');
 
-  // Files to protect:
-  // capture.js is the core proprietary engine (301 KB)
+  // capture.js is the core proprietary engine
   // inject_preserve_buffer.js is the WebGL hook
-  const filesToObfuscate = ['capture.js', 'inject_preserve_buffer.js'];
+  const filesToMinify = ['capture.js', 'inject_preserve_buffer.js'];
 
-  for (const filename of filesToObfuscate) {
+  for (const filename of filesToMinify) {
     const srcPath = path.join(extDir, filename);
     const backupPath = path.join(backupDir, filename);
 
     if (!fs.existsSync(srcPath)) {
-      console.warn(`File not found: ${srcPath}`);
+      console.warn(`⚠️  File not found: ${srcPath}`);
       continue;
     }
 
-    // 1. Back up original if not already backed up
+    // Back up original if not already backed up
     if (!fs.existsSync(backupPath)) {
       fs.copyFileSync(srcPath, backupPath);
-      console.log(`📁 Backed up original readable source: src_original/${filename}`);
+      console.log(`📁 Backed up original: src_original/${filename}`);
     }
 
     // Always read from original backup to avoid multi-pass compounding
     const rawCode = fs.readFileSync(backupPath, 'utf8');
-    console.log(`🔒 Obfuscating ${filename} (${(rawCode.length / 1024).toFixed(1)} KB)...`);
+    console.log(`🔧 Minifying ${filename} (${(rawCode.length / 1024).toFixed(1)} KB)...`);
 
     const t0 = Date.now();
-    const result = JavaScriptObfuscator.obfuscate(rawCode, OBFUSCATOR_OPTIONS);
-    const obfuscated = LEGAL_HEADER + result.getObfuscatedCode();
-    const duration = ((Date.now() - t0) / 1000).toFixed(2);
-
-    // 2. Validate syntax using Node VM
+    let result;
     try {
-      new vm.Script(obfuscated);
-      console.log(`   ✓ Syntax validation passed (0 errors)`);
-    } catch (syntaxErr) {
-      console.error(`   ❌ Syntax validation failed for ${filename}:`, syntaxErr);
+      result = await minify(rawCode, TERSER_OPTIONS);
+    } catch (err) {
+      console.error(`   ❌ Minification failed for ${filename}:`, err.message);
       process.exit(1);
     }
 
-    // 3. Write to packages/chrome-extension
-    fs.writeFileSync(srcPath, obfuscated, 'utf8');
-    console.log(`   ✓ Saved protected ${filename} in ${duration}s (${(obfuscated.length / 1024).toFixed(1)} KB)`);
+    const minified = LEGAL_HEADER + result.code;
+    const duration = ((Date.now() - t0) / 1000).toFixed(2);
+    const ratio = ((1 - minified.length / rawCode.length) * 100).toFixed(1);
 
-    // 4. Mirror to HTML To Figma Perfect
+    // Write to packages/chrome-extension
+    fs.writeFileSync(srcPath, minified, 'utf8');
+    console.log(`   ✓ Saved in ${duration}s — ${(minified.length / 1024).toFixed(1)} KB (${ratio}% smaller)`);
+
+    // Mirror to HTML To Figma Perfect
     if (fs.existsSync(mirrorDir)) {
       const mirrorPath = path.join(mirrorDir, filename);
-      fs.writeFileSync(mirrorPath, obfuscated, 'utf8');
+      fs.writeFileSync(mirrorPath, minified, 'utf8');
       console.log(`   ✓ Mirrored to HTML To Figma Perfect/packages/chrome-extension/${filename}`);
     }
   }
 
-  // Also ensure background.js, popup.js, manifest.json, .ai-rules, AI_RULES.md are mirrored
+  // Sync non-JS files
   const syncFiles = ['background.js', 'popup.js', 'manifest.json', '.ai-rules', 'AI_RULES.md'];
   for (const f of syncFiles) {
     const srcF = path.join(extDir, f);
@@ -170,14 +155,15 @@ async function protect() {
     }
   }
 
-  console.log('\n🎉 Extension successfully protected without breaking!');
-  console.log('   - Identifiers transformed into hexadecimal cipher tokens');
-  console.log('   - Strings base64 encoded & rotated');
-  console.log('   - Zero syntax errors, MV3 compatible');
-  console.log('   - Original readable source safely preserved in packages/chrome-extension/src_original/\n');
+  console.log('\n🎉 Done! Extension minified & CWS-compliant.');
+  console.log('   - Whitespace & comments stripped');
+  console.log('   - Local variables shortened (standard bundler behavior)');
+  console.log('   - Dead code removed');
+  console.log('   - NO string encoding, NO hex identifiers, NO control flow changes');
+  console.log('   - Original source preserved in packages/chrome-extension/src_original/\n');
 }
 
 protect().catch(err => {
-  console.error('Obfuscation failed:', err);
+  console.error('Minification failed:', err);
   process.exit(1);
 });

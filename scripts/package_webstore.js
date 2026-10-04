@@ -45,9 +45,6 @@ fs.copyFileSync(injectBufferSrc, path.join(storeBuildDir, 'inject_preserve_buffe
 
 const directCopies = [
   'background.js',
-  'popup.html',
-  'popup.css',
-  'popup.js',
   'manifest.json',
   'opentype.min.js',
   'potrace.min.js',
@@ -100,9 +97,10 @@ if (manifest.manifest_version !== 3) {
 // 6. Compress into .zip archive for Chrome Web Store
 console.log('\n📦 Creating Chrome Web Store .zip archive...');
 try {
-  // Use PowerShell Compress-Archive for native, dependable zip creation on Windows
-  const psCmd = `powershell -Command "Compress-Archive -Path '${storeBuildDir}/*' -DestinationPath '${zipOutputPath}' -Force"`;
-  execSync(psCmd, { stdio: 'inherit' });
+  const items = fs.readdirSync(storeBuildDir);
+  const itemsList = items.map(i => `"${i}"`).join(' ');
+  const tarCmd = `tar -a -c -f "${zipOutputPath}" -C "${storeBuildDir}" ${itemsList}`;
+  execSync(tarCmd, { stdio: 'inherit' });
   
   const zipStats = fs.statSync(zipOutputPath);
   console.log(`\n🎉 Success! Chrome Web Store package created:`);
@@ -110,6 +108,7 @@ try {
   console.log(`   📊 Size: ${(zipStats.size / (1024 * 1024)).toFixed(2)} MB (${zipStats.size} bytes)`);
   console.log(`   🚀 Ready to drag & drop into Chrome Developer Dashboard!\n`);
 } catch (zipErr) {
-  console.error('❌ Failed to create zip file:', zipErr);
-  process.exit(1);
+  console.log('   Fallback to PowerShell Compress-Archive...');
+  const psCmd = `powershell -Command "Compress-Archive -Path '${storeBuildDir}/*' -DestinationPath '${zipOutputPath}' -Force"`;
+  execSync(psCmd, { stdio: 'inherit' });
 }

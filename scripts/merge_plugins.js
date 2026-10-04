@@ -89,10 +89,10 @@ adCode = adCode.replace(
 // 3. Process packages/figma-plugin/src/code.js from pristine git commit 0256023
 let h2fCode = execSync('git show 0256023:packages/figma-plugin/src/code.js', { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
 
-// Add currentPluginView and set initial UI height to 445
+// Add currentPluginView and set initial UI height to 632
 h2fCode = h2fCode.replace(
   /figma\.showUI\(__html__,\s*\{\s*width:\s*380,\s*height:\s*380,\s*themeColors:\s*true\s*\}\);/,
-  `let currentPluginView = 'html2fig';\nfigma.showUI(__html__, { width: 380, height: 445, themeColors: true });`
+  `let currentPluginView = 'html2fig';\nfigma.showUI(__html__, { width: 380, height: 632, themeColors: true });`
 );
 
 // Update figma.ui.onmessage to handle switch_to_assets_diary, switch_to_html2fig, and delegate unhandled messages
@@ -112,7 +112,7 @@ const targetOnMessage = `figma.ui.onmessage = async (msg) => {
 
   if (msg.type === 'switch_to_html2fig') {
     currentPluginView = 'html2fig';
-    figma.showUI(__html__, { width: 380, height: 445, themeColors: true });
+    figma.showUI(__html__, { width: 380, height: 632, themeColors: true });
     checkLicenseAndUsage().then((info) => {
       figma.ui.postMessage({ type: 'license_info', ...info });
     }).catch(() => {
@@ -130,7 +130,7 @@ h2fCode = h2fCode.replace(
 
 // Update resize height fallback and delegate unhandled messages to handleAssetsDiaryMessage
 const targetEndOnMessage = `  } else if (msg.type === 'resize') {
-    figma.ui.resize(msg.width || 380, msg.height || 445);
+    figma.ui.resize(msg.width || 380, msg.height || 632);
   } else {
     try {
       await handleAssetsDiaryMessage(msg);
@@ -154,6 +154,106 @@ h2fCode = h2fCode.replace(
 h2fCode = h2fCode.replace(
   /cutAndPasteNavbarsToTop\(rootFrame\);/,
   `try { cutAndPasteNavbarsToTop(rootFrame); } catch (e) {}`
+);
+
+// Enhance checkbox & radio rendering: default visible borders, background fills, rounded corners, and checkmarks
+const oldInputRenderRegex = /if \(!isTextEntry\) \{[\s\S]*?\/\/ Non-text inputs \(checkbox, radio, etc\.\) must NEVER display their internal value \(e\.g\. "on"\) as text!/;
+
+const newInputRenderCode = `if (!isTextEntry) {
+      const isChecked = sNode.attributes?.checked === 'true' || sNode.attributes?.checked === 'checked' || sNode.attributes?.checked === true;
+      if (inputType === 'checkbox') {
+        if (!frame.strokes || frame.strokes.length === 0) {
+          frame.strokes = [{ type: 'SOLID', color: { r: 118 / 255, g: 118 / 255, b: 118 / 255 } }];
+          frame.strokeWeight = 1;
+        }
+        if (!frame.fills || frame.fills.length === 0) {
+          if (isChecked) {
+            const acc = parseColor(s.accentColor);
+            frame.fills = [{ type: 'SOLID', color: acc || { r: 0.08, g: 0.38, b: 0.89 } }];
+          } else {
+            frame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+          }
+        }
+        if (!frame.cornerRadius || frame.cornerRadius === 0) {
+          frame.cornerRadius = 3;
+        }
+        if (isChecked) {
+          try {
+            const checkIcon = figma.createVector();
+            checkIcon.name = 'checkmark';
+            checkIcon.vectorPaths = [{
+              windingRule: 'NONZERO',
+              data: 'M 3 8 L 6.5 11.5 L 13 4'
+            }];
+            const checkCol = (frame.fills && frame.fills.length > 0) ? { r: 1, g: 1, b: 1 } : (parseColor(s.color || '#ffffff') || { r: 1, g: 1, b: 1 });
+            checkIcon.strokes = [{ type: 'SOLID', color: checkCol }];
+            checkIcon.strokeWeight = 2;
+            checkIcon.strokeCap = 'ROUND';
+            checkIcon.strokeJoin = 'ROUND';
+            checkIcon.x = Math.max(0, Math.round((rectW - 14) / 2));
+            checkIcon.y = Math.max(0, Math.round((rectH - 14) / 2));
+            frame.appendChild(checkIcon);
+          } catch (_) {}
+        }
+      } else if (inputType === 'radio') {
+        if (!frame.strokes || frame.strokes.length === 0) {
+          frame.strokes = [{ type: 'SOLID', color: { r: 118 / 255, g: 118 / 255, b: 118 / 255 } }];
+          frame.strokeWeight = 1;
+        }
+        if (!frame.fills || frame.fills.length === 0) {
+          frame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+        }
+        frame.cornerRadius = 999;
+        if (isChecked) {
+          try {
+            const dot = figma.createEllipse();
+            dot.name = 'radio-dot';
+            const dotSize = Math.max(4, Math.round(Math.min(rectW, rectH) * 0.5));
+            dot.resize(dotSize, dotSize);
+            dot.x = Math.round((rectW - dotSize) / 2);
+            dot.y = Math.round((rectH - dotSize) / 2);
+            const dotCol = parseColor(s.accentColor || s.color || '#000000') || { r: 0, g: 0, b: 0 };
+            dot.fills = [{ type: 'SOLID', color: dotCol }];
+            frame.appendChild(dot);
+          } catch (_) {}
+        }
+      }
+      // Non-text inputs (checkbox, radio, etc.) must NEVER display their internal value (e.g. "on") as text!`;
+
+h2fCode = h2fCode.replace(oldInputRenderRegex, newInputRenderCode);
+
+// Floated / right-aligned pseudo-elements (e.g. accordion chevron or float: right)
+const floatPseudoCode = `  // Floated / right-aligned pseudo-elements (e.g. accordion chevron or float: right)
+  for (const pKey of ['before', 'after']) {
+    const pseudoNode = sNode.pseudoElementNodes?.[pKey];
+    if (pseudoNode) {
+      const pStyles = pseudoNode.styles || {};
+      const isFloatRight = pStyles.float === 'right' || pStyles.cssFloat === 'right';
+      if (isFloatRight) {
+        const iconW = Math.round(pseudoNode.rect?.width || 24);
+        const iconH = Math.round(pseudoNode.rect?.height || 24);
+        const padRight = parseFloat(s.paddingRight) || 0;
+        const marginR = parseFloat(pStyles.marginRight) || 0;
+        let rightOffset = 0;
+        if (pStyles.position === 'relative' && !isNaN(parseFloat(pStyles.right))) {
+          rightOffset = parseFloat(pStyles.right);
+        }
+        const targetX = Math.round(rectW - iconW - padRight - marginR - rightOffset);
+        pseudoNode._localRect = {
+          x: targetX,
+          y: Math.round((rectH - iconH) / 2),
+          width: iconW,
+          height: iconH
+        };
+      }
+    }
+  }
+
+  // Vertical centering for icon pseudo-elements inside .date-icon and .time-icon`;
+
+h2fCode = h2fCode.replace(
+  /\/\/ Vertical centering for icon pseudo-elements inside \.date-icon and \.time-icon/,
+  floatPseudoCode
 );
 
 // Append ASSETS_DIARY_HTML string and adCode to h2fCode

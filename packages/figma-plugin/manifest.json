@@ -1,24 +1,23 @@
 {
   "name": "HTML To Perfect Figma",
-  "id": "html-2-fig",
+  "id": "1688188726585755829",
   "api": "1.0.0",
   "main": "src/code.js",
   "ui": "src/ui.html",
   "editorType": [
     "figma"
   ],
+  "permissions": [
+    "currentuser"
+  ],
   "documentAccess": "dynamic-page",
   "networkAccess": {
     "allowedDomains": [
-      "*",
-      "https://html-2-fig.onrender.com",
       "https://api.gumroad.com",
-      "https://cdn.jsdelivr.net",
-      "http://localhost:3000"
+      "https://www.googleapis.com",
+      "https://oauth2.googleapis.com",
+      "https://accounts.google.com"
     ],
-    "devAllowedDomains": [
-      "*"
-    ],
-    "reasoning": "Verify customer Gumroad license keys, connect to headless capture server, and load assets."
+    "reasoning": "Verify customer Gumroad license keys and connect to Google Drive for Assets Diary."
   }
 }

@@ -62,6 +62,34 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Modern Sleek Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    transition: background 0.2s ease;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.55);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background: rgba(99, 102, 241, 0.85);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  }
+
+
   /* Ambient glowing background */
   body::before {
     content: '';
@@ -100,44 +128,83 @@
   .header {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
+    width: 100%;
     padding: 0 0 2px 0;
     user-select: none;
   }
 
   .ext-link-badge {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    padding: 3px 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.35px;
+    padding: 3.5px 10px;
     border-radius: 999px;
-    background: rgba(56, 189, 248, 0.09);
-    border: 1px solid rgba(56, 189, 248, 0.32);
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.35);
     color: #38bdf8;
     cursor: pointer;
     font-family: inherit;
     text-decoration: none;
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     line-height: 1.2;
     outline: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   .ext-link-badge:hover {
-    background: rgba(56, 189, 248, 0.22);
-    border-color: rgba(56, 189, 248, 0.65);
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.26) 0%, rgba(99, 102, 241, 0.2) 100%);
+    border-color: rgba(56, 189, 248, 0.85);
     color: #ffffff;
     transform: translateY(-0.5px);
-    box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.25);
   }
-  .ext-link-badge .ext-arrow-mini {
-    opacity: 0.75;
-    transition: transform 0.18s ease;
+  .ext-link-badge .ext-arrow-icon {
+    opacity: 0.8;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
   }
-  .ext-link-badge:hover .ext-arrow-mini {
+  .ext-link-badge:hover .ext-arrow-icon {
     opacity: 1;
     transform: translate(1px, -1px);
+    color: #ffffff;
+  }
+
+  /* Empty-paste highlight animation on Chrome Extension badge */
+  @keyframes extBadgeHighlightPulse {
+    0% {
+      transform: scale(1);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+    20% {
+      transform: scale(1.08);
+      border-color: #38bdf8;
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.35) 0%, rgba(99, 102, 241, 0.28) 100%);
+      box-shadow: 0 0 18px 4px rgba(56, 189, 248, 0.75), 0 0 32px rgba(56, 189, 248, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+      color: #ffffff;
+    }
+    45% {
+      transform: scale(1.02);
+      box-shadow: 0 0 10px 2px rgba(56, 189, 248, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    }
+    70% {
+      transform: scale(1.06);
+      border-color: #38bdf8;
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.35) 0%, rgba(99, 102, 241, 0.28) 100%);
+      box-shadow: 0 0 18px 4px rgba(56, 189, 248, 0.75), 0 0 32px rgba(56, 189, 248, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+      color: #ffffff;
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+  }
+
+  .ext-link-badge.highlight-pulse {
+    animation: extBadgeHighlightPulse 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   .header-actions {
@@ -405,128 +472,351 @@
     font-size: 11.5px;
   }
 
-  /* ---------------- GUMROAD LICENSE PANEL (REDESIGNED) ---------------- */
-  .license-panel {
-    display: none;
-    flex-direction: column;
-    gap: 11px;
-    background: linear-gradient(165deg, rgba(22, 19, 48, 0.96) 0%, rgba(12, 14, 27, 0.98) 100%);
-    border: 1px solid rgba(168, 85, 247, 0.38);
-    box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.72), 0 0 26px -4px rgba(147, 51, 234, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.16);
-    border-radius: 14px;
-    padding: 15px 16px;
-    backdrop-filter: blur(24px);
-    position: relative;
-    overflow: hidden;
-    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .license-panel::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 18%; right: 18%;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(236, 72, 153, 0.65), rgba(168, 85, 247, 0.75), transparent);
-    pointer-events: none;
-  }
-  .license-panel.active {
+  /* ---------------- DEDICATED LIFETIME PRO PAGE STYLES ---------------- */
+  .page-container {
     display: flex;
+    flex-direction: column;
+    width: 100%;
+    gap: 13px;
+    animation: pageFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .license-panel-header {
+  @keyframes pageFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .license-page-view {
+    gap: 14px;
+    padding-bottom: 20px;
+    user-select: none;
+  }
+
+  /* Top Navigation Bar */
+  .pro-page-topbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    width: 100%;
+    padding: 0 0 2px 0;
   }
-  .license-title-row {
-    display: flex;
+  .btn-pro-back {
+    display: inline-flex;
     align-items: center;
-    gap: 9px;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    padding: 5px 12px;
+    color: #cbd5e1;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
   }
-  .license-icon-badge {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(217, 70, 239, 0.22) 100%);
-    border: 1px solid rgba(168, 85, 247, 0.42);
+  .btn-pro-back:hover {
+    background: rgba(99, 102, 241, 0.2);
+    border-color: rgba(129, 140, 248, 0.55);
+    color: #ffffff;
+    transform: translateX(-2px);
+    box-shadow: 0 0 14px rgba(99, 102, 241, 0.35);
+  }
+  .btn-pro-back svg {
+    transition: transform 0.2s ease;
+  }
+  .btn-pro-back:hover svg {
+    transform: translateX(-2px);
+  }
+  .pro-nav-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: linear-gradient(135deg, rgba(236, 72, 153, 0.15) 0%, rgba(168, 85, 247, 0.18) 100%);
+    border: 1px solid rgba(217, 70, 239, 0.35);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 9.5px;
+    font-weight: 800;
+    color: #f472b6;
+    letter-spacing: 0.5px;
+    box-shadow: 0 0 12px rgba(236, 72, 153, 0.2);
+  }
+  .pro-nav-sparkle {
+    color: #f472b6;
+    font-size: 9px;
+  }
+
+  /* Hero Card */
+  .pro-hero-card {
+    background: linear-gradient(168deg, rgba(28, 22, 60, 0.95) 0%, rgba(14, 16, 32, 0.98) 100%);
+    border: 1px solid rgba(168, 85, 247, 0.38);
+    border-radius: 16px;
+    padding: 20px 16px 18px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.65), 0 0 32px -4px rgba(168, 85, 247, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(20px);
+  }
+  .pro-hero-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 15%; right: 15%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.8), rgba(236, 72, 153, 0.8), transparent);
+    pointer-events: none;
+  }
+  .hero-emblem-wrap {
+    width: 58px;
+    height: 58px;
+    margin: 0 auto 12px;
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 10px rgba(168, 85, 247, 0.25);
-    flex-shrink: 0;
   }
-  .license-title-text {
-    font-size: 13.5px;
-    font-weight: 700;
-    color: #ffffff;
-    letter-spacing: -0.2px;
+  .hero-emblem-halo {
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(236, 72, 153, 0.45) 0%, rgba(168, 85, 247, 0.35) 50%, transparent 70%);
+    filter: blur(10px);
+    animation: haloPulse 3s ease-in-out infinite alternate;
+  }
+  @keyframes haloPulse {
+    0% { transform: scale(0.92); opacity: 0.6; }
+    100% { transform: scale(1.12); opacity: 1; }
+  }
+  .hero-emblem-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.18) 0%, rgba(168, 85, 247, 0.28) 100%);
+    border: 1px solid rgba(192, 132, 252, 0.55);
     display: flex;
     align-items: center;
-    gap: 4px;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+    box-shadow: 0 8px 24px rgba(168, 85, 247, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.3);
   }
-  .pro-gradient-text {
-    background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+  .hero-tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(168, 85, 247, 0.14);
+    border: 1px solid rgba(168, 85, 247, 0.32);
+    color: #e9d5ff;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    margin-bottom: 8px;
+  }
+  .hero-tag-pill .tag-sparkle {
+    color: #ec4899;
+    font-size: 8px;
+  }
+  .hero-main-title {
+    font-size: 19px;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: -0.4px;
+    margin-bottom: 6px;
+    line-height: 1.25;
+  }
+  .gradient-shimmer-text {
+    background: linear-gradient(135deg, #38bdf8 0%, #c084fc 45%, #ec4899 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
     font-weight: 800;
-    text-shadow: 0 0 16px rgba(236, 72, 153, 0.45);
+    text-shadow: 0 0 20px rgba(192, 132, 252, 0.4);
   }
-  .license-close-btn {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+  .hero-main-subtitle {
+    font-size: 11.5px;
     color: #94a3b8;
+    line-height: 1.45;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+  /* Features Grid / Bento */
+  .pro-features-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .feature-item {
+    background: rgba(18, 22, 38, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 11px;
+    padding: 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  }
+  .feature-item:hover {
+    background: rgba(24, 30, 52, 0.9);
+    border-color: rgba(168, 85, 247, 0.38);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(168, 85, 247, 0.15);
+  }
+  .feature-icon-chip {
+    font-size: 15px;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.06);
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    padding: 0;
-  }
-  .license-close-btn:hover {
-    background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.3);
-    color: #ffffff;
-    transform: rotate(90deg);
-  }
-  .license-desc {
-    font-size: 11px;
-    color: #94a3b8;
-    line-height: 1.45;
-    letter-spacing: -0.1px;
-    margin: 0;
-  }
-  .license-pills-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-top: 4px;
     margin-bottom: 2px;
   }
-  .license-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 9.5px;
-    font-weight: 600;
-    padding: 2.5px 7.5px;
-    border-radius: 999px;
-    background: rgba(168, 85, 247, 0.1);
-    border: 1px solid rgba(168, 85, 247, 0.26);
-    color: #d8b4fe;
-    letter-spacing: 0.1px;
+  .feature-name {
+    font-size: 11px;
+    font-weight: 700;
+    color: #f8fafc;
+    letter-spacing: -0.15px;
   }
-  .pill-sparkle {
+  .feature-desc {
+    font-size: 9.5px;
+    color: #94a3b8;
+    line-height: 1.35;
+  }
+
+  /* Gumroad Buy Card */
+  .gumroad-buy-card {
+    background: linear-gradient(150deg, rgba(32, 24, 72, 0.88) 0%, rgba(16, 18, 38, 0.96) 100%);
+    border: 1.5px solid rgba(236, 72, 153, 0.45);
+    border-radius: 14px;
+    padding: 14px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 12px 30px -6px rgba(0, 0, 0, 0.55), 0 0 24px rgba(236, 72, 153, 0.2);
+  }
+  .gumroad-buy-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 20%; right: 20%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(236, 72, 153, 0.8), transparent);
+    pointer-events: none;
+  }
+  .buy-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .buy-card-badge {
+    font-size: 8.5px;
+    font-weight: 800;
     color: #ec4899;
-    font-size: 8px;
-    line-height: 1;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+  }
+  .buy-card-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: -0.2px;
+  }
+  .buy-deal-tag {
+    font-size: 10px;
+    font-weight: 700;
+    color: #34d399;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(52, 211, 153, 0.35);
+    padding: 3px 8px;
+    border-radius: 999px;
+  }
+  .btn-gumroad-cta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 42px;
+    background: linear-gradient(135deg, #ec4899 0%, #a855f7 50%, #6366f1 100%);
+    border: none;
+    border-radius: 10px;
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: -0.1px;
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: 0 4px 18px rgba(236, 72, 153, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .btn-gumroad-cta:hover {
+    filter: brightness(1.12);
+    transform: translateY(-1.5px);
+    box-shadow: 0 8px 26px rgba(236, 72, 153, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  }
+  .btn-gumroad-cta:active {
+    transform: translateY(0.5px) scale(0.99);
+  }
+  .btn-gumroad-cta .ext-cta-arrow {
+    transition: transform 0.2s ease;
+  }
+  .btn-gumroad-cta:hover .ext-cta-arrow {
+    transform: translate(2px, -2px);
+  }
+  .buy-guarantee-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    font-size: 10px;
+    color: #94a3b8;
+    text-align: center;
+  }
+
+  /* Activation Box */
+  .pro-activation-box {
+    background: rgba(14, 18, 32, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 13px;
+    padding: 13px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .activation-header {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .activation-label {
+    font-size: 8.5px;
+    font-weight: 800;
+    color: #a855f7;
+    letter-spacing: 0.6px;
+  }
+  .activation-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #f8fafc;
   }
   .license-input-row {
     display: flex;
     gap: 8px;
-    margin-top: 4px;
     align-items: stretch;
   }
   .license-input-wrap {
@@ -547,7 +837,7 @@
     width: 100%;
     height: 38px;
     padding: 0 68px 0 32px;
-    background: rgba(8, 10, 19, 0.9);
+    background: rgba(8, 10, 19, 0.95);
     border: 1px solid rgba(168, 85, 247, 0.32);
     border-radius: 8px;
     color: #f8fafc;
@@ -635,105 +925,152 @@
   .btn-license-activate.loading .license-spinner {
     display: block;
   }
-  .license-footer-links {
+  .activation-recover-wrap {
     display: flex;
+    justify-content: center;
     align-items: center;
-    justify-content: space-between;
-    font-size: 10.5px;
-    padding-top: 3px;
-    min-height: 20px;
+    padding-top: 10px;
+    padding-bottom: 4px;
   }
-  .license-link {
+  .link-library-recover {
     color: #c084fc;
-    text-decoration: none;
+    text-decoration: underline;
+    font-size: 10.5px;
     font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
     cursor: pointer;
     transition: all 0.18s ease;
+    opacity: 0.85;
+    display: inline-flex;
+    align-items: center;
   }
-  .license-link .ext-arrow {
-    transition: transform 0.18s ease;
-  }
-  .license-link:hover {
-    color: #e879f9;
-    text-shadow: 0 0 8px rgba(232, 121, 249, 0.5);
-  }
-  .license-link:hover .ext-arrow {
-    transform: translate(2px, -2px);
+  .link-library-recover:hover {
+    color: #f472b6;
+    opacity: 1;
+    text-shadow: 0 0 8px rgba(244, 114, 182, 0.4);
   }
   .license-status-msg {
     font-size: 10px;
     font-weight: 600;
+    margin-top: 2px;
+  }
+  .license-status-msg:empty {
+    display: none;
   }
   .license-status-msg.ok { color: #34d399; text-shadow: 0 0 6px rgba(52, 211, 153, 0.4); }
   .license-status-msg.err { color: #fb7185; text-shadow: 0 0 6px rgba(251, 113, 133, 0.4); }
   .license-status-msg.info { color: #38bdf8; text-shadow: 0 0 6px rgba(56, 189, 248, 0.4); }
 
-  .license-active-box {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(6, 95, 70, 0.15) 100%);
-    border: 1px solid rgba(52, 211, 153, 0.35);
-    border-radius: 9px;
-    padding: 10px 12px;
+  /* VIP Active Status Card (When Pro) */
+  .vip-status-card {
+    background: linear-gradient(155deg, rgba(20, 36, 42, 0.92) 0%, rgba(12, 24, 28, 0.98) 100%);
+    border: 1.5px solid rgba(52, 211, 153, 0.45);
+    border-radius: 16px;
+    padding: 18px 16px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    box-shadow: 0 0 16px rgba(16, 185, 129, 0.12);
+    gap: 12px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 14px 34px -6px rgba(0, 0, 0, 0.6), 0 0 28px rgba(52, 211, 153, 0.2);
   }
-  .active-badge-row {
+  .vip-status-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 15%; right: 15%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.85), transparent);
+    pointer-events: none;
+  }
+  .vip-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .vip-badge-chip {
     display: flex;
     align-items: center;
     gap: 7px;
+    font-size: 12px;
+    font-weight: 800;
+    color: #34d399;
+    letter-spacing: 0.3px;
   }
-  .active-dot {
-    width: 7px;
-    height: 7px;
+  .vip-dot {
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: #10b981;
-    box-shadow: 0 0 8px rgba(16, 185, 129, 0.85);
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.9);
+    animation: vipDotPulse 2s infinite ease-in-out;
   }
-  .active-title {
-    font-size: 11.5px;
-    font-weight: 700;
-    color: #34d399;
-    letter-spacing: -0.1px;
+  @keyframes vipDotPulse {
+    0% { transform: scale(0.9); opacity: 0.8; }
+    50% { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(0.9); opacity: 0.8; }
   }
-  .active-pill-tag {
-    font-size: 8.5px;
+  .vip-unlimited-pill {
+    font-size: 9px;
     font-weight: 800;
-    padding: 1.5px 6px;
+    padding: 2.5px 7px;
     border-radius: 999px;
     background: rgba(52, 211, 153, 0.2);
-    border: 1px solid rgba(52, 211, 153, 0.4);
+    border: 1px solid rgba(52, 211, 153, 0.45);
     color: #6ee7b7;
     letter-spacing: 0.6px;
   }
-  .active-key-text {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: #cbd5e1;
+  .vip-key-row {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 8px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
-  .active-email-text {
-    font-size: 9.5px;
+  .vip-key-label {
+    font-size: 8.5px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .vip-key-value {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: #f1f5f9;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .vip-perks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 10px;
     color: #94a3b8;
   }
-  .btn-deactivate {
+  .vip-perk-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: #cbd5e1;
+  }
+  .btn-deactivate-key {
     align-self: flex-start;
     margin-top: 4px;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 5px;
+    border-radius: 6px;
     color: #94a3b8;
-    font-size: 9.5px;
-    font-weight: 500;
-    padding: 4px 9px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 5px 10px;
     cursor: pointer;
+    font-family: inherit;
     transition: all 0.18s ease;
   }
-  .btn-deactivate:hover {
+  .btn-deactivate-key:hover {
     color: #fb7185;
-    border-color: rgba(251, 113, 133, 0.4);
+    border-color: rgba(251, 113, 133, 0.45);
     background: rgba(251, 113, 133, 0.1);
   }
 
@@ -756,11 +1093,6 @@
     backdrop-filter: blur(16px);
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     overflow: hidden;
-  }
-  .drop-zone:hover {
-    border-color: rgba(168, 85, 247, 0.5);
-    background: rgba(22, 28, 48, 0.88);
-    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.15);
   }
   .drop-zone:active,
   .drop-zone.zone-pressed {
@@ -848,11 +1180,6 @@
     z-index: 2;
     transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .drop-zone:hover .press-icon-core {
-    transform: scale(1.08);
-    border-color: rgba(236, 72, 153, 0.7);
-    box-shadow: 0 6px 24px rgba(236, 72, 153, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  }
   .drop-zone:active .press-icon-core,
   .drop-zone.zone-pressed .press-icon-core {
     transform: scale(0.9);
@@ -887,10 +1214,12 @@
     margin: 0;
   }
   .press-here-title {
-    font-size: 15px;
+    font-size: 14.5px;
     font-weight: 700;
     letter-spacing: -0.2px;
-    line-height: 1.2;
+    line-height: 1.3;
+    text-align: center;
+    max-width: 320px;
     background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 55%, #c084fc 100%);
     -webkit-background-clip: text;
     background-clip: text;
@@ -899,10 +1228,6 @@
     transition: all 0.2s ease;
   }
   .drop-zone:hover .press-here-title {
-    background: linear-gradient(135deg, #ffffff 0%, #f472b6 45%, #c084fc 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
     transform: translateY(-0.5px);
   }
   .drop-subtitle {
@@ -921,41 +1246,97 @@
   /* ---------------- SIMPLE UNDERLINE URL INPUT ---------------- */
   .url-underline-wrap {
     position: relative;
-    z-index: 25;
+    z-index: 15;
     width: 82%;
     max-width: 270px;
     margin: 8px auto 0 auto;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
+    background: transparent !important;
+    background-color: transparent !important;
+    cursor: pointer;
+    user-select: none;
+    box-sizing: border-box;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
   }
-  .url-underline-input {
+  .underline-input-row {
+    position: relative;
     width: 100%;
-    background: transparent;
-    border: none;
-    border-bottom: 1.5px solid rgba(255, 255, 255, 0.22);
-    color: #f8fafc;
-    font-size: 11.5px;
-    font-family: inherit;
-    font-weight: 500;
-    text-align: center;
-    padding: 6px 4px;
-    outline: none;
-    border-radius: 0;
-    transition: all 0.22s ease;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    background: transparent !important;
   }
-  .url-underline-input::placeholder {
+  .underline-url-input {
+    width: 100%;
+    height: 100%;
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    color: #f8fafc !important;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 0 4px;
+    margin: 0;
+    caret-color: #38bdf8;
+    text-align: left;
+    z-index: 25;
+  }
+  .underline-input-row:focus-within .blinking-caret-left {
+    display: none !important;
+  }
+  .underline-url-input:not(:placeholder-shown) + .blinking-caret-left {
+    display: none !important;
+  }
+  .underline-cyan-bar {
+    width: 100%;
+    height: 1px;
+    background: rgba(56, 189, 248, 0.45);
+    box-shadow: 0 0 5px rgba(56, 189, 248, 0.35);
+    border-radius: 1px;
+    margin-top: 2px;
+    pointer-events: none;
+    transition: all 0.2s ease;
+  }
+  .url-underline-text {
     color: rgba(148, 163, 184, 0.55);
     font-size: 11px;
     font-weight: 400;
     letter-spacing: 0.2px;
+    pointer-events: none;
+    white-space: nowrap;
+    text-align: center;
+    margin-top: 9px;
+    background: transparent !important;
   }
-  .url-underline-input:hover {
-    border-bottom-color: rgba(255, 255, 255, 0.45);
+
+  /* Always-blinking cursor on the left sitting above the cyan bar */
+  .blinking-caret-left {
+    position: absolute;
+    left: 4px;
+    bottom: 2px;
+    width: 1.5px;
+    height: 15px;
+    background: #38bdf8;
+    box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+    border-radius: 1px;
+    pointer-events: none;
+    animation: caretBlinkSubtle 1.05s ease-in-out infinite;
+    z-index: 26;
   }
-  .url-underline-input:focus {
-    border-bottom-color: #38bdf8;
-    box-shadow: 0 1px 0 #38bdf8, 0 6px 14px -4px rgba(56, 189, 248, 0.35);
+
+  @keyframes caretBlinkSubtle {
+    0%, 100% {
+      opacity: 0.15;
+    }
+    50% {
+      opacity: 0.85;
+    }
   }
 
   /* Focusable invisible paste textarea covering drop zone */
@@ -1204,13 +1585,7 @@
     color: #ffffff;
   }
   .free-exports-note.pro-unlocked {
-    color: #34d399;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .free-exports-note.pro-unlocked .pro-sparkle {
-    color: #34d399;
-    font-size: 11px;
+    display: none !important;
   }
 
   /* ---------------- CTA BUTTON (HIDDEN AS PER REQUEST) ---------------- */
@@ -1306,6 +1681,35 @@
     text-shadow: 0 0 10px rgba(192, 132, 252, 0.4);
   }
 
+  .assets-diary-unit-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
+    padding: 13px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+    opacity: 0.6;
+  }
+  .assets-diary-unit-card:hover {
+    border-color: rgba(168, 85, 247, 0.35);
+    box-shadow: 0 6px 22px rgba(124, 58, 237, 0.12);
+    opacity: 1;
+  }
+
+  .assets-diary-intro-text {
+    font-size: 11px;
+    line-height: 1.48;
+    color: #94a3b8;
+    text-align: center;
+    margin: 0;
+    padding: 0 2px;
+    letter-spacing: -0.1px;
+  }
+
   .btn-assets-diary {
     position: relative;
     width: 100%;
@@ -1364,6 +1768,179 @@
   }
   .btn-assets-diary:hover .arrow-icon {
     transform: translateX(3px);
+    color: #ffffff;
+  }
+
+
+  /* ---------------- TEXT IPSUM CARD ---------------- */
+  .text-ipsum-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
+    padding: 13px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+    opacity: 0.6;
+  }
+  .text-ipsum-card:hover {
+    border-color: rgba(16, 185, 129, 0.35);
+    box-shadow: 0 6px 22px rgba(16, 185, 129, 0.10);
+    opacity: 1;
+  }
+
+  .text-ipsum-intro-text {
+    font-size: 11px;
+    line-height: 1.48;
+    color: #94a3b8;
+    text-align: center;
+    margin: 0;
+    padding: 0 2px;
+    letter-spacing: -0.1px;
+  }
+
+  .btn-text-ipsum {
+    position: relative;
+    width: 100%;
+    height: 44px;
+    padding: 0 16px;
+    background: linear-gradient(135deg, rgba(6, 40, 30, 0.88) 0%, rgba(5, 80, 58, 0.72) 50%, rgba(4, 120, 87, 0.82) 100%);
+    border: 1px solid rgba(16, 185, 129, 0.42);
+    border-radius: var(--radius-md);
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    cursor: pointer;
+    box-shadow: 0 4px 18px rgba(16, 185, 129, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    box-sizing: border-box;
+  }
+  .btn-text-ipsum::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+    transform: skewX(-20deg);
+    transition: left 0.6s ease;
+  }
+  .btn-text-ipsum:hover::before {
+    left: 150%;
+  }
+  .btn-text-ipsum:hover {
+    background: linear-gradient(135deg, rgba(6, 40, 30, 0.98) 0%, rgba(5, 110, 82, 0.88) 50%, rgba(4, 150, 110, 0.92) 100%);
+    border-color: rgba(52, 211, 153, 0.72);
+    box-shadow: 0 6px 22px rgba(16, 185, 129, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    transform: translateY(-1.5px);
+    color: #ffffff;
+    filter: brightness(1.08);
+  }
+  .btn-text-ipsum:active {
+    transform: translateY(0.5px) scale(0.99);
+  }
+  .btn-text-ipsum .ipsum-icon {
+    width: 15px;
+    height: 15px;
+    color: #34d399;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease;
+    flex-shrink: 0;
+  }
+  .btn-text-ipsum:hover .ipsum-icon {
+    transform: rotate(12deg) scale(1.15);
+    color: #ffffff;
+  }
+
+
+
+  /* ---------------- TEXT DETACH CARD ---------------- */
+  .text-detach-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
+    padding: 13px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+    opacity: 0.6;
+  }
+  .text-detach-card:hover {
+    border-color: rgba(16, 185, 129, 0.35);
+    box-shadow: 0 6px 22px rgba(16, 185, 129, 0.10);
+    opacity: 1;
+  }
+
+  .btn-text-detach {
+    position: relative;
+    width: 100%;
+    height: 44px;
+    padding: 0 16px;
+    background: linear-gradient(135deg, rgba(6, 40, 30, 0.88) 0%, rgba(5, 80, 58, 0.72) 50%, rgba(4, 120, 87, 0.82) 100%);
+    border: 1px solid rgba(16, 185, 129, 0.42);
+    border-radius: var(--radius-md);
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    cursor: pointer;
+    box-shadow: 0 4px 18px rgba(16, 185, 129, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    box-sizing: border-box;
+  }
+  .btn-text-detach::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+    transform: skewX(-20deg);
+    transition: left 0.6s ease;
+  }
+  .btn-text-detach:hover::before {
+    left: 150%;
+  }
+  .btn-text-detach:hover {
+    background: linear-gradient(135deg, rgba(6, 40, 30, 0.98) 0%, rgba(5, 110, 82, 0.88) 50%, rgba(4, 150, 110, 0.92) 100%);
+    border-color: rgba(52, 211, 153, 0.72);
+    box-shadow: 0 6px 22px rgba(16, 185, 129, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    transform: translateY(-1.5px);
+    color: #ffffff;
+    filter: brightness(1.08);
+  }
+  .btn-text-detach:active {
+    transform: translateY(0.5px) scale(0.99);
+  }
+  .btn-text-detach .detach-icon {
+    width: 15px;
+    height: 15px;
+    color: #34d399;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease;
+    flex-shrink: 0;
+  }
+  .btn-text-detach:hover .detach-icon {
+    transform: rotate(12deg) scale(1.15);
     color: #ffffff;
   }
 
@@ -1498,13 +2075,18 @@
 <body>
 
 <div class="app-shell" id="appShell">
+  <!-- PAGE 1: MAIN WEBPAGE CAPTURE VIEW -->
+  <div class="page-container" id="mainCapturePage">
   <!-- Top Utility Bar -->
   <header class="header">
+    <a href="https://chromewebstore.google.com/detail/pdkcnebbgmaoiidjblohpeanelipeapi" target="_blank" class="ext-link-badge" id="btnChromeExtensionLink" title="Get the companion Chrome Extension on Google Chrome Web Store">
+      <span>Chrome Extension</span>
+      <svg class="ext-arrow-icon" viewBox="0 0 24 24" width="9.5" height="9.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="7" y1="17" x2="17" y2="7"></line>
+        <polyline points="7 7 17 7 17 17"></polyline>
+      </svg>
+    </a>
     <div class="header-actions">
-      <button class="badge-tag" id="btnBookmarkletModal" type="button" title="Get 1-Click Browser Bookmarklet (Instant capture without extension)">
-        <span style="font-size:11px;">⚡</span>
-        <span>Bookmarklet</span>
-      </button>
       <button class="badge-tag" id="btnLicenseBadge" type="button" title="Upgrade to Lifetime PRO">
         <svg class="pro-sparkle-icon" viewBox="0 0 24 24" width="13" height="13" fill="none">
           <path d="M12 2L14.6 9.4L22 12L14.6 14.6L12 22L9.4 14.6L2 12L9.4 9.4L12 2Z" fill="url(#proSparkleGrad)" stroke="#c084fc" stroke-width="1.2" stroke-linejoin="round"/>
@@ -1580,100 +2162,9 @@
     </div>
   </div>
 
-  <!-- Gumroad License Panel (Collapsible) -->
-  <div class="license-panel" id="licensePanel">
-    <div class="license-panel-header">
-      <div class="license-title-row">
-        <div class="license-icon-badge">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none">
-            <path d="M12 2L14.6 9.4L22 12L14.6 14.6L12 22L9.4 14.6L2 12L9.4 9.4L12 2Z" fill="url(#licenseStarGrad)" stroke="#c084fc" stroke-width="1.2" stroke-linejoin="round"/>
-            <circle cx="19" cy="5" r="1.5" fill="#38bdf8"/>
-            <circle cx="5" cy="19" r="1.2" fill="#ec4899"/>
-            <defs>
-              <linearGradient id="licenseStarGrad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#38bdf8"/>
-                <stop offset="0.5" stop-color="#a855f7"/>
-                <stop offset="1" stop-color="#ec4899"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-        <div class="license-title-text" id="licensePanelTitle">
-          Lifetime <span class="pro-gradient-text">PRO</span> License
-        </div>
-      </div>
-      <button class="license-close-btn" id="btnCloseLicense" type="button" title="Close panel">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
-    </div>
-
-    <!-- Unactivated State -->
-    <div id="licenseUnactivatedView">
-      <p class="license-desc">Unlock unlimited canvas exports forever. One-time purchase, zero subscriptions.</p>
-      
-      <div class="license-pills-row">
-        <span class="license-pill"><span class="pill-sparkle">✦</span> Unlimited Exports</span>
-        <span class="license-pill"><span class="pill-sparkle">✦</span> Lifetime Access</span>
-        <span class="license-pill"><span class="pill-sparkle">✦</span> Zero Subscriptions</span>
-      </div>
-
-      <div class="license-input-row">
-        <div class="license-input-wrap">
-          <div class="license-input-icon">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 2l-2 2m-1.5 1.5L16 7l-2-2 1.5-1.5M15 8l-5.5 5.5a4.5 4.5 0 1 1-2-2L13 6"></path>
-            </svg>
-          </div>
-          <input type="text" class="license-input" id="licenseKeyInput" placeholder="Paste Gumroad license key..." autocomplete="off" spellcheck="false" />
-          <button class="btn-license-paste" id="btnPasteLicense" type="button" title="Paste key from clipboard">
-            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
-              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-            </svg>
-            <span>Paste</span>
-          </button>
-        </div>
-        <button class="btn-license-activate" id="btnActivateLicense" type="button">
-          <svg class="license-spinner" id="licenseSpinner" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5">
-            <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
-            <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
-          </svg>
-          <span id="btnActivateText">Activate</span>
-        </button>
-      </div>
-      <div class="license-footer-links">
-        <a href="https://7566387198230.gumroad.com/l/H2Fperfect" target="_blank" class="license-link" id="linkBuyGumroad">
-          <span>Get Lifetime License on Gumroad</span>
-          <svg class="ext-arrow" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="7" y1="17" x2="17" y2="7"></line>
-            <polyline points="7 7 17 7 17 17"></polyline>
-          </svg>
-        </a>
-        <span class="license-status-msg" id="licenseMsg"></span>
-      </div>
-    </div>
-
-    <!-- Activated State -->
-    <div id="licenseActivatedView" style="display: none;">
-      <div class="license-active-box">
-        <div class="active-badge-row">
-          <span class="active-dot"></span>
-          <span class="active-title">Lifetime PRO Active</span>
-          <span class="active-pill-tag">UNLIMITED</span>
-        </div>
-        <div class="active-key-text" id="activeKeyText">Key: ••••••••••••</div>
-        <div class="active-email-text" id="activeEmailText">Unlimited canvas exports unlocked forever</div>
-      </div>
-      <button class="btn-deactivate" id="btnDeactivateLicense" type="button">Deactivate Key</button>
-    </div>
-  </div>
-
   <!-- Interactive Drop / Paste Zone (State A) -->
-  <div class="drop-zone" id="dropZone" role="button" title="Enter URL And Kindly Wait">
-    <textarea id="pasteInput" class="paste-hitbox" tabindex="0" spellcheck="false" autocomplete="off" aria-label="Enter URL And Kindly Wait"></textarea>
+  <div class="drop-zone" id="dropZone" role="button" title="Capture with the extension, then paste below">
+    <textarea id="pasteInput" class="paste-hitbox" tabindex="0" spellcheck="false" autocomplete="off" aria-label="Capture with the extension, then paste below"></textarea>
     <div class="drop-icon-wrap">
       <div class="press-ripple"></div>
       <div class="press-ripple press-ripple-2"></div>
@@ -1742,39 +2233,21 @@
       </div>
     </div>
     <div class="drop-title">
-      <span class="press-here-title">Enter URL And Kindly Wait</span>
+      <span class="press-here-title">Capture with the extension, then paste below</span>
     </div>
     <div class="drop-subtitle" id="dropSubtitle" style="display: none;"></div>
-    <div class="url-underline-wrap" onclick="event.stopPropagation();" onpointerdown="event.stopPropagation();" onmousedown="event.stopPropagation();">
-      <input 
-        type="text" 
-        id="underlineUrlInput" 
-        class="url-underline-input" 
-        placeholder="Paste Here Or Type URL" 
-        autocomplete="off" 
-        spellcheck="false" 
-      />
+    <div class="url-underline-wrap" id="underlineUrlWrap">
+      <div class="underline-input-row">
+        <input type="text" class="underline-url-input" id="underlineUrlInput" spellcheck="false" autocomplete="off" placeholder=" " />
+        <span class="blinking-caret-left" id="blinkingCaret"></span>
+      </div>
+      <div class="underline-cyan-bar"></div>
+      <div class="url-underline-text">Press Ctrl + V (or Cmd + V) to paste</div>
     </div>
   </div>
 
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toastContainer"></div>
-
-  <!-- Loaded Payload Card (State B) -->
-  <div class="payload-card" id="payloadCard">
-    <div class="payload-header">
-      <div class="payload-title-group">
-        <div class="payload-doc-title" id="payloadDocTitle">Webpage Payload</div>
-      </div>
-      <button class="btn-remove-payload" id="btnRemovePayload" type="button" title="Clear current payload">
-        ✕ Clear
-      </button>
-    </div>
-    <div class="payload-viewport-bar">
-      <span class="viewport-label">Viewport Size</span>
-      <span class="viewport-val" id="statViewport">Auto</span>
-    </div>
-  </div>
 
   <!-- Free Exports Counter Note (Between copy field & button) -->
   <div class="free-exports-note" id="freeExportsNote">
@@ -1812,17 +2285,205 @@
 
   <!-- Ultimate Features Divider -->
   <div class="ultimate-divider">
-    <span class="ultimate-text">Ultimate features</span>
+    <span class="ultimate-text">Ultimate tools</span>
   </div>
 
-  <!-- Assets Diary Companion Button -->
-  <button class="btn-assets-diary" id="btnAssetsDiary" type="button">
-    <span>Assets Diary</span>
-    <svg class="arrow-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-      <line x1="5" y1="12" x2="19" y2="12"></line>
-      <polyline points="12 5 19 12 12 19"></polyline>
-    </svg>
-  </button>
+  <div class="assets-diary-unit-card">
+    <p class="assets-diary-intro-text">
+      Save rendered sections and UI components directly into organized folders. Build your personal asset library and reuse them anytime.
+    </p>
+
+    <!-- Assets Diary Companion Button -->
+    <button class="btn-assets-diary" id="btnAssetsDiary" type="button">
+      <span>Assets Diary</span>
+      <svg class="arrow-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+        <polyline points="12 5 19 12 12 19"></polyline>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Text Ipsum Card -->
+  <div class="text-ipsum-card">
+    <p class="text-ipsum-intro-text">
+      Swap all text in your design with Lorem Ipsum in seconds. Select specific layers to ipsum just those, or replace everything at once.
+    </p>
+
+    <!-- Text Ipsum Button -->
+    <button class="btn-text-ipsum" id="btnTextIpsum" type="button">
+      <svg class="ipsum-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20h9"/>
+        <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+      </svg>
+      <span>Text Ipsumed</span>
+    </button>
+  </div>
+  <!-- Text Detach Card -->
+  <div class="text-detach-card">
+    <button class="btn-text-detach" id="btnTextDetach" type="button">
+      <svg class="detach-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20h9"/>
+        <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+      </svg>
+      <span>Text Detach</span>
+    </button>
+  </div>
+  </div> <!-- /#mainCapturePage -->
+
+  <!-- PAGE 2: DEDICATED REDESIGNED & BEAUTIFIED LIFETIME PRO PAGE -->
+  <div class="page-container license-page-view" id="licensePage" style="display: none;">
+    <!-- Navigation Bar -->
+    <div class="pro-page-topbar">
+      <button class="btn-pro-back" id="btnBackFromLicense" type="button" title="Back to Canvas">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12"></line>
+          <polyline points="12 19 5 12 12 5"></polyline>
+        </svg>
+        <span>Back to Canvas</span>
+      </button>
+      <div class="pro-nav-pill">
+        <span class="pro-nav-sparkle">✦</span>
+        <span>LIFETIME PASS</span>
+      </div>
+    </div>
+
+    <!-- Hero Card -->
+    <div class="pro-hero-card">
+      <div class="hero-emblem-wrap">
+        <div class="hero-emblem-halo"></div>
+        <div class="hero-emblem-icon">
+          <svg viewBox="0 0 28 28" width="28" height="28" fill="none">
+            <path d="M14 2L17.2 10.8L26 14L17.2 17.2L14 26L10.8 17.2L2 14L10.8 10.8L14 2Z" fill="url(#heroStarGrad)" stroke="#c084fc" stroke-width="1.2" stroke-linejoin="round"/>
+            <circle cx="22" cy="6" r="1.8" fill="#38bdf8"/>
+            <circle cx="6" cy="22" r="1.5" fill="#f43f5e"/>
+            <defs>
+              <linearGradient id="heroStarGrad" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#38bdf8"/>
+                <stop offset="0.45" stop-color="#8b5cf6"/>
+                <stop offset="1" stop-color="#ec4899"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+      </div>
+
+      <div class="hero-tag-pill">
+        <span class="tag-sparkle">✦</span>
+        <span>ONE-TIME PURCHASE • ZERO SUBSCRIPTIONS</span>
+      </div>
+
+      <h1 class="hero-main-title">
+        HTML To Perfect Figma <span class="gradient-shimmer-text">PRO</span>
+      </h1>
+      <p class="hero-main-subtitle">
+        Turn live websites into native, clean, fully editable Figma layers. Unlimited exports forever.
+      </p>
+    </div>
+
+
+    <!-- Unactivated State: Buy on Gumroad + Activate Key Form -->
+    <div id="licenseUnactivatedView" class="pro-view-state">
+      <!-- Buy Card -->
+      <div class="gumroad-buy-card">
+        <div class="buy-card-header">
+          <div>
+            <div class="buy-card-badge">OFFICIAL GUMROAD PASS</div>
+            <div class="buy-card-title">Lifetime License</div>
+          </div>
+          <div class="buy-deal-tag">Pay Once • Keep Forever</div>
+        </div>
+        <a href="https://7566387198230.gumroad.com/l/H2Fperfect" target="_blank" class="btn-gumroad-cta" id="linkBuyGumroad">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <path d="M16 10a4 4 0 0 1-8 0"></path>
+          </svg>
+          <span>Get Lifetime License on Gumroad</span>
+          <svg class="ext-cta-arrow" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="7" y1="17" x2="17" y2="7"></line>
+            <polyline points="7 7 17 7 17 17"></polyline>
+          </svg>
+        </a>
+        <div class="buy-guarantee-note">
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          <span>Instant key delivery via email • 100% Secure Checkout</span>
+        </div>
+      </div>
+
+      <!-- Activation Box -->
+      <div class="pro-activation-box">
+        <div class="activation-header">
+          <div class="activation-label">ALREADY HAVE A LICENSE?</div>
+          <div class="activation-title">Activate Lifetime Key</div>
+        </div>
+
+        <div class="license-input-row">
+          <div class="license-input-wrap">
+            <div class="license-input-icon">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 2l-2 2m-1.5 1.5L16 7l-2-2 1.5-1.5M15 8l-5.5 5.5a4.5 4.5 0 1 1-2-2L13 6"></path>
+              </svg>
+            </div>
+            <input type="text" class="license-input" id="licenseKeyInput" placeholder="Paste Gumroad license key..." autocomplete="off" spellcheck="false" />
+            <button class="btn-license-paste" id="btnPasteLicense" type="button" title="Paste key from clipboard">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+              </svg>
+              <span>Paste</span>
+            </button>
+          </div>
+          <button class="btn-license-activate" id="btnActivateLicense" type="button">
+            <svg class="license-spinner" id="licenseSpinner" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+              <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+            </svg>
+            <span id="btnActivateText">Activate</span>
+          </button>
+        </div>
+
+        <div class="license-status-msg" id="licenseMsg"></div>
+      </div>
+
+      <!-- Recover link outside card, centered below -->
+      <div class="activation-recover-wrap">
+        <a href="https://gumroad.com/library" target="_blank" class="link-library-recover" title="Retrieve your license key from Gumroad">
+          <span>Find key in Gumroad Library ↗</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Activated State: VIP Pro Status Card -->
+    <div id="licenseActivatedView" class="pro-view-state" style="display: none;">
+      <div class="vip-status-card">
+        <div class="vip-header-row">
+          <div class="vip-badge-chip">
+            <span class="vip-dot"></span>
+            <span>LIFETIME PRO ACTIVE</span>
+          </div>
+          <div class="vip-unlimited-pill">UNLIMITED EXPORTS</div>
+        </div>
+
+        <div class="vip-key-row">
+          <div class="vip-key-label">Active License Key</div>
+          <div class="vip-key-value" id="activeKeyText">Key: ••••••••••••</div>
+        </div>
+
+        <div class="vip-perks-list">
+          <div class="vip-perk-item">✓ Unlimited canvas imports enabled</div>
+          <div class="vip-perk-item">✓ Multi-backup permanent recovery active</div>
+          <div class="vip-perk-item" id="activeEmailText">Registered to Gumroad Account</div>
+        </div>
+
+        <button class="btn-deactivate-key" id="btnDeactivateLicense" type="button">
+          Deactivate Key on This Machine
+        </button>
+      </div>
+    </div>
+  </div> <!-- /#licensePage -->
 </div>
 
 <script>
@@ -1940,25 +2601,30 @@
 
   function showPayloadCard(data, rawTextLength) {
     currentPayloadData = data;
-    dropZone.style.display = 'none';
-    payloadCard.classList.add('active');
+    if (payloadCard) payloadCard.classList.add('active');
 
     const title = data.documentTitle || data.root?.name || 'Captured Webpage';
-    payloadDocTitle.textContent = title;
-    payloadDocTitle.title = title;
-
-    if (data.viewportRect?.width && data.viewportRect?.height) {
-      statViewport.textContent = `${Math.round(data.viewportRect.width)} × ${Math.round(data.viewportRect.height)} px`;
-    } else {
-      statViewport.textContent = 'Auto (Responsive)';
+    if (payloadDocTitle) {
+      payloadDocTitle.textContent = title;
+      payloadDocTitle.title = title;
     }
 
-    if (!isPro && freeExportsUsed >= MAX_FREE_EXPORTS) {
-      btnImport.disabled = false;
-      btnImportText.textContent = 'Proceed to Upgrade';
-    } else {
-      btnImport.disabled = false;
-      btnImportText.textContent = 'Import into Canvas';
+    if (statViewport) {
+      if (data.viewportRect?.width && data.viewportRect?.height) {
+        statViewport.textContent = `${Math.round(data.viewportRect.width)} × ${Math.round(data.viewportRect.height)} px`;
+      } else {
+        statViewport.textContent = 'Auto (Responsive)';
+      }
+    }
+
+    if (btnImport) {
+      if (!isPro && freeExportsUsed >= MAX_FREE_EXPORTS) {
+        btnImport.disabled = false;
+        if (btnImportText) btnImportText.textContent = 'Proceed to Upgrade';
+      } else {
+        btnImport.disabled = false;
+        if (btnImportText) btnImportText.textContent = 'Import into Canvas';
+      }
     }
   }
 
@@ -1973,8 +2639,8 @@
     if (pasteInput) pasteInput.value = '';
     const underlineUrlInput = document.getElementById('underlineUrlInput');
     if (underlineUrlInput) underlineUrlInput.value = '';
-    payloadCard.classList.remove('active');
-    dropZone.style.display = 'flex';
+    if (payloadCard) payloadCard.classList.remove('active');
+    if (dropZone) dropZone.style.display = 'flex';
     const dropSubtitle = document.getElementById('dropSubtitle');
     if (dropSubtitle) {
       dropSubtitle.innerHTML = '';
@@ -1990,20 +2656,46 @@
       }
     }
     if (progressHideTimeout) clearTimeout(progressHideTimeout);
-    progressWrap.classList.remove('active', 'completed');
+    if (progressWrap) progressWrap.classList.remove('active', 'completed');
     setStatus('Ready', '');
   }
 
-  btnRemovePayload.addEventListener('click', (e) => {
-    e.stopPropagation();
-    clearPayload();
-  });
+  if (btnRemovePayload) {
+    btnRemovePayload.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearPayload();
+    });
+  }
 
   const btnAssetsDiary = document.getElementById('btnAssetsDiary');
   if (btnAssetsDiary) {
     btnAssetsDiary.addEventListener('click', () => {
       parent.postMessage({ pluginMessage: { type: 'switch_to_assets_diary' } }, '*');
     });
+  }
+
+  const btnTextIpsum = document.getElementById('btnTextIpsum');
+  if (btnTextIpsum) {
+    btnTextIpsum.addEventListener('click', () => {
+      parent.postMessage({ pluginMessage: { type: 'lorem_ipsum_replace' } }, '*');
+    });
+  }
+
+  const btnTextDetach = document.getElementById('btnTextDetach');
+  if (btnTextDetach) {
+    btnTextDetach.addEventListener('click', () => {
+      parent.postMessage({ pluginMessage: { type: 'detach_text_nodes' } }, '*');
+    });
+  }
+
+  function triggerEmptyPasteHighlight() {
+    const extBtn = document.getElementById('btnChromeExtensionLink');
+    if (extBtn) {
+      extBtn.classList.remove('highlight-pulse');
+      void extBtn.offsetWidth;
+      extBtn.classList.add('highlight-pulse');
+      setTimeout(() => extBtn.classList.remove('highlight-pulse'), 2000);
+    }
   }
 
   function processPayload(text) {
@@ -2013,6 +2705,7 @@
       autoClearTimeout = null;
     }
     if (!text || text.trim().length < 15) {
+      triggerEmptyPasteHighlight();
       showToast('⚠️ No capture data found. Please copy from Chrome extension first.', 'error');
       return;
     }
@@ -2032,7 +2725,16 @@
       showPayloadCard(data, trimmed.length);
       executeImport(); // Automatically start rendering immediately on paste/drop!
     } catch (e) {
+      triggerEmptyPasteHighlight();
       showToast('❌ Unrecognized format. Please paste a webpage URL or valid capture data.', 'error');
+    }
+  }
+
+  let importWatchdogTimer = null;
+  function resetImportWatchdog() {
+    if (importWatchdogTimer) {
+      clearTimeout(importWatchdogTimer);
+      importWatchdogTimer = null;
     }
   }
 
@@ -2048,21 +2750,37 @@
     btnImport.disabled = true;
     btnImport.classList.add('loading');
     btnImportText.textContent = 'Painting.....';
-    btnRemovePayload.disabled = true;
+    if (btnRemovePayload) btnRemovePayload.disabled = true;
     if (pasteInput) pasteInput.disabled = true;
 
     setStatus('Painting.....', 'info');
     resetPaintingProgress();
     updateProgress(0);
 
+    resetImportWatchdog();
+    importWatchdogTimer = setTimeout(() => {
+      if (isImporting) {
+        console.warn('[HTML-2-Fig] Import watchdog timeout: resetting UI state');
+        isImporting = false;
+        btnImport.disabled = false;
+        btnImport.classList.remove('loading');
+        btnImportText.textContent = 'Retry Painting';
+        if (btnRemovePayload) btnRemovePayload.disabled = false;
+        if (pasteInput) pasteInput.disabled = false;
+        setStatus('Rendering timed out. Click "Retry Painting" to try again.', 'error');
+        showToast('⚠️ Rendering took longer than expected. You can click Retry Painting.', 'error', 6000);
+      }
+    }, 25000);
+
     try {
       parent.postMessage({ pluginMessage: { type: 'import', data: currentPayloadData } }, '*');
     } catch (bridgeErr) {
+      resetImportWatchdog();
       isImporting = false;
       btnImport.disabled = false;
       btnImport.classList.remove('loading');
       btnImportText.textContent = 'Import into Canvas';
-      btnRemovePayload.disabled = false;
+      if (btnRemovePayload) btnRemovePayload.disabled = false;
       if (pasteInput) pasteInput.disabled = false;
       setStatus('Bridge Error: ' + (bridgeErr.message || bridgeErr), 'error');
       showToast('❌ Bridge Error: ' + (bridgeErr.message || bridgeErr), 'error', 6000);
@@ -2070,7 +2788,7 @@
   }
 
   let isReadingClipboard = false;
-  async function handlePasteAndRender(e) {
+  async function handlePasteAndRender(e, isExplicitPaste = false) {
     if (isImporting || isReadingClipboard) return;
     isReadingClipboard = true;
     try {
@@ -2165,38 +2883,78 @@
         return;
       }
 
-      // 6. If programmatic silent reading was blocked by host sandbox:
-      // Focus is locked onto pasteInput! Guide user gracefully without any error toast:
+      // 6. Only trigger empty-paste highlight if an actual paste was attempted!
       const dropSubtitle = document.getElementById('dropSubtitle');
       if (dropSubtitle) {
         dropSubtitle.style.display = 'none';
       }
-      setStatus('Ready — press Ctrl+V / ⌘V to start painting', 'info');
+      setStatus('Kindly use the extension to capture, then paste', 'info');
+      if (isExplicitPaste) {
+        triggerEmptyPasteHighlight();
+      }
     } finally {
       setTimeout(() => { isReadingClipboard = false; }, 300);
     }
   }
 
-  // Button click
+  // Keyboard shortcut listener to trigger highlight ONLY when pressing paste shortcuts with empty clipboard
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+      const target = e.target;
+      if (target && (target.id === 'licenseKeyInput' || (target.tagName === 'INPUT' && target.id !== 'pasteInput'))) return;
+      setTimeout(() => {
+        if (!currentPayloadData && !isImporting) {
+          const val = pasteInput ? pasteInput.value : '';
+          if (!val || val.trim().length < 20) {
+            triggerEmptyPasteHighlight();
+          }
+        }
+      }, 150);
+    }
+  });
+
+  // Button click (explicit import/paste attempt)
   btnImport.addEventListener('click', () => {
     if (currentPayloadData) {
       executeImport();
     } else {
-      handlePasteAndRender();
+      handlePasteAndRender(null, true);
     }
   });
 
-  // DropZone & pasteInput click / pointerdown: Automatically reads clipboard and renders canvas!
-  dropZone.addEventListener('click', (e) => handlePasteAndRender(e));
-  pasteInput.addEventListener('click', (e) => handlePasteAndRender(e));
+  // DropZone & pasteInput click: Focus ONLY, NEVER highlight on simple click or hover
+  dropZone.addEventListener('click', (e) => {
+    if (e.target && (e.target.id === 'underlineUrlInput' || e.target.closest('#underlineUrlWrap'))) {
+      return;
+    }
+    if (pasteInput) {
+      try { pasteInput.focus(); } catch (err) {}
+    }
+  });
+
+  const underlineUrlWrap = document.getElementById('underlineUrlWrap');
+  if (underlineUrlWrap) {
+    underlineUrlWrap.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (underlineUrlInput) {
+        try { underlineUrlInput.focus(); } catch (err) {}
+      }
+    });
+  }
+
+  pasteInput.addEventListener('click', () => {
+    if (pasteInput) {
+      try { pasteInput.focus(); } catch (err) {}
+    }
+  });
   pasteInput.addEventListener('pointerdown', () => {
     if (pasteInput) {
       try { pasteInput.focus(); } catch (err) {}
     }
   });
 
-  // Paste into textarea
-  pasteInput.addEventListener('paste', (e) => handlePasteAndRender(e));
+  // Paste into textarea (explicit paste action)
+  pasteInput.addEventListener('paste', (e) => handlePasteAndRender(e, true));
   pasteInput.addEventListener('input', () => {
     if (!isImporting && pasteInput.value.trim().length > 20) {
       const val = pasteInput.value;
@@ -2205,15 +2963,14 @@
     }
   });
 
-  // Global window paste fallback (for dropping or pressing Ctrl+V anywhere on dropZone)
+  // Global window paste fallback (explicit paste action)
   window.addEventListener('paste', (e) => {
     if (isImporting) return;
-    // CRITICAL: Do NOT hijack paste if the user is typing or pasting into an input (e.g. licenseKeyInput)!
     const target = e.target;
     if (target && (target.id === 'licenseKeyInput' || (target.tagName === 'INPUT' && target.id !== 'pasteInput'))) {
       return;
     }
-    handlePasteAndRender(e);
+    handlePasteAndRender(e, true);
   });
 
   // Drag & drop support on dropZone & window
@@ -2245,12 +3002,14 @@
     }
   });
 
-  payloadCard.addEventListener('click', (e) => {
-    if (e.target && e.target.id === 'btnRemovePayload') return;
-    if (!isImporting && currentPayloadData) {
-      executeImport();
-    }
-  });
+  if (payloadCard) {
+    payloadCard.addEventListener('click', (e) => {
+      if (e.target && e.target.id === 'btnRemovePayload') return;
+      if (!isImporting && currentPayloadData) {
+        executeImport();
+      }
+    });
+  }
 
   // Gumroad Product Configuration
   const GUMROAD_PRODUCT_ID = '8NiIVIis9_qZWcbltQe5zg==';
@@ -2258,8 +3017,9 @@
   const GUMROAD_STORE_URL = 'https://7566387198230.gumroad.com/l/H2Fperfect';
 
   const btnLicenseBadge = document.getElementById('btnLicenseBadge');
-  const licensePanel = document.getElementById('licensePanel');
-  const btnCloseLicense = document.getElementById('btnCloseLicense');
+  const mainCapturePage = document.getElementById('mainCapturePage');
+  const licensePage = document.getElementById('licensePage');
+  const btnBackFromLicense = document.getElementById('btnBackFromLicense');
   const licenseKeyInput = document.getElementById('licenseKeyInput');
   const btnActivateLicense = document.getElementById('btnActivateLicense');
   const btnActivateText = document.getElementById('btnActivateText');
@@ -2271,7 +3031,7 @@
   const activeEmailText = document.getElementById('activeEmailText');
   const btnDeactivateLicense = document.getElementById('btnDeactivateLicense');
 
-  linkBuyGumroad.href = GUMROAD_STORE_URL;
+  if (linkBuyGumroad) linkBuyGumroad.href = GUMROAD_STORE_URL;
 
   const MAX_FREE_EXPORTS = 8;
   let isPro = false;
@@ -2300,12 +3060,10 @@
     if (!freeExportsNote) return;
 
     if (isPro) {
-      freeExportsNote.className = 'free-exports-note pro-unlocked';
-      freeExportsNote.innerHTML = '<span class="pro-sparkle">✦</span> <span>Lifetime PRO Active</span> <span class="count-tag" style="color:#34d399;background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.3);">UNLIMITED</span>';
-      freeExportsNote.title = 'Lifetime PRO Active — Unlimited canvas exports unlocked';
-      freeExportsNote.onclick = () => toggleLicensePanel(true);
+      freeExportsNote.style.display = 'none';
       return;
     }
+    freeExportsNote.style.display = 'flex';
 
     const used = typeof freeExportsUsed === 'number' ? freeExportsUsed : 0;
     const max = MAX_FREE_EXPORTS;
@@ -2368,77 +3126,14 @@
   }
 
   /* ---------------- DIRECT URL CAPTURE LOGIC ---------------- */
-  let CAPTURE_SERVER_URL = 'https://html-2-fig.onrender.com';
-
   async function fetchFromUrl(rawUrl) {
     if (isImporting) return;
     let url = (rawUrl || '').trim();
     if (!url) return;
-    if (!/^https?:\/\//i.test(url)) {
-      url = 'https://' + url;
-    }
-
-    const dropSubtitle = document.getElementById('dropSubtitle');
-    const domainName = url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
-    if (dropSubtitle) {
-      dropSubtitle.style.display = 'block';
-      dropSubtitle.innerHTML = `<span style="color:#38bdf8; font-weight:600;">🌐 Capturing ${domainName}...</span>`;
-    }
-
-    setStatus('Headless browser analyzing...', 'info');
-    showToast(`🌐 Headless browser capturing ${domainName}...`, 'info', 4500);
-    resetPaintingProgress('Capturing');
-    updateProgress(20, 'Capturing');
-
-    try {
-      const serverEndpoint = CAPTURE_SERVER_URL + '/api/capture';
-      console.log('[HTML-2-Fig] Fetching from cloud server:', serverEndpoint, url);
-      let res;
-      try {
-        res = await fetch(serverEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: url, width: 1440, height: 900 })
-        });
-      } catch (firstErr) {
-        console.warn('[HTML-2-Fig] Initial cloud fetch error:', firstErr);
-        // If server was sleeping or cold-starting, inform user and retry once
-        setStatus('Waking up server, kindly wait...', 'info');
-        showToast('⏳ Waking up render server, retrying in 2s...', 'info', 3000);
-        await new Promise(r => setTimeout(r, 2000));
-        try {
-          res = await fetch(serverEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url, width: 1440, height: 900 })
-          });
-        } catch (retryErr) {
-          throw new Error('Capture server connection error: ' + (retryErr.message || firstErr.message || 'Server waking up. Please retry.'));
-        }
-      }
-
-      updateProgress(65, 'Analyzing');
-      const data = await res.json();
-      if (!res.ok || !data.success || !data.payload) {
-        throw new Error(data.error || 'Capture server failed to render page');
-      }
-
-      updateProgress(90, 'Preparing');
-      showToast('✅ Webpage rendered into HyperNodes!', 'success', 2500);
-      showPayloadCard(data.payload, JSON.stringify(data.payload).length);
-      executeImport();
-    } catch (err) {
-      console.error('[URL Capture Error]:', err);
-      setStatus('Capture failed', 'error');
-      showToast('❌ ' + (err.message || 'Capture failed'), 'error', 7000);
-      if (dropSubtitle) {
-        dropSubtitle.innerHTML = '';
-        dropSubtitle.style.display = 'none';
-      }
-    }
+    showToast('💡 Please open this page in Chrome and click the HTML To Figma extension to capture it!', 'info', 6000);
   }
 
-  // Underline URL Input listeners
+  // Underline URL Input listeners: full typing & paste enabled
   const underlineUrlInput = document.getElementById('underlineUrlInput');
   if (underlineUrlInput) {
     underlineUrlInput.addEventListener('keydown', (e) => {
@@ -2446,33 +3141,34 @@
         e.preventDefault();
         const val = underlineUrlInput.value.trim();
         if (val) {
-          if ((val.startsWith('{') && val.endsWith('}')) || (val.length > 50 && (val.includes('"nodes"') || val.includes('"html"')))) {
-            underlineUrlInput.value = '';
-            underlineUrlInput.blur();
-            processPayload(val);
-            return;
-          }
-          underlineUrlInput.blur();
-          fetchFromUrl(val);
+          processPayload(val);
         }
       }
     });
+
     underlineUrlInput.addEventListener('paste', (e) => {
+      const pasted = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+      if (pasted && (pasted.trim().startsWith('{') || pasted.length > 50)) {
+        e.preventDefault();
+        underlineUrlInput.value = '';
+        processPayload(pasted);
+        return;
+      }
       setTimeout(() => {
         const val = underlineUrlInput.value.trim();
-        if (val) {
-          if ((val.startsWith('{') && val.endsWith('}')) || (val.length > 50 && (val.includes('"nodes"') || val.includes('"html"')))) {
-            underlineUrlInput.value = '';
-            underlineUrlInput.blur();
-            processPayload(val);
-            return;
-          }
-          if (/^https?:\/\//i.test(val) || /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}(\/.*)?$/i.test(val)) {
-            underlineUrlInput.blur();
-            fetchFromUrl(val);
-          }
+        if (val && (val.startsWith('{') || val.length > 50)) {
+          underlineUrlInput.value = '';
+          processPayload(val);
         }
-      }, 40);
+      }, 20);
+    });
+
+    underlineUrlInput.addEventListener('input', () => {
+      const val = underlineUrlInput.value.trim();
+      if (val && (val.startsWith('{') && val.endsWith('}')) || (val.length > 80 && val.includes('"nodes"'))) {
+        underlineUrlInput.value = '';
+        processPayload(val);
+      }
     });
   }
 
@@ -2513,6 +3209,16 @@
         }
       }, '*');
     } catch {}
+  }
+
+  const CHROME_STORE_URL = 'https://chromewebstore.google.com/detail/pdkcnebbgmaoiidjblohpeanelipeapi';
+  const btnChromeExtensionLink = document.getElementById('btnChromeExtensionLink');
+  if (btnChromeExtensionLink) {
+    btnChromeExtensionLink.href = CHROME_STORE_URL;
+    btnChromeExtensionLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.open(CHROME_STORE_URL, '_blank');
+    });
   }
 
   if (btnBookmarkletModal) {
@@ -2565,31 +3271,68 @@
     btnCopyBookmarklet.addEventListener('click', copyBookmarkletSnippet);
   }
 
-  function toggleLicensePanel(show) {
-    const shouldOpen = show !== undefined ? show : !licensePanel.classList.contains('active');
-    licensePanel.classList.toggle('active', shouldOpen);
-    if (shouldOpen && bookmarkletPanel && bookmarkletPanel.classList.contains('active')) {
+  function openLicensePage() {
+    if (mainCapturePage) mainCapturePage.style.display = 'none';
+    if (licensePage) {
+      licensePage.style.display = 'flex';
+      licensePage.scrollTop = 0;
+    }
+    if (bookmarkletPanel && bookmarkletPanel.classList.contains('active')) {
       bookmarkletPanel.classList.remove('active');
     }
 
-    // Dynamic resize of plugin dialog
+    try {
+      parent.postMessage({
+        pluginMessage: {
+          type: 'resize',
+          width: 390,
+          height: 680
+        }
+      }, '*');
+    } catch {}
+
+    if (!isPro && licenseKeyInput) {
+      setTimeout(() => {
+        try { licenseKeyInput.focus(); } catch (e) {}
+      }, 150);
+    }
+  }
+
+  function closeLicensePage() {
+    if (licensePage) licensePage.style.display = 'none';
+    if (mainCapturePage) mainCapturePage.style.display = 'flex';
+
     try {
       parent.postMessage({
         pluginMessage: {
           type: 'resize',
           width: 380,
-          height: shouldOpen ? 700 : (bookmarkletPanel && bookmarkletPanel.classList.contains('active') ? 720 : 632)
+          height: 726
         }
       }, '*');
     } catch {}
+  }
 
-    if (shouldOpen && !isPro) {
-      setTimeout(() => licenseKeyInput.focus(), 150);
+  function toggleLicensePanel(show) {
+    if (show === false) {
+      closeLicensePage();
+    } else if (show === true) {
+      openLicensePage();
+    } else {
+      if (licensePage && licensePage.style.display !== 'none') {
+        closeLicensePage();
+      } else {
+        openLicensePage();
+      }
     }
   }
 
-  btnLicenseBadge.addEventListener('click', () => toggleLicensePanel());
-  btnCloseLicense.addEventListener('click', () => toggleLicensePanel(false));
+  if (btnLicenseBadge) {
+    btnLicenseBadge.addEventListener('click', () => toggleLicensePanel());
+  }
+  if (btnBackFromLicense) {
+    btnBackFromLicense.addEventListener('click', () => closeLicensePage());
+  }
 
   function setLicenseMsg(text, type = '') {
     licenseMsg.textContent = text;
@@ -2627,6 +3370,13 @@
       if (data && data.success) {
         const email = data.purchase?.email || '';
         setProState(true, trimmed, email);
+        try {
+          localStorage.setItem('h2f_gumroad_license', JSON.stringify({
+            key: trimmed,
+            email: email,
+            savedAt: Date.now()
+          }));
+        } catch (e) {}
         parent.postMessage({
           pluginMessage: {
             type: 'save_license',
@@ -2688,6 +3438,9 @@
 
   btnDeactivateLicense.addEventListener('click', () => {
     setProState(false);
+    try {
+      localStorage.removeItem('h2f_gumroad_license');
+    } catch (e) {}
     parent.postMessage({ pluginMessage: { type: 'clear_license' } }, '*');
     setLicenseMsg('License deactivated.', 'info');
     setStatus('Ready — 8 free exports apply', '');
@@ -2701,14 +3454,50 @@
       freeExportsUsed = typeof msg.freeUsed === 'number' ? msg.freeUsed : 0;
       if (msg.isPro && msg.key) {
         setProState(true, msg.key, msg.email || '');
+        try {
+          localStorage.setItem('h2f_gumroad_license', JSON.stringify({
+            key: msg.key,
+            email: msg.email || '',
+            savedAt: Date.now()
+          }));
+        } catch (e) {}
       } else {
-        setProState(false);
+        // Dual-Layer Auto-Recovery: If clientStorage was wiped (e.g. after a plugin update or cache clear),
+        // check if localStorage still holds the valid license key!
+        if (!window._h2fLicenseAutoRestored) {
+          let recovered = false;
+          try {
+            const raw = localStorage.getItem('h2f_gumroad_license');
+            if (raw) {
+              const cached = JSON.parse(raw);
+              if (cached && cached.key) {
+                recovered = true;
+                window._h2fLicenseAutoRestored = true;
+                console.log('[HTML-2-Fig] Auto-recovering PRO license from persistent localStorage cache:', cached.key);
+                setProState(true, cached.key, cached.email || '');
+                parent.postMessage({
+                  pluginMessage: {
+                    type: 'save_license',
+                    key: cached.key,
+                    email: cached.email || '',
+                    autoRestored: true
+                  }
+                }, '*');
+              }
+            }
+          } catch (e) {}
+
+          if (!recovered) {
+            setProState(false);
+          }
+        }
       }
       updateBadgeAndSubtitle();
     } else if (msg.type === 'usage_update') {
       freeExportsUsed = typeof msg.freeUsed === 'number' ? msg.freeUsed : (freeExportsUsed + 1);
       updateBadgeAndSubtitle();
     } else if (msg.type === 'limit_reached') {
+      resetImportWatchdog();
       isImporting = false;
       freeExportsUsed = typeof msg.freeUsed === 'number' ? msg.freeUsed : MAX_FREE_EXPORTS;
       updateBadgeAndSubtitle();
@@ -2717,16 +3506,31 @@
       btnImport.disabled = false;
       btnImport.classList.remove('loading');
       btnImportText.textContent = 'Proceed to Upgrade';
-      btnRemovePayload.disabled = false;
+      if (btnRemovePayload) btnRemovePayload.disabled = false;
       if (pasteInput) pasteInput.disabled = false;
       toggleLicensePanel(true);
     } else if (msg.type === 'progress') {
+      if (importWatchdogTimer) {
+        clearTimeout(importWatchdogTimer);
+        importWatchdogTimer = setTimeout(() => {
+          if (isImporting) {
+            isImporting = false;
+            btnImport.disabled = false;
+            btnImport.classList.remove('loading');
+            btnImportText.textContent = 'Retry Painting';
+            if (btnRemovePayload) btnRemovePayload.disabled = false;
+            if (pasteInput) pasteInput.disabled = false;
+            setStatus('Rendering timed out. Click "Retry Painting" to try again.', 'error');
+            showToast('⚠️ Rendering took longer than expected. You can click Retry Painting.', 'error', 6000);
+          }
+        }, 30000);
+      }
       updateProgress(msg.percent, msg.label || 'Painting');
     } else if (msg.type === 'complete') {
+      resetImportWatchdog();
       isImporting = false;
       finishPaintingProgress();
       setStatus('Complete', 'success');
-      showToast('🎨 Canvas painting complete!', 'success', 3000);
       if (btnImport) {
         btnImport.classList.remove('loading');
         if (!isPro && freeExportsUsed >= MAX_FREE_EXPORTS) {
@@ -2737,7 +3541,7 @@
           if (btnImportText) btnImportText.textContent = 'Import Again';
         }
       }
-      btnRemovePayload.disabled = false;
+      if (btnRemovePayload) btnRemovePayload.disabled = false;
       if (pasteInput) pasteInput.disabled = false;
 
       // Automatically clear after three seconds as requested
@@ -2746,6 +3550,7 @@
         clearPayload();
       }, 3000);
     } else if (msg.type === 'error') {
+      resetImportWatchdog();
       isImporting = false;
       if (progressHideTimeout) clearTimeout(progressHideTimeout);
       progressWrap.classList.remove('active', 'completed');
@@ -2755,7 +3560,7 @@
       btnImport.disabled = false;
       btnImport.classList.remove('loading');
       btnImportText.textContent = 'Try Again';
-      btnRemovePayload.disabled = false;
+      if (btnRemovePayload) btnRemovePayload.disabled = false;
       if (pasteInput) pasteInput.disabled = false;
     }
   };
