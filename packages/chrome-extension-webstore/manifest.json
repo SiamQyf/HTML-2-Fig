@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "HTML To Perfect Figma Capture",
+  "name": "HTML.to.Figma — Perfect Capture",
   "version": "1.0.2",
   "description": "Capture any webpage and convert it into fully editable native Figma layers.",
   "permissions": [
@@ -17,7 +17,7 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "HTML To Perfect Figma Capture"
+    "default_title": "HTML.to.Figma — Perfect Capture"
   },
   "background": {
     "service_worker": "background.js"

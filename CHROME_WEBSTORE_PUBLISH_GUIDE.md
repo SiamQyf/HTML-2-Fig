@@ -1,6 +1,6 @@
 # ðŸš€ Chrome Web Store Publishing Guide
 
-This guide contains everything you need to publish **HTML To Perfect Figma Capture** on the Google Chrome Web Store.
+This guide contains everything you need to publish **HTML.to.Figma — Perfect Capture** on the Google Chrome Web Store.
 
 ---
 
@@ -27,7 +27,7 @@ This generates the compliant, clean archive:
 
 ### Extension Name
 ```
-HTML To Perfect Figma Capture
+HTML.to.Figma — Perfect Capture
 ```
 
 ### Short Description (Under 132 characters)
