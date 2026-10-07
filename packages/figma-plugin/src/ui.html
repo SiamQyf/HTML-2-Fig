@@ -1054,25 +1054,6 @@
     gap: 5px;
     color: #cbd5e1;
   }
-  .btn-deactivate-key {
-    align-self: flex-start;
-    margin-top: 4px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
-    color: #94a3b8;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 5px 10px;
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.18s ease;
-  }
-  .btn-deactivate-key:hover {
-    color: #fb7185;
-    border-color: rgba(251, 113, 133, 0.45);
-    background: rgba(251, 113, 133, 0.1);
-  }
 
 
   /* ---------------- INTERACTIVE DROP / PAYLOAD ZONE ---------------- */
@@ -2477,10 +2458,6 @@
           <div class="vip-perk-item">✓ Multi-backup permanent recovery active</div>
           <div class="vip-perk-item" id="activeEmailText">Registered to Gumroad Account</div>
         </div>
-
-        <button class="btn-deactivate-key" id="btnDeactivateLicense" type="button">
-          Deactivate Key on This Machine
-        </button>
       </div>
     </div>
   </div> <!-- /#licensePage -->
@@ -3029,7 +3006,6 @@
   const licenseActivatedView = document.getElementById('licenseActivatedView');
   const activeKeyText = document.getElementById('activeKeyText');
   const activeEmailText = document.getElementById('activeEmailText');
-  const btnDeactivateLicense = document.getElementById('btnDeactivateLicense');
 
   if (linkBuyGumroad) linkBuyGumroad.href = GUMROAD_STORE_URL;
 
@@ -3434,16 +3410,6 @@
     if (e.key === 'Enter') {
       verifyGumroadLicense(licenseKeyInput.value);
     }
-  });
-
-  btnDeactivateLicense.addEventListener('click', () => {
-    setProState(false);
-    try {
-      localStorage.removeItem('h2f_gumroad_license');
-    } catch (e) {}
-    parent.postMessage({ pluginMessage: { type: 'clear_license' } }, '*');
-    setLicenseMsg('License deactivated.', 'info');
-    setStatus('Ready — 8 free exports apply', '');
   });
 
   // Messages from Figma code.js
