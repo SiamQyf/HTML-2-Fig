@@ -359,7 +359,7 @@
             <div class="pill-dot"></div>
             <span class="pill-text" id="pillText">${message || ''}</span>
           </div>
-          <a href="https://www.figma.com" target="_blank" rel="noopener noreferrer" class="figma-link-pill ${message ? 'visible' : ''}" id="figmaLinkPill" title="Open Figma">
+          <a href="https://www.figma.com/community/plugin/1688188726585755829" target="_blank" rel="noopener noreferrer" class="figma-link-pill ${message ? 'visible' : ''}" id="figmaLinkPill" title="Open Figma Plugin">
             <svg viewBox="0 0 38 57" width="10" height="15" fill="none" style="flex-shrink:0; display:block;">
               <path d="M19 28.5C19 23.2533 23.2533 19 28.5 19C33.7467 19 38 23.2533 38 28.5C38 33.7467 33.7467 38 28.5 38C23.2533 38 19 33.7467 19 28.5Z" fill="#1ABCFE"/>
               <path d="M0 47.5C0 42.2533 4.25329 38 9.5 38H19V47.5C19 52.7467 14.7467 57 9.5 57C4.25329 57 0 52.7467 0 47.5Z" fill="#0ACF83"/>
@@ -391,7 +391,7 @@
       figmaPill.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        window.open('https://www.figma.com', '_blank');
+        window.open('https://www.figma.com/community/plugin/1688188726585755829', '_blank');
       });
     }
 
