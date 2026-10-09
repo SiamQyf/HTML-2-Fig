@@ -5350,7 +5350,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
     try { textNode.textDecoration = 'STRIKETHROUGH'; } catch {}
   }
 
-  const isMultiLine = (sNode.lineCount && sNode.lineCount > 1) || (sNode.text && sNode.text.includes('\n'));
+  const isMultiLine = (sNode.lineCount && sNode.lineCount > 1) || (sNode.text && sNode.text.includes('\n')) || (sNode.rect && sNode.rect.height > (parseFloat(s.fontSize) || 16) * 1.4 && sNode.text && sNode.text.length > 25);
   let figmaLineHeight = null;
   if (s.lineHeight && s.lineHeight !== 'normal') {
     const lh = parseFloat(s.lineHeight);
@@ -5511,7 +5511,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
       effectivePosX = (parentFrame.x || 0) + posX;
     }
     const availW = effectiveParentFrame.width - Math.max(0, effectivePosX) - Math.max(0, pr);
-    if (availW > w) {
+    if (availW > w && w <= 1) {
       w = availW;
       if (parentFrame !== effectiveParentFrame && parentFrame.width < w) {
         try { parentFrame.resize(Math.max(parentFrame.width, Math.ceil(w)), parentFrame.height); } catch {}
@@ -5614,14 +5614,7 @@ async function renderTextNode(sNode, parentFrame, parentX, parentY, inheritedSty
         textNode.y = posY;
       }
     } else {
-      let layoutW = Math.max(1, Math.ceil(w));
-      if (parentFrame && !hasSiblings) {
-        let pl = parentNode?.styles?.paddingLeft ? (parseFloat(parentNode.styles.paddingLeft) || 0) : 0;
-        let pr = parentNode?.styles?.paddingRight ? (parseFloat(parentNode.styles.paddingRight) || 0) : 0;
-        const availParentW = Math.max(1, Math.round(parentFrame.width - pl - pr));
-        layoutW = Math.max(layoutW, availParentW);
-      }
-      layoutW += 6;
+      let layoutW = Math.max(1, Math.ceil(w)) + 6;
       textNode.resize(layoutW, Math.max(1, Math.ceil(h)));
       textNode.x = posX;
       textNode.y = posY;

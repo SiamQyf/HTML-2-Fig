@@ -1,0 +1,1732 @@
+<!doctype html>
+<!--
+  ----------------------------------------------------------------------------------------------------
+  COPYRIGHT (C) 2025 IMAGEYE
+
+  This source code is protected under Registered Copyright Ref Number: 19514190123S022. Any reproduction,
+  modification, distribution, or republication of this code, or any part thereof is strictly prohibited.
+
+  This code includes proprietary and confidential information. Any use of this code,
+  or any 'look and feel' components derived from it, is illegal and will result in legal action.
+
+  In the event of unauthorized use or infringement, we reserve the right to take legal action
+  to the maximum extent possible under the law, including criminal prosecution.
+  ----------------------------------------------------------------------------------------------------
+ -->
+<html>
+
+<head>
+    <title>Imageye</title>
+    <link rel="stylesheet" type="text/css" href="external/jquery-ui.min.css">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+      :root {
+        --fc: #404040;
+      }
+      html {
+        overflow: hidden;
+      }
+
+      body {
+        font-family: "Helvetica", "Segoe UI", "Lucida Grande", Tahoma, sans-serif;
+        font-size: 100%;
+        margin: 0px;
+        --webkit-user-select: none;
+        color: var(--fc);
+        overflow: hidden;
+      }
+      #bootLoading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #ebeff8;
+        color: var(--fc);
+        font-size: 14px;
+        z-index: 2147483647;
+      }
+      #bootLoading.--hidden {
+        display: none;
+      }
+
+      a {
+        color: #106eb1;
+        text-decoration: none;
+      }
+
+      input[type="checkbox"] {
+        appearance: none;
+        margin: 0;
+        font: inherit;
+        color: currentColor;
+        width: 20px;
+        height: 20px;
+        border: 0.15em solid black;
+        border-radius: 5px;
+        transform: translateY(-0.075em);
+        display: inline-grid;
+        place-content: center;
+        cursor: pointer;
+      }
+
+      input[type="checkbox"]:hover::before {
+        opacity: 0.4;
+      }
+
+      input[type="checkbox"]::before {
+        content: "";
+        width: 0.75em;
+        height: 0.75em;
+        opacity: 0;
+        box-shadow: inset 1em 1em black;
+        transform-origin: bottom left;
+        clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+      }
+
+      input[type="checkbox"]:checked {
+        background-color: black;
+      }
+
+      input[type="checkbox"]:checked::before {
+        opacity: 1;
+        box-shadow: inset 1em 1em #fff;
+      }
+
+      .--hidden {
+        display: none !important;
+      }
+
+      .go-gather {
+        border-radius: 4px;
+        background: #EBEFF8;
+        color: #404040;
+        margin: 10px 0 20px;
+        padding: 12px 31px !important;
+        border: none !important;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        position: relative;
+      }
+      .go-gather__close {
+        display: block;
+        width: 30px;
+        height: 30px;
+        position: absolute;
+        top: 0;
+        right: 0;
+        cursor: pointer;
+      }
+      .go-gather__close:before {
+        content: '';
+        width: 1px;
+        height: 10px;
+        background: #595959;
+        transform: translate(-50%, -50%) rotate(45deg);
+        position: absolute;
+        top: 50%;
+        left: 50%;
+      }
+      .go-gather__close:after {
+        content: '';
+        width: 1px;
+        height: 10px;
+        background: #595959;
+        transform: translate(-50%, -50%) rotate(-45deg);
+        position: absolute;
+        top: 50%;
+        left: 50%;
+      }
+      .go-gather__logo {
+        width: 102px;
+        height: auto;
+        margin-bottom: 8px;
+      }
+      .go-gather__title {
+        font-family: Roboto;
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 22px;
+        text-align: center;
+        margin-bottom: 2px;
+      }
+      .go-gather__text {
+        font-family: Roboto;
+        font-weight: 400;
+        font-size: 12px;
+        line-height: 20px;
+        text-align: center;
+        margin-bottom: 8px;
+
+      }
+      .go-gather__button {
+        width: 158px;
+        height: 32px;
+        border-radius: 2px;
+        padding: 4px;
+        gap: 8px;
+        background: #404040;
+        color: #fff;
+        box-shadow: 0px 2px 0px 0px #0000000B;
+        cursor: pointer;
+
+        font-family: Roboto;
+        font-weight: 400;
+        font-size: 14px;
+        line-height: 32px;
+        text-align: center;
+      }
+
+      .go-gather__button:hover {
+        opacity: 0.8;
+      }
+
+      .checkbox-group input[type="checkbox"] + label,
+      #prefsDiv input[type="checkbox"] + label {
+        padding-left: 6px;
+      }
+
+      #container {
+        width: 500px;
+        height: 600px;
+        float: left;
+        display: flex;
+        flex-direction: column;
+        justify-content: start;
+      }
+
+      .sidePanel #container {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+      }
+
+      .sidePanel #container.bigger {
+        width: 100%;
+      }
+
+      #container.bigger {
+        width: 800px;
+      }
+
+      #imgsContainer {
+        float: left;
+        width: 100%;
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding-top: 8px;
+        background-color: #ebeff8;
+        box-sizing: border-box;
+        flex-grow: 2;
+        height: 100%;
+        position: relative;
+      }
+      #imgsContainer::-webkit-scrollbar {
+        background: transparent;
+        width: 8px;
+      }
+      #imgsContainer::-webkit-scrollbar-thumb {
+        background: #a8c7fa;
+        background-clip: content-box;
+        border: solid 1.5px transparent;
+        border-radius: 100px;
+      }
+
+
+      .imgContainer,
+      .advContainer {
+        float: left;
+        display: none;
+        width: calc(100% - 14px);
+        -webkit-box-pack: center;
+        -webkit-box-align: center;
+        position: relative;
+        margin: 0px 0px 8px 8px;
+        padding: 45px 0px 30px 0px;
+        background-color: #fff;
+        border-radius: 12px;
+        border: 3px solid transparent;
+        box-sizing: border-box;
+      }
+
+      .imgContainer .origImg {
+        display:block;
+        max-width: 100%;
+        max-height: 400px;
+      }
+
+      .bigger .imgContainer .origImg,
+      .sidePanel .imgContainer .origImg {
+        max-height: 80vw;
+      }
+
+      .sidePanel .twoColsPref {
+        display: none;
+      }
+
+      @media (min-width: 500px) {
+        .twocols .imgContainer {
+          width: calc(50% - 11px);
+          height: 170px;
+        }
+        .twocols .imgContainer .origImg {
+          max-height: 100%;
+        }
+        .bigger.twocols .imgContainer,
+        .sidePanel .twocols .imgContainer {
+          height: 300px;
+        }
+        .sidePanel .twoColsPref {
+          display: block;
+        }
+      }
+
+      .new {
+        display: inline-block;
+        position: absolute;
+        font-size: 8px;
+        background: red;
+        padding: 1px 3px;
+        color: #fff;
+        border-radius: 100px;
+        z-index: 1000;
+        right: -10px;
+      }
+
+      .newshown1 .new {
+        display: none;
+      }
+
+      .button-group {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: auto;
+        margin-top: 1em;
+      }
+      .button-group #saveDownloadOptionsButton {
+        line-height: normal;
+        padding: 0.6em 1.2em;
+        text-align: center;
+      }
+
+      .origImg {
+        background-image: linear-gradient(45deg, #efefef 25%, transparent 25%, transparent 75%, #efefef 75%, #efefef), linear-gradient(45deg, #efefef 25%, transparent 25%, transparent 75%, #efefef 75%, #efefef);
+        background-size: 26px 26px;
+        background-position: 0 0, 13px 13px;
+        margin: 1px 1px 11px 0px;
+        background-color: #fff;
+      }
+
+      .imgInput {
+        position: absolute;
+        bottom: 0px;
+        left: 0px;
+        width: 100%;
+        box-sizing: border-box;
+        color: #6b6969;
+        border: 0px;
+        padding: 2px 5px;
+      }
+
+      .noSelect {
+        -webkit-tap-highlight-color: transparent;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+      }
+
+      .noSelect:focus {
+        outline: none !important;
+      }
+
+      .filterInput {
+        -moz-appearance: textfield;
+        width: 38px;
+        border: 1px solid gray;
+        background: #222;
+        border-radius: 5px;
+        color: #fff;
+        margin: 0px 2px;
+      }
+
+      .filterInput::-webkit-outer-spin-button,
+      .filterInput::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+
+      .imgInfo {
+        position: absolute;
+        padding: 12px;
+        width: 100%;
+        box-sizing: border-box;
+        top: 0px;
+        left: 0px;
+      }
+
+      .imgSize {
+        float: right;
+        background: rgb(40 40 40);
+        padding: 4px 6px;
+        border-radius: 3px;
+        font-size: 12px;
+        color: #dadada;
+        margin-top: -2px;
+      }
+
+      #donate:not(.--show) {
+        display: none;
+      }
+
+      /* hide convertTo and the "to" text if convertFrom = None */
+      .input-group__form:has(#convertFrom option:checked[value=""]) #convertTo,
+      .input-group__form:has(#convertFrom option:checked[value=""]) .to-label {
+        display: none;
+      }
+
+      .convert-prefs:has(#convertFromPrefs option:checked[value=""]) #convertToPrefs,
+      .convert-prefs:has(#convertFromPrefs option:checked[value=""]) .to-label {
+        display: none;
+      }
+
+      .download-button {
+        position: relative;
+        font-size: 14px;
+        height: 30px;
+        box-sizing: border-box;
+      }
+
+      .download-button:not(.--show) {
+        display: none;
+      }
+
+      .download-button__content {
+        display: flex;
+        height: 100%;
+      }
+
+      .download-button__left-part {
+        height: 100%;
+        padding: 0 5px 0 25px;
+        display: flex;
+        align-items: center;
+      }
+
+      .download-button__right-part {
+        border-left: 1px solid #bfbfbf;
+        height: 100%;
+        width: 21px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      @keyframes shake {
+          0% {
+              transform: scale(1);
+          }
+          50% {
+              transform: scale(2);
+          }
+          100% {
+              transform: scale(1);
+          }
+      }
+
+      @keyframes spin {
+          from {
+              transform: rotate(0deg);
+          }
+          to {
+              transform: rotate(360deg);
+          }
+      }
+      .spin {
+          animation: spin 1s linear infinite; /* Spins continuously */
+      }
+
+      .download-button__right-part svg {
+          width: 19px;
+          opacity: 0.8;
+          fill: #e8eaed;
+      }
+
+      .download-button__right-part.--shake svg {
+          animation: shake 1s linear;
+          animation-iteration-count: 5;
+      }
+
+      .download-button__right-part:hover svg {
+        fill: #7a7e83;
+      }
+
+      .download-button,
+      .downloadButton {
+        z-index: 2;
+        cursor: pointer;
+        white-space: nowrap;
+        float: left;
+        border-radius: 5px;
+        background-color: var(--fc);
+        color: #e8eaed;
+        border: 2px solid var(--fc);
+      }
+
+      .downloadButton.--small {
+        padding: 5px 10px;
+        font-size: 14px;
+      }
+
+      .downloadButton:not(.--small) {
+        padding: 7px 10px 7px 28px;
+      }
+
+      .downloadButton.cancelButton {
+        background: none;
+        color: var(--fc);
+      }
+
+      .download-button label,
+      .downloadButton label {
+        cursor: pointer;
+      }
+
+      .download-button img,
+      .downloadButton img {
+        transition: transform .4s ease-in-out;
+        position: absolute;
+        left: 7px;
+        width: 12px;
+        top: 6px;
+      }
+
+      .download-button__left-part:hover img,
+      .downloadButton:hover img {
+        transform: rotate(360deg);
+      }
+
+      .zoomIcon {
+        padding: 0 5px;
+        height: 18px;
+        position: relative;
+        top: -1px;
+        left: -4px;
+        cursor: pointer;
+        opacity: 0.9;
+      }
+
+      .imgContainer:hover .imgActions {
+        opacity: 1;
+      }
+
+      .twocols .imgContainer:hover .imgSize {
+        opacity: 0.3;
+      }
+
+      .bigger.twocols .imgContainer:hover .imgSize {
+        opacity: 1;
+      }
+      /*loading*/
+
+      .spinner {
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 70px;
+        text-align: center;
+        position: relative;
+        display: block;
+      }
+
+      .spinner>div {
+        width: 18px;
+        height: 18px;
+        margin-left: 5px;
+        background-color: var(--fc);
+        border-radius: 100%;
+        display: inline-block;
+        -webkit-animation: bouncedelay 1.4s infinite ease-in-out;
+        animation: bouncedelay 1.4s infinite ease-in-out;
+        /* Prevent first frame from flickering when animation starts */
+        -webkit-animation-fill-mode: both;
+        animation-fill-mode: both;
+      }
+
+      .spinner .bounce1 {
+        -webkit-animation-delay: -0.32s;
+        animation-delay: -0.32s;
+      }
+
+      .spinner .bounce2 {
+        -webkit-animation-delay: -0.16s;
+        animation-delay: -0.16s;
+      }
+
+      @-webkit-keyframes bouncedelay {
+        0%,
+        80%,
+        100% {
+          -webkit-transform: scale(0.0)
+        }
+        40% {
+          -webkit-transform: scale(1.0)
+        }
+      }
+
+      @keyframes bouncedelay {
+        0%,
+        80%,
+        100% {
+          transform: scale(0.0);
+          -webkit-transform: scale(0.0);
+        }
+        40% {
+          transform: scale(1.0);
+          -webkit-transform: scale(1.0);
+        }
+      }
+
+      .disableBackround {
+        position: fixed;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.8);
+        z-index: 1000;
+      }
+
+      progress {
+        height: 4px;
+      }
+
+      progress,
+      .progressText {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        top: 50%;
+        width: 80%;
+        transform: translate(-50%, -50%);
+        color: #e8eaed;
+        text-align: center;
+      }
+
+      .progressText {
+        margin-top: -42px;
+      }
+      /*loading end*/
+      /*patches*/
+
+      .ui-widget-header {
+        background: #fff !important;
+      }
+
+      .ui-slider .ui-slider-handle {
+        background: #fff !important;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        top: -12px;
+        outline: none;
+        transition: background .3s ease-in-out;
+      }
+
+      .ui-slider .ui-slider-handle:focus {
+        border-color: #007eff;
+      }
+
+      .ui-slider-horizontal {
+        height: 1px;
+        margin: 5px 0px;
+      }
+
+      .ui-widget.ui-widget-content {
+        border: none;
+        background: rgba(255, 255, 255, 0.3)
+      }
+
+      .showPrefs #prefsDiv {
+        display: block !important;
+      }
+
+      .prefsTip {
+        font-size: 12px;
+        padding: 6px 5px;
+        display: block;
+        background: #e4e4e4;
+        box-sizing: border-box;
+        margin-top: 8px;
+        border-radius: 6px;
+        text-align: center;
+      }
+
+      .showRating #ratingDiv {
+        display: block !important;
+      }
+
+      .showGoGather #goGatherDiv {
+        display: block !important;
+      }
+
+      .image-wrapper {
+        position: relative;
+        width: 100%;
+      }
+
+      .image-wrapper img {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      .clickable-top {
+        position: absolute;
+        top: 5%;
+        right: 6%;
+        width: 7%;
+        height: 7%;
+        z-index: 2;
+        cursor: pointer;
+      }
+
+      .ui-slider .ui-slider-range {
+        box-sizing: border-box;
+      }
+
+      .filters {
+        float: left;
+        padding-top: 5px;
+        padding-right: 18px;
+      }
+
+      .filters>div {
+        float: left;
+        bborder: 1px solid lightGray;
+        padding: 7px 23px 7px 10px;
+        margin-right: 8px;
+        margin-left: -10px;
+        font-size: 14px;
+        bborder-radius: 100px;
+        transition: background-color 0.3s ease-out;
+        cursor: pointer;
+        position: relative;
+      }
+
+      .filters .menuLabel {
+        opacity: 0.9;
+        user-select: none;
+      }
+
+      .selectMenu>div:hover {
+        background-color: rgba(0, 0, 0, 0.08);
+      }
+
+      .filters>div:hover {
+        opacity: 1;
+        color: #609beb;
+      }
+
+      .filters svg {
+        height: 18px;
+        position: absolute;
+        margin-top: -1px;
+        opacity: 0.8;
+      }
+
+      .selectMenu {
+        display: none;
+        position: absolute;
+        z-index: 10000;
+        background: #fff;
+        border: 1px solid var(--bg);
+        box-shadow: 0.05em 4px 0.6em rgb(0 0 0 / 20%);
+        border-radius: 5px;
+        margin-top: 10px;
+        left: 0px;
+        width: max-content;
+        max-height: 400px;
+        overflow: auto;
+        color: var(--fc);
+      }
+
+      .selectMenu>div {
+        padding: 10px 10px 10px 30px;
+      }
+
+      .selectMenu.download-button__menu > div {
+        padding: 12px 20px;
+      }
+
+      .selectMenu>div.selected::before {
+        background-image: url(check.svg);
+        background-size: 16px;
+        content: " ";
+        width: 16px;
+        height: 16px;
+        position: absolute;
+        left: 8px;
+      }
+
+      .filters .changedMenu {
+        font-weight: bold;
+        color: #609beb;
+        opacity: 0.9;
+      }
+
+      .imgDimension {
+        ddisplay: none;
+      }
+
+      .excluded {
+        display: none !important;
+      }
+
+      .imgActions {
+        position: absolute;
+        background: rgba(255, 255, 255, 0.9);
+        opacity: 0;
+        top: 10px;
+      }
+
+      .imgContainer:hover {
+        opacity: 1;
+      }
+
+      .imgActions input[type="checkbox"] {
+        top: -2px;
+        position: relative;
+        margin-right: 12px;
+        border-radius: 4px;
+        height: 17px;
+        width: 17px;
+        opacity: 0.8;
+      }
+
+      .statusdivcontainer {
+        padding: 0 12px;
+        background-color: #ebeff8;
+        width: 100%;
+        margin-right: 31px;
+        box-sizing: border-box;
+        border-bottom: 1px solid #c5c5c5;
+        box-shadow: 0 0 5px rgb(187 187 187 / 80%);
+        z-index: 1;
+      }
+
+      .statusdivcontainer tr:nth-child(1) td {
+        padding-top: 3px;
+        padding-bottom: 1px;
+      }
+
+      .statusdivcontainer tr:nth-child(1) td + td {
+        padding-left: 10px;
+      }
+
+      .imgSelected {
+        outline: 3px solid var(--fc);
+      }
+
+      .imgSelected .imgActions {
+        opacity: 1;
+      }
+
+      .clearFilters {
+        padding-right: 10px;
+        margin-right: 0px;
+      }
+
+      .savesize {
+        border-top: 1px solid lightGray;
+      }
+
+      .twoColsPref {
+        width: 16px;
+        float: right;
+        padding-right: 0px;
+        margin-right: 10px;
+        margin-top: 5px;
+        margin-left: 2px;
+        cursor: pointer;
+        opacity: 0.9;
+      }
+
+      .twoColsPref:hover {
+        opacity: 1;
+      }
+
+      .twoColsPref div {
+        border-radius: 2px;
+        width: calc( 100% - 2px);
+        height: 4px;
+        border: 1px solid;
+        border-color: var(--fc);
+        float: left;
+        border-bottom-widht: 0px;
+        box-shadow: 0 1px 1px -1px black;
+      }
+
+      .twoColsPref div:nth-child(2),
+      .twoColsPref div:nth-child(3) {
+        margin-left: 0px;
+        margin-top: -1px;
+      }
+
+      .twoColsPref div:nth-child(2) {
+        border-radius: 0px;
+      }
+
+      .twoColsPref div:nth-child(3) {
+        border-bottom-width: 1px;
+      }
+
+      .twoColsPref div:nth-child(4) {
+        display: none;
+      }
+
+      .twocols .twoColsPref div {
+        width: 5px;
+        height: 5px;
+      }
+
+      .twocols .twoColsPref div:nth-child(4) {
+        display: block;
+        margin-left: 2px;
+        margin-top: 2px;
+      }
+
+      .twocols .twoColsPref div:nth-child(2) {
+        margin-left: 2px;
+        margin-top: 0px;
+        border-radius: 2px;
+      }
+
+      .twocols .twoColsPref div:nth-child(3) {
+        margin-top: 2px;
+      }
+
+      #reloadImageye {
+        height: 16px;
+        top: 16px;
+        opacity: 0.9;
+        cursor: pointer;
+      }
+
+      #reloadImageye:hover {
+        opacity: 1;
+      }
+
+      .popupEl {
+        padding: 10px 10px 10px 10px;
+        box-sizing: border-box;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #fff;
+        width: 400px;
+        max-width: 92%;
+        box-shadow: 0px 0px 20px rgba(0, 0, 0, 0.6);
+        border-radius: 15px;
+        max-height: 90%;
+        overflow: auto;
+      }
+
+      .popupContainer {
+        display: none;
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.8);
+      }
+
+      .captureSelection {
+        margin: 0 10px 0 0;
+        padding: 0;
+        position: relative;
+        top: 5px;
+        float: right;
+        cursor: pointer;
+      }
+
+      .captureSelection .hint {
+        position: absolute;
+        z-index: 10;
+        font-size: 12px;
+        background: #fff;
+        color: #404040;
+        padding: 3px 5px;
+        border-radius: 3px;
+        white-space: nowrap;
+        right: -30px;
+        bottom: -30px;
+        pointer-events: none;
+        display: none;
+      }
+
+      .captureSelection:hover .hint {
+        display: initial;
+      }
+
+      .captureSelection .hint:after {
+        content: '';
+        position: absolute;
+        top: -12px;
+        right: 32px;
+        border: 6px solid transparent;
+        border-bottom-color: #fff;
+      }
+
+      .captureSelection svg {
+        opacity:0.9;
+      }
+
+      .captureSelection:hover svg {
+        opacity:1;
+      }
+
+      .popup .hiddenInPopup{
+        display:none;
+      }
+
+      .sidePanel .hiddenInSidePanel{
+        display:none;
+      }
+      #sortTab .menuLabel img{
+        opacity:0.8;
+        width: 14px;
+      }
+      #sortTab:hover .menuLabel img{
+        opacity:1;
+      }
+      .downloadMenuCover{
+        position: fixed;
+        z-index: 1;
+        left: 0px;
+        width: 100%;
+        height:100%;
+        top:0px;
+        background-color: #00000033;
+      }
+      .selectMenu.download-button__menu {
+        position: fixed;
+        width: calc(100% - 22px);
+        left: 8px;
+        margin-top: 15px;
+        max-width: 338px;
+      }
+      .selectMenu.download-button__menu input[type="text"],
+      .selectMenu.download-button__menu input[type="number"],
+      .selectMenu.download-button__menu select,
+      .prefsDownloadMenu input[type="text"],
+      .prefsDownloadMenu input[type="number"],
+      .prefsDownloadMenu select {
+        border:1px solid #7a7e83;
+        border-radius: 4px;
+        background: var(--darkerbg);
+        color:var(--fc);
+      }
+      .selectMenu.download-button__menu input[type="text"],
+      .selectMenu.download-button__menu input[type="number"],
+      .prefsDownloadMenu input[type="text"],
+      .prefsDownloadMenu input[type="number"] {
+        width: 166px;
+      }
+      .ui-widget.ui-widget-content {
+        border: 1px solid gray;;
+        background: rgba(255, 255, 255, 1);
+        box-sizing: border-box;
+      }
+      .showTooltipOnHover{
+        position:relative;
+      }
+      .showTooltipOnHover:hover .tooltip{
+        visibility:visible;
+        opacity:1;
+        transition: visibility 500ms step-end, opacity 500ms step-end;
+      }
+      .showTooltipOnHover:has(input[type="text"]:focus) .tooltip,
+      .showTooltipOnHover:has(input[type="number"]:focus) .tooltip {
+        visibility:visible;
+        opacity:1;
+        transition: none;
+      }
+      .tooltip{
+        visibility:hidden;
+        opacity:0;
+        transition: visibility 1ms step-end, opacity 1ms step-end;;
+        position:absolute;
+        left: 0;
+        top: 20px;
+        width:100%;
+        z-index: 10000;
+        background-color: #fff;
+        border: 1px solid var(--bg);
+        box-shadow: 0.05em 4px 0.6em rgb(0 0 0 / 20%);
+        border-radius: 5px;
+        box-sizing: border-box;
+        padding: 5px;
+        font-size: 12px;
+        white-space: normal;
+      }
+      .tooltip p{
+        margin: 0px 0px 5px 0px;
+      }
+
+      .prefsDownloadMenu {
+        font-size:14px;
+      }
+      .prefsDownloadMenu>div{
+        margin-bottom:5px;
+      }
+      .downloadImgAction{
+        min-width:120px;
+        margin-top:-2px;
+        font-size:14px;
+        padding:0px;
+      }
+      .showTooltipOnHover:hover .tooltip.downloadImgAction{
+        transition-duration: 400ms !important;
+      }
+      .downloadImgAction .tooltip:hover{
+        opacity:1 !important;
+      }
+      .downloadImgAction p{
+        text-align: center;
+        padding: 6px;
+      }
+      /*css selector for p with attribute dtype*/
+      .downloadImgAction p[dtype]:hover{
+        background-color: rgba(0, 0, 0, 0.3);
+        cursor: pointer;
+      }
+      .darksvg{
+        fill:#000000;
+      }
+      #convertFromPrefs, #convertFrom{
+        width:84px;
+      }
+      #convertToPrefs, #convertTo{
+        width:62px;
+      }
+      .typeMenu>div{
+        color:var(--fc);
+      }
+      .selectMenu>div.zeroResults{
+        color:lightGray;
+      }
+      .rightPrefsContainer{
+        position: absolute;
+        right:0px;
+        padding: 4px 12px 10px 9px;
+        background-color: #ebeff8;
+      }
+      #prefsDiv .popupEl > div {
+        border-bottom: 1px solid lightgray;
+        padding: 10px 0px;
+      }
+
+      .input-group {
+        box-sizing: border-box;
+        display: flex;
+        gap: 4px;
+      }
+
+      .input-group * {
+        box-sizing: border-box;
+      }
+
+      .input-group__label {
+        flex: 0 0 110px;
+      }
+
+      div.input-group__form {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .--gap-5 {
+        gap: 5px
+      }
+
+      .--gap-14 {
+        gap: 14px
+      }
+
+      .--margin-top-2 {
+        margin-top: 2px;
+      }
+
+      .--margin-top-5 {
+        margin-top: 5px;
+      }
+
+      .--margin-top-14 {
+        margin-top: 14px;
+      }
+
+      .--flex-direction-row {
+        flex-direction: row !important;
+        align-items: center;
+      }
+
+      div.input-group__form select,
+      div.input-group__form input[type="text"],
+      div.input-group__form input[type="number"] {
+        width: 100% !important;
+      }
+
+      #saveFileAs:not([data-value="SYSTEM_NAME"]) ~ .tip__system-name,
+      #saveFileAsPref:not([data-value="SYSTEM_NAME"]) ~ .tip__system-name,
+      #saveFileAs:not([data-value="CUSTOM_NAME"]) ~ .tip__custom-name,
+      #saveFileAsPref:not([data-value="CUSTOM_NAME"]) + .tip__custom-name {
+        display: none;
+      }
+
+      .tip__system-name {
+        font-family: Roboto;
+        font-weight: 400;
+        font-size: 10px;
+        line-height: 12px;
+        white-space: initial;
+      }
+
+      #foundimagesinnerdiv {
+        white-space: nowrap;
+        font-size: 14px;
+      }
+
+      #foundimagesinnerdiv > * {
+        padding: 5px 0;
+      }
+
+      #numimagesfound {
+        display: flex;
+        gap: 5px;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #3c3c3c;
+          --darkerbg: #282828;
+          --bgpng: #4a4a4a;
+          --fc: #e8eaed;
+        }
+        body {
+          color: var(--fc);
+        }
+        a {
+          color: #27a5ff;
+        }
+        .filters svg {
+          filter: invert(0.9);
+        }
+        .captureSelection .hint {
+          background: var(--bg);
+          color: var(--fc);
+        }
+        .captureSelection .hint:after {
+          border-bottom-color: var(--bg);
+        }
+        .statusdivcontainer {
+          background-color: var(--darkerbg);
+          border-bottom: none;
+          box-shadow: none;
+        }
+        .rightPrefsContainer{
+          background-color: var(--darkerbg);
+        }
+        #showPrefs img {
+          filter: invert(1);
+          opacity: 0.9;
+          /*background-color: var(--fc);*/
+        }
+        #showPrefs:hover img {
+          opacity: 1;
+        }
+        .selectMenu {
+          background-color: var(--darkerbg);
+          /*border-color: var(--darkerbg);*/
+          box-shadow: 0.05em 4px 0.6em rgb(0 0 0 / 40%);
+        }
+        .selectMenu input[type="text"],
+        .selectMenu input[type="number"] {
+          background-color: transparent !important;
+          color: var(--fc);
+        }
+        .selectMenu>div:hover {
+          background-color: rgba(255, 255, 255, 0.08);
+        }
+        #imgsContainer {
+          background-color: var(--darkerbg);
+        }
+        #imgsContainer::-webkit-scrollbar {
+          background: transparent;
+          width: 8px;
+        }
+        #imgsContainer::-webkit-scrollbar-thumb {
+          background: #027db7;
+          background-clip: content-box;
+          border: solid 1.5px transparent;
+          border-radius: 100px;
+        }
+        .imgContainer {
+          background-color: var(--bg);
+          box-shadow: none;
+        }
+        input[type="checkbox"] {
+          filter: invert(0.9);
+        }
+        .zoomIcon {
+          filter: invert(0.9);
+        }
+        .zoomIcon:hover,
+        input[type="checkbox"]:hover {
+          filter: invert(1);
+          opacity: 1 !important;
+        }
+        .imgInput {
+          background: var(--bg);
+          color: #ebebeb;
+        }
+        .imgActions {
+          background: var(--bg) 0.9;
+        }
+        .origImg {
+          background-color: var(--bg);
+          background-image: linear-gradient(45deg, var(--bgpng) 25%, transparent 25%, transparent 75%, var(--bgpng) 75%, var(--bgpng)), linear-gradient(45deg, var(--bgpng) 25%, transparent 25%, transparent 75%, var(--bgpng) 75%, var(--bgpng));
+        }
+        #prefsDiv>div,
+        #ratingDiv>div,
+        #manyfiles>div {
+          background-color: var(--bg) !important;
+        }
+        .download-button,
+        .downloadButton {
+          background-color: #3a3b3e;
+          border-color: #bfbfbf;
+        }
+        .downloadButton.cancelButton {
+          background-color: transparent;
+          border-color: #bfbfbf;
+          color: #bfbfbf;
+        }
+        .download-button:hover,
+        .downloadButton:hover {
+          border-color: #7a7e83;
+        }
+
+        .download-button:hover .download-button__right-part {
+          border-color: #7a7e83;
+        }
+        .prefsTip {
+          background-color: var(--darkerbg);
+        }
+        .imgSelected {
+          outline: 3px solid #b6babd;
+        }
+        .new {
+          background-color: #fff;
+          color: #000;
+        }
+        #reloadImageye {
+          filter: invert(1);
+        }
+        #sortTab .menuLabel img{
+          filter: invert(1);
+        }
+        .ui-widget.ui-widget-content {
+          border: 1px solid gray;
+          background: #333333;
+          color:#fff;
+        }
+        .tooltip{
+          background-color: var(--darkerbg);
+        }
+        .downloadImgAction p{
+          color:#c5c5c5 !important;
+        }
+        .prefsDownloadMenu input[type="text"],
+        .prefsDownloadMenu input[type="number"],
+        .prefsDownloadMenu select{
+          color:#fff;
+        }
+        .darksvg{
+          fill:#fff;
+        }
+        .selectMenu>div.selected::before {
+          filter: invert(0.8);
+        }
+        .selectMenu>div.zeroResults{
+          color:var(--bgpng);
+        }
+        #prefsDiv .popupEl > div {
+          border-bottom: 1px solid #696969;
+        }
+      }
+    </style>
+</head>
+
+<body>
+<div id="bootLoading">Loading Imageye...</div>
+<div id="container" style="ddisplay:none;">
+    <div class="statusdivcontainer">
+        <div id="statusdiv" style="padding: 8px 0px 8px 0px;">
+            <table style="width:100%;" cellspacing="0" cellpadding="0">
+                <tr>
+                    <td>
+                        <div id="foundimagesinnerdiv">
+                            <span messagesKey="searchingImagesLabel" id="searchingimages" class="localizedSpan">Searching images...</span>
+                            <div id="numimagesfound" style="display:none;">
+                                <img id="reloadImageye" src="reload.png" />
+                                <div messagesKey="foundLabel">Found <span>%n</span> images</div>
+                            </div>
+                        </div>
+                        <button messagesKey="stopImageSearchLabel" id="stopImageSearch" class="downloadButton --small" style="display:none;">Stop image search</button>
+                        <div id="downloadButton" class="download-button">
+                            <div class="download-button__content">
+                                <div class="download-button__left-part">
+                                    <img src='data:image/svg+xml;utf8;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iaXNvLTg4NTktMSI/Pgo8IS0tIEdlbmVyYXRvcjogQWRvYmUgSWxsdXN0cmF0b3IgMTYuMC4wLCBTVkcgRXhwb3J0IFBsdWctSW4gLiBTVkcgVmVyc2lvbjogNi4wMCBCdWlsZCAwKSAgLS0+CjwhRE9DVFlQRSBzdmcgUFVCTElDICItLy9XM0MvL0RURCBTVkcgMS4xLy9FTiIgImh0dHA6Ly93d3cudzMub3JnL0dyYXBoaWNzL1NWRy8xLjEvRFREL3N2ZzExLmR0ZCI+CjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgdmVyc2lvbj0iMS4xIiBpZD0iQ2FwYV8xIiB4PSIwcHgiIHk9IjBweCIgd2lkdGg9IjI0cHgiIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAwIDUyLjc1NiA1Mi43NTciIHN0eWxlPSJlbmFibGUtYmFja2dyb3VuZDpuZXcgMCAwIDUyLjc1NiA1Mi43NTc7IiB4bWw6c3BhY2U9InByZXNlcnZlIj4KPGc+Cgk8Zz4KCQk8Zz4KCQkJPHBhdGggZD0iTTI2LjEwNiwyOS4wNTlsMTAuNTIzLTEwLjUyM2MxLjA0Ny0xLjAyNCwwLjgxMy0xLjc0Ni0wLjY0OS0xLjc0NmgtNS44NzNMMzAuMTA4LDRjMC0yLjIwOS0xLjc5LTQtNC00bDAsMCAgICAgYy0yLjIwOSwwLTQsMS43OTEtNCw0bC0wLjAwMSwxMi43ODloLTUuODc2Yy0xLjQ2Mi0wLjAwMS0xLjY5MywwLjcyMy0wLjY0NiwxLjc0N0wyNi4xMDYsMjkuMDU5eiIgZmlsbD0iI0ZGRkZGRiIvPgoJCQk8cGF0aCBkPSJNNDkuMDI3LDI1Ljc3aC02LjA0OWMtMC41NTQsMC0xLDAuNDQ3LTEsMXYxNy45MzlIMTAuNzhWMjYuNzdjMC0wLjU1My0wLjQ0Ny0xLTEtMUgzLjczMWMtMC41NTMsMC0xLDAuNDQ3LTEsMXYyMC40NjQgICAgIGMwLDMuMDQ1LDIuNDc5LDUuNTIyLDUuNTI0LDUuNTIyaDM2LjI0OGMzLjA0NiwwLDUuNTIzLTIuNDc5LDUuNTIzLTUuNTIyVjI2Ljc3QzUwLjAyNywyNi4yMTcsNDkuNTgxLDI1Ljc3LDQ5LjAyNywyNS43N3oiIGZpbGw9IiNGRkZGRkYiLz4KCQk8L2c+Cgk8L2c+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPC9zdmc+Cg==' />
+                                    <label><!--will populate in popup.js--></label>
+                                </div>
+                                <div class="download-button__right-part">
+                                    <svg class="MuiSvgIcon-root" focusable="false" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"></path></svg>
+                                </div>
+                            </div>
+                            <div class="download-button__menu selectMenu">
+                                <div class="input-group">
+                                    <div class="input-group__label">Subfolder Name:</div>
+                                    <div class="input-group__form">
+                                        <span class="showTooltipOnHover">
+                                            <input type="text" id="savefoldername" autocomplete="one-time-code">
+                                            <div class="tooltip">
+                                                <p>Specify the subfolder where to download images.</p>
+                                                <p>Enter <b>basedonurl</b> to create separate folders for each url.</p>
+                                                <p>Leave empty to download to default folder.</p>
+                                            </div>
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="input-group">
+                                    <div class="input-group__label">File name:</div>
+                                    <div class="input-group__form">
+                                        <select id="saveFileAs" data-value="SYSTEM_NAME">
+                                            <option value="SYSTEM_NAME" selected>System name</option>
+                                            <option value="ORIGINAL_FILE_NAME">Original File Name</option>
+                                            <option value="CUSTOM_NAME">Custom Name</option>
+                                        </select>
+                                        <span class="showTooltipOnHover tip__custom-name --margin-top-14">
+                                            <input type="text" id="saveFileName" autocomplete="one-time-code" placeholder="Type here">
+                                            <div class="tooltip">
+                                                <p>Choose a new name for the saved images. Can't be empty.</p>
+                                            </div>
+                                        </span>
+                                        <span class="tip__system-name --margin-top-2">
+                                            System name is automatically generated: imgi_{number}_{name}.{format}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="input-group">
+                                  <div class="input-group__label">Convert</div>
+                                  <div class="input-group__form --flex-direction-row">
+                                    <select id="convertFrom">
+                                      <option value="">None</option>
+                                      <option value="ALL">All images</option>
+                                      <option value="WEBP">WEBP</option>
+                                      <option value="SVG">SVG</option>
+                                      <option value="PNG">PNG</option>
+                                      <option value="GIF">GIF</option>
+                                      <option value="JPG">JPG</option>
+                                      <option value="BMP">BMP</option>
+                                      <option value="ICO">ICO</option>
+                                      <option value="TIFF">TIFF</option>
+                                      <option value="AVIF">AVIF</option>
+                                    </select>
+                                    <span class="to-label">&nbsp;to&nbsp;</span>
+                                    <select id="convertTo">
+                                      <option value="jpeg">JPEG</option>
+                                      <option value="png">PNG</option>
+                                      <option value="webp">WEBP</option>
+                                    </select>
+                                  </div>
+                                </div>
+
+                                <div class="checkbox-group">
+                                    <input type="checkbox" name="downloadAsZip" id="downloadAsZip">
+                                    <label for="downloadAsZip">Download as <b>.ZIP</b></label>
+                                </div>
+                                <div class="button-group">
+                                  <button id="saveDownloadOptionsButton" class="downloadButton">Save download options</button>
+                              </div>
+                            </div>
+                        </div>
+                    </td>
+                    <td style="width:100%;">
+                        <div id="selectalla" messagesKey="selectall" class="downloadButton cancelButton localizedSpan --small" style="visibility:hidden;">
+                            Select all
+                        </div>
+                        <div class="rightPrefsContainer">
+                            <div id="showPrefs" style="float:right;cursor:pointer;margin-top:2px;position:relative;">
+                                <div class="new">new</div>
+                                <img style="height: 17px;top: 2px;position: relative;" src="data:image/svg+xml;utf8;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iaXNvLTg4NTktMSI/Pgo8IS0tIEdlbmVyYXRvcjogQWRvYmUgSWxsdXN0cmF0b3IgMTkuMS4wLCBTVkcgRXhwb3J0IFBsdWctSW4gLiBTVkcgVmVyc2lvbjogNi4wMCBCdWlsZCAwKSAgLS0+CjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgdmVyc2lvbj0iMS4xIiBpZD0iQ2FwYV8xIiB4PSIwcHgiIHk9IjBweCIgdmlld0JveD0iMCAwIDQ3OC43MDMgNDc4LjcwMyIgc3R5bGU9ImVuYWJsZS1iYWNrZ3JvdW5kOm5ldyAwIDAgNDc4LjcwMyA0NzguNzAzOyIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSIgd2lkdGg9IjUxMnB4IiBoZWlnaHQ9IjUxMnB4Ij4KPGc+Cgk8Zz4KCQk8cGF0aCBkPSJNNDU0LjIsMTg5LjEwMWwtMzMuNi01LjdjLTMuNS0xMS4zLTgtMjIuMi0xMy41LTMyLjZsMTkuOC0yNy43YzguNC0xMS44LDcuMS0yNy45LTMuMi0zOC4xbC0yOS44LTI5LjggICAgYy01LjYtNS42LTEzLTguNy0yMC45LTguN2MtNi4yLDAtMTIuMSwxLjktMTcuMSw1LjVsLTI3LjgsMTkuOGMtMTAuOC01LjctMjIuMS0xMC40LTMzLjgtMTMuOWwtNS42LTMzLjIgICAgYy0yLjQtMTQuMy0xNC43LTI0LjctMjkuMi0yNC43aC00Mi4xYy0xNC41LDAtMjYuOCwxMC40LTI5LjIsMjQuN2wtNS44LDM0Yy0xMS4yLDMuNS0yMi4xLDguMS0zMi41LDEzLjdsLTI3LjUtMTkuOCAgICBjLTUtMy42LTExLTUuNS0xNy4yLTUuNWMtNy45LDAtMTUuNCwzLjEtMjAuOSw4LjdsLTI5LjksMjkuOGMtMTAuMiwxMC4yLTExLjYsMjYuMy0zLjIsMzguMWwyMCwyOC4xICAgIGMtNS41LDEwLjUtOS45LDIxLjQtMTMuMywzMi43bC0zMy4yLDUuNmMtMTQuMywyLjQtMjQuNywxNC43LTI0LjcsMjkuMnY0Mi4xYzAsMTQuNSwxMC40LDI2LjgsMjQuNywyOS4ybDM0LDUuOCAgICBjMy41LDExLjIsOC4xLDIyLjEsMTMuNywzMi41bC0xOS43LDI3LjRjLTguNCwxMS44LTcuMSwyNy45LDMuMiwzOC4xbDI5LjgsMjkuOGM1LjYsNS42LDEzLDguNywyMC45LDguN2M2LjIsMCwxMi4xLTEuOSwxNy4xLTUuNSAgICBsMjguMS0yMGMxMC4xLDUuMywyMC43LDkuNiwzMS42LDEzbDUuNiwzMy42YzIuNCwxNC4zLDE0LjcsMjQuNywyOS4yLDI0LjdoNDIuMmMxNC41LDAsMjYuOC0xMC40LDI5LjItMjQuN2w1LjctMzMuNiAgICBjMTEuMy0zLjUsMjIuMi04LDMyLjYtMTMuNWwyNy43LDE5LjhjNSwzLjYsMTEsNS41LDE3LjIsNS41bDAsMGM3LjksMCwxNS4zLTMuMSwyMC45LTguN2wyOS44LTI5LjhjMTAuMi0xMC4yLDExLjYtMjYuMywzLjItMzguMSAgICBsLTE5LjgtMjcuOGM1LjUtMTAuNSwxMC4xLTIxLjQsMTMuNS0zMi42bDMzLjYtNS42YzE0LjMtMi40LDI0LjctMTQuNywyNC43LTI5LjJ2LTQyLjEgICAgQzQ3OC45LDIwMy44MDEsNDY4LjUsMTkxLjUwMSw0NTQuMiwxODkuMTAxeiBNNDUxLjksMjYwLjQwMWMwLDEuMy0wLjksMi40LTIuMiwyLjZsLTQyLDdjLTUuMywwLjktOS41LDQuOC0xMC44LDkuOSAgICBjLTMuOCwxNC43LTkuNiwyOC44LTE3LjQsNDEuOWMtMi43LDQuNi0yLjUsMTAuMywwLjYsMTQuN2wyNC43LDM0LjhjMC43LDEsMC42LDIuNS0wLjMsMy40bC0yOS44LDI5LjhjLTAuNywwLjctMS40LDAuOC0xLjksMC44ICAgIGMtMC42LDAtMS4xLTAuMi0xLjUtMC41bC0zNC43LTI0LjdjLTQuMy0zLjEtMTAuMS0zLjMtMTQuNy0wLjZjLTEzLjEsNy44LTI3LjIsMTMuNi00MS45LDE3LjRjLTUuMiwxLjMtOS4xLDUuNi05LjksMTAuOGwtNy4xLDQyICAgIGMtMC4yLDEuMy0xLjMsMi4yLTIuNiwyLjJoLTQyLjFjLTEuMywwLTIuNC0wLjktMi42LTIuMmwtNy00MmMtMC45LTUuMy00LjgtOS41LTkuOS0xMC44Yy0xNC4zLTMuNy0yOC4xLTkuNC00MS0xNi44ICAgIGMtMi4xLTEuMi00LjUtMS44LTYuOC0xLjhjLTIuNywwLTUuNSwwLjgtNy44LDIuNWwtMzUsMjQuOWMtMC41LDAuMy0xLDAuNS0xLjUsMC41Yy0wLjQsMC0xLjItMC4xLTEuOS0wLjhsLTI5LjgtMjkuOCAgICBjLTAuOS0wLjktMS0yLjMtMC4zLTMuNGwyNC42LTM0LjVjMy4xLTQuNCwzLjMtMTAuMiwwLjYtMTQuOGMtNy44LTEzLTEzLjgtMjcuMS0xNy42LTQxLjhjLTEuNC01LjEtNS42LTktMTAuOC05LjlsLTQyLjMtNy4yICAgIGMtMS4zLTAuMi0yLjItMS4zLTIuMi0yLjZ2LTQyLjFjMC0xLjMsMC45LTIuNCwyLjItMi42bDQxLjctN2M1LjMtMC45LDkuNi00LjgsMTAuOS0xMGMzLjctMTQuNyw5LjQtMjguOSwxNy4xLTQyICAgIGMyLjctNC42LDIuNC0xMC4zLTAuNy0xNC42bC0yNC45LTM1Yy0wLjctMS0wLjYtMi41LDAuMy0zLjRsMjkuOC0yOS44YzAuNy0wLjcsMS40LTAuOCwxLjktMC44YzAuNiwwLDEuMSwwLjIsMS41LDAuNWwzNC41LDI0LjYgICAgYzQuNCwzLjEsMTAuMiwzLjMsMTQuOCwwLjZjMTMtNy44LDI3LjEtMTMuOCw0MS44LTE3LjZjNS4xLTEuNCw5LTUuNiw5LjktMTAuOGw3LjItNDIuM2MwLjItMS4zLDEuMy0yLjIsMi42LTIuMmg0Mi4xICAgIGMxLjMsMCwyLjQsMC45LDIuNiwyLjJsNyw0MS43YzAuOSw1LjMsNC44LDkuNiwxMCwxMC45YzE1LjEsMy44LDI5LjUsOS43LDQyLjksMTcuNmM0LjYsMi43LDEwLjMsMi41LDE0LjctMC42bDM0LjUtMjQuOCAgICBjMC41LTAuMywxLTAuNSwxLjUtMC41YzAuNCwwLDEuMiwwLjEsMS45LDAuOGwyOS44LDI5LjhjMC45LDAuOSwxLDIuMywwLjMsMy40bC0yNC43LDM0LjdjLTMuMSw0LjMtMy4zLDEwLjEtMC42LDE0LjcgICAgYzcuOCwxMy4xLDEzLjYsMjcuMiwxNy40LDQxLjljMS4zLDUuMiw1LjYsOS4xLDEwLjgsOS45bDQyLDcuMWMxLjMsMC4yLDIuMiwxLjMsMi4yLDIuNnY0Mi4xSDQ1MS45eiIgZmlsbD0iIzAwMDAwMCIvPgoJCTxwYXRoIGQ9Ik0yMzkuNCwxMzYuMDAxYy01NywwLTEwMy4zLDQ2LjMtMTAzLjMsMTAzLjNzNDYuMywxMDMuMywxMDMuMywxMDMuM3MxMDMuMy00Ni4zLDEwMy4zLTEwMy4zUzI5Ni40LDEzNi4wMDEsMjM5LjQsMTM2LjAwMSAgICB6IE0yMzkuNCwzMTUuNjAxYy00Mi4xLDAtNzYuMy0zNC4yLTc2LjMtNzYuM3MzNC4yLTc2LjMsNzYuMy03Ni4zczc2LjMsMzQuMiw3Ni4zLDc2LjNTMjgxLjUsMzE1LjYwMSwyMzkuNCwzMTUuNjAxeiIgZmlsbD0iIzAwMDAwMCIvPgoJPC9nPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+CjxnPgo8L2c+Cjwvc3ZnPgo="
+                                />
+                            </div>
+                            <div class="twoColsPref">
+                                <div>&nbsp;</div>
+                                <div>&nbsp;</div>
+                                <div>&nbsp;</div>
+                                <div>&nbsp;</div>
+                            </div>
+                            <div class="captureSelection hiddenInPopup">
+                                <svg class="darksvg" style="height: 16px;width:16px;" version="1.0" xmlns="http://www.w3.org/2000/svg" width="512pt" height="512pt" fill="#000000" viewBox="0 0 512 512"><g transform="translate(0,512) scale(0.1,-0.1)" stroke="none"><path d="M748 5110 c-285 -48 -523 -234 -629 -492 -56 -136 -59 -173 -59 -683 l0 -465 155 0 155 0 0 443 c0 499 3 526 70 637 64 108 154 185 272 233 51 21 68 22 501 25 l447 3 0 154 0 155 -432 -1 c-238 -1 -454 -5 -480 -9z"/><path d="M3470 4966 l0 -156 388 0 c213 0 419 -5 457 -10 99 -14 214 -73 288 -147 71 -71 132 -188 147 -283 5 -36 10 -253 10 -487 l0 -423 156 0 155 0 -4 493 c-4 549 -2 534 -78 697 -100 214 -276 366 -504 437 l-90 27 -462 4 -463 3 0 -155z"/><path d="M2460 3075 l0 -365 -360 0 -360 0 0 -155 0 -155 360 0 360 0 0 -365 0 -365 160 0 160 0 0 365 0 365 385 0 385 0 0 155 0 155 -385 0 -385 0 0 365 0 365 -160 0 -160 0 0 -365z"/><path d="M52 1173 l4 -488 27 -88 c79 -255 240 -431 486 -531 129 -52 174 -56 646 -56 l435 0 0 155 0 155 -409 0 c-229 0 -432 4 -462 10 -170 31 -325 169 -392 348 -20 55 -21 77 -25 520 l-3 462 -155 0 -155 0 3 -487z"/><path d="M4750 1212 c0 -364 -3 -458 -15 -505 -45 -174 -180 -315 -356 -373 -47 -16 -106 -18 -481 -22 l-428 -4 0 -154 0 -155 458 3 c435 4 460 5 529 26 260 79 449 243 544 474 56 136 59 173 59 688 l0 470 -155 0 -155 0 0 -448z"/></g></svg>
+                                <div class="hint">
+                                    Capture your image!
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                <tr id="toolsDiv">
+                    <td colspan="2">
+                        <div class="filters" style="width:100%;position: relative;box-sizing: border-box;">
+                            <div id="sizeTab" tabindex="0">
+                                <span class="menuLabel">Size</span><svg class="MuiSvgIcon-root" focusable="false" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"></path></svg>
+                                <div class="selectMenu sizeMenu">
+                                    <div sizeConf="any" class="selected">Any</div>
+                                    <div sizeConf="small">Small</div>
+                                    <div sizeConf="medium">Medium</div>
+                                    <div sizeConf="large">Large</div>
+                                    <div sizeConf="custom">At least <input type="number" value="0" id="minwidthinput" class="filterInput noSelect">&times;<input type="number" value="0" id="minheightinput" class="filterInput noSelect"></div>
+                                    <div class="savesize" saveSize="true">Save size selection</div>
+                                </div>
+                            </div>
+                            <div tabindex="1">
+                                <span class="menuLabel">Type</span><svg class="MuiSvgIcon-root" focusable="false" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"></path></svg>
+                                <div class="selectMenu typeMenu">
+                                    <div typeConf="any" class="selected">Any</div>
+                                    <div typeConf="JPG">JPG</div>
+                                    <div typeConf="GIF">GIF</div>
+                                    <div typeConf="PNG">PNG</div>
+                                    <div typeConf="BMP">BMP</div>
+                                    <div typeConf="SVG">SVG</div>
+                                    <div typeConf="WEBP">WEBP</div>
+                                    <div typeConf="ICO">ICO</div>
+                                    <div typeConf="TIFF">TIFF</div>
+                                    <div typeConf="AVIF">AVIF</div>
+                                </div>
+                            </div>
+                            <div tabindex="2">
+                                <span class="menuLabel">Layout</span><svg class="MuiSvgIcon-root" focusable="false" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"></path></svg>
+                                <div class="selectMenu layoutMenu">
+                                    <div layoutConf="any" class="selected">Any</div>
+                                    <div layoutConf="square">Square</div>
+                                    <div layoutConf="wide">Wide</div>
+                                    <div layoutConf="tall">Tall</div>
+                                </div>
+                            </div>
+                            <div tabindex="3">
+                                <span class="menuLabel">URL</span><svg class="MuiSvgIcon-root" focusable="false" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"></path></svg>
+                                <div class="selectMenu">
+                                    <div style="padding-left:10px;">
+                                        <input type="text" id="filterbyurlinput" autocomplete="off" placeholder="Filter by URL or name" style="height:30px;width:100%;font-size:14px;box-sizing:border-box;padding-left:6px;border:1px solid #c5c5c5;border-radius:5px;background:#fff;" class="noSelect" />
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="sortTab" tabindex="4" style="position: absolute;right: 1px;top: 12px;padding: 0px;margin-right: 0px;">
+                                <span class="menuLabel"><img src="filters.png"></span>
+                                <div class="selectMenu sortMenu">
+                                    <div sortconf="pixels" class="selected">Pixel Size</div>
+                                    <div sortconf="index">Position in Page (beta)</div>
+                                </div>
+                            </div>
+                            <div class="clearFilters" style="display:none;padding-right: 10px;margin-right: 0px;">
+                                <span class="menuLabel">Clear</span>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div id="imgsContainer">
+        <div id="spinner" class="spinner">
+            <span id="processedImages" style="position: absolute;top: -38px;left: 50%;transform:translateX(-50%);white-space:nowrap;">Loading...</span>
+            <div class="bounce1"></div>
+            <div class="bounce2"></div>
+            <div class="bounce3"></div>
+        </div>
+    </div>
+</div>
+<script type="text/javascript" src="external/jquery-3.7.1.min.js"></script>
+<script type="text/javascript" src="external/jquery-ui.min.js"></script>
+<script type="text/javascript" src="sanitize.js"></script>
+<script type="text/javascript" src="popup.js"></script>
+<div id="manyfiles" class="popupContainer">
+    <div class="popupEl">
+        <h2><span messagesKey="manyfilesnum" class="localizedSpan" id="manyfilesnum">Download %n images</span></h2>
+        <p id="chromemanyfileswarning">
+            <span messagesKey="makesurechrome" class="localizedSpan">Make sure you don't have selected the 'Ask where to save each file before downloading' checkbox in <a href="chrome://settings/downloads" target="_blank">Chrome Settings --> Advanced --> Download section.</a></span><br>
+            <br>
+            <span messagesKey="otherwisechrome" class="localizedSpan">Otherwise Chrome by design will popup the Save as... dialog for each file :-(</span>
+        </p>
+        <p id="firefoxmanyfileswarning" style="display:none;">
+            <span messagesKey="makesurefirefox" class="localizedSpan">Make sure you don't have selected the 'Always ask where to save files' checkbox in Firefox Settings --> Files and Applications section.</span><br>
+            <br>
+            <span messagesKey="otherwisefirefox" class="localizedSpan">Otherwise Firefox by design will popup the Save as... dialog for each file :-(</span>
+        </p>
+        <p>
+            <input type="checkbox" name="donotbotherme" id="donotbotherme" /> <label for="donotbotherme" messagesKey="donotshowdialogagain" class="localizedSpan">Do not show this dialog again</label>
+        </p>
+        <div style="float:left;position: relative;left:50%;transform: translateX(-50%);margin-top:12px;margin-bottom: 18px; font-size:16px;">
+            <div id="manyfilesdownload" class="downloadButton">
+                <img style="left:11px;top:12px;" src='data:image/svg+xml;utf8;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iaXNvLTg4NTktMSI/Pgo8IS0tIEdlbmVyYXRvcjogQWRvYmUgSWxsdXN0cmF0b3IgMTYuMC4wLCBTVkcgRXhwb3J0IFBsdWctSW4gLiBTVkcgVmVyc2lvbjogNi4wMCBCdWlsZCAwKSAgLS0+CjwhRE9DVFlQRSBzdmcgUFVCTElDICItLy9XM0MvL0RURCBTVkcgMS4xLy9FTiIgImh0dHA6Ly93d3cudzMub3JnL0dyYXBoaWNzL1NWRy8xLjEvRFREL3N2ZzExLmR0ZCI+CjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgdmVyc2lvbj0iMS4xIiBpZD0iQ2FwYV8xIiB4PSIwcHgiIHk9IjBweCIgd2lkdGg9IjI0cHgiIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAwIDUyLjc1NiA1Mi43NTciIHN0eWxlPSJlbmFibGUtYmFja2dyb3VuZDpuZXcgMCAwIDUyLjc1NiA1Mi43NTc7IiB4bWw6c3BhY2U9InByZXNlcnZlIj4KPGc+Cgk8Zz4KCQk8Zz4KCQkJPHBhdGggZD0iTTI2LjEwNiwyOS4wNTlsMTAuNTIzLTEwLjUyM2MxLjA0Ny0xLjAyNCwwLjgxMy0xLjc0Ni0wLjY0OS0xLjc0NmgtNS44NzNMMzAuMTA4LDRjMC0yLjIwOS0xLjc5LTQtNC00bDAsMCAgICAgYy0yLjIwOSwwLTQsMS43OTEtNCw0bC0wLjAwMSwxMi43ODloLTUuODc2Yy0xLjQ2Mi0wLjAwMS0xLjY5MywwLjcyMy0wLjY0NiwxLjc0N0wyNi4xMDYsMjkuMDU5eiIgZmlsbD0iI0ZGRkZGRiIvPgoJCQk8cGF0aCBkPSJNNDkuMDI3LDI1Ljc3aC02LjA0OWMtMC41NTQsMC0xLDAuNDQ3LTEsMXYxNy45MzlIMTAuNzhWMjYuNzdjMC0wLjU1My0wLjQ0Ny0xLTEtMUgzLjczMWMtMC41NTMsMC0xLDAuNDQ3LTEsMXYyMC40NjQgICAgIGMwLDMuMDQ1LDIuNDc5LDUuNTIyLDUuNTI0LDUuNTIyaDM2LjI0OGMzLjA0NiwwLDUuNTIzLTIuNDc5LDUuNTIzLTUuNTIyVjI2Ljc3QzUwLjAyNywyNi4yMTcsNDkuNTgxLDI1Ljc3LDQ5LjAyNywyNS43N3oiIGZpbGw9IiNGRkZGRkYiLz4KCQk8L2c+Cgk8L2c+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPGc+CjwvZz4KPC9zdmc+Cg=='
+                />
+                <span messagesKey="download" class="localizedSpan">Download</span>
+            </div>
+            <div id="manyfilescancel" class="downloadButton cancelButton" style="padding-left:12px;margin-left:10px;">
+                <span messagesKey="cancel" class="localizedSpan">Cancel</span>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="prefsDiv" class="popupContainer">
+    <div class="popupEl">
+        <div style="border-bottom:none;"><big style="font-size:20px;">Preferences</big></div>
+        <div class="go-gather --hidden">
+            <i class="go-gather__close"></i>
+            <img class="go-gather__logo" src="/go_gather_logo.svg" alt="go-gather">
+            <div class="go-gather__title">Collect Images on iOS</div>
+            <div class="go-gather__text">Built for content pros - gather inspiration on iPhone or iPad, manage on desktop</div>
+            <a class="go-gather__button" href="https://www.gogather.mobi/lp" target="_blank">Tell me more</a>
+        </div>
+        <div class="displayInSidePanelPref" style="position:relative;">
+            <input type="checkbox" id="displayInSidePanel" /><label for="displayInSidePanel">Display in Side Panel</label>
+        </div>
+        <div class="hiddenInSidePanel" style="position:relative;">
+            <input type="checkbox" id="biggerview" /><label for="biggerview">Bigger layout</label>
+        </div>
+        <div style="position:relative;display:none;">
+            <input type="checkbox" id="twocols" /><label for="twocols">Display images in two columns<span class="hiddenInPopup">, if possible.</span></label>
+        </div>
+        <div>
+            <input type="checkbox" id="downloadseparatefolder" /><label for="downloadseparatefolder">Specify Download Options</label>
+            <div style="display:none;padding:10px 5px 5px 18px;" id="downloadocationcontainer">
+                <div class="prefsDownloadMenu" style="margin-left: 0px;">
+                    <div style="color: inherit;">
+                        <div style="width: 110px;display: inline-block;">Subfolder Name:</div>
+                        <span class="showTooltipOnHover">
+                                <input type="text" id="savefoldernamePrefs" autocomplete="one-time-code">
+                                <div class="tooltip">
+                                    <p>Specify the subfolder where to download images.</p>
+                                    <p>Enter <b>basedonurl</b> to create separate folders for each url.</p>
+                                    <p>Leave empty to download to default folder.</p>
+                                </div>
+                            </span>
+                    </div>
+                    <div class="input-group">
+                        <div class="input-group__label">File name:</div>
+                        <div class="input-group__form">
+                            <select id="saveFileAsPref" data-value="SYSTEM_NAME">
+                                <option value="SYSTEM_NAME" selected>System name</option>
+                                <option value="ORIGINAL_FILE_NAME">Original File Name</option>
+                                <option value="CUSTOM_NAME">Custom Name</option>
+                            </select>
+                            <span class="showTooltipOnHover tip__custom-name --margin-top-5">
+                                <input type="text" id="saveFileNamePref" autocomplete="one-time-code" placeholder="Type here">
+                                <div class="tooltip">
+                                    <p>Choose a new name for the saved images. Can't be empty.</p>
+                                </div>
+                            </span>
+                            <span class="tip__system-name --margin-top-2">
+                                System name is automatically generated: imgi_{number}_{name}.{format}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="convert-prefs" style="color: inherit;">
+                      <div style="width: 110px;display: inline-block;">Convert</div>
+                      <select id="convertFromPrefs">
+                        <option value="">None</option>
+                        <option value="ALL">All images</option>
+                        <option value="WEBP">WEBP</option>
+                        <option value="SVG">SVG</option>
+                        <option value="PNG">PNG</option>
+                        <option value="GIF">GIF</option>
+                        <option value="JPG">JPG</option>
+                        <option value="BMP">BMP</option>
+                        <option value="ICO">ICO</option>
+                        <option value="TIFF">TIFF</option>
+                        <option value="AVIF">AVIF</option>
+                      </select>
+                      <span class="to-label">&nbsp;to&nbsp;</span>
+                      <select id="convertToPrefs">
+                        <option value="jpeg">JPEG</option>
+                        <option value="png">PNG</option>
+                        <option value="webp">WEBP</option>
+                      </select>
+                    </div>
+
+                    <span class="prefsTip">
+                        Make sure that "Ask where to save each file before downloading" is unchecked in Browser Settings
+                    </span>
+                </div>
+            </div>
+        </div>
+        <div>
+            <input type="checkbox" id="donotbother" /><label for="donotbother">Do not show many files warning.</label>
+        </div>
+        <div>
+            <input type="checkbox" id="allframes" /><label for="allframes">Search in all frames, including adv and social.</label>
+        </div>
+        <div style="padding-top: 7px;">
+            <label>Open Imageye with Hotkey:</label>
+            <a id="openHotKeyPrefs" href="#" style="margin-left: 10px;background: var(--darkerbg);padding: 3px 5px;border:1px solid #7a7e83;border-radius: 4px;font-size: 14px;">ctrl-i</a>
+        </div>
+        <div style="position: relative;float:left;left:50%;padding-top:21px;padding-bottom: 10px;transform:translateX(-50%);border-bottom:none;">
+            <a href="https://imageye.net/donate" target="_blank" id="donate" class="downloadButton" style="margin-right: 10px;padding-left:12px;">
+                Donate
+            </a>
+            <div id="saveprefs" class="downloadButton" style="padding-right:26px;padding-left:26px;">
+                Save
+            </div>
+            <div id="saveprefscancel" class="downloadButton cancelButton" style="padding-left:12px;margin-left:10px;">
+                Cancel
+            </div>
+        </div>
+    </div>
+</div>
+<div id="ratingDiv" class="popupContainer">
+    <div class="popupEl">
+        <div><big>&hearts; Rate Us</big></div><br>
+        <div style="padding:5px 0px;">
+            If you love this extension, please take a moment to rate it
+        </div>
+        <div style="position: relative;left:94px;float: left;padding-bottom: 7px;padding-top: 13px;">
+            <div id="ratebutton" class="downloadButton" style="padding-right:26px;padding-left:26px;">
+                Rate
+            </div>
+            <div id="rateclose" class="downloadButton cancelButton" style="padding-left:12px;margin-left:10px;">
+                Close
+            </div>
+        </div>
+    </div>
+</div>
+<div id="goGatherDiv" class="popupContainer">
+  <div class="popupEl image-wrapper">
+    <div id="goGatherTopClick" class="clickable-top"></div>
+    <img
+      src="https://imageye.net/collect"
+    />
+  </div>
+</div>
+
+
+</body>
+</html>

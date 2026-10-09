@@ -367,6 +367,35 @@ async function executeCaptureOnTab(tabId) {
   } catch (e) {}
 
   // Capture viewport screenshot as fallback for any cleared WebGL canvases or protected media
+  // 0. Update declarativeNetRequest session rules to set Referer header matching the target page
+  try {
+    const tabInfo = await chrome.tabs.get(tabId);
+    if (tabInfo && tabInfo.url && (tabInfo.url.startsWith('http://') || tabInfo.url.startsWith('https://'))) {
+      const pageOrigin = new URL(tabInfo.url).origin;
+      if (chrome.declarativeNetRequest && typeof chrome.declarativeNetRequest.updateSessionRules === 'function') {
+        await chrome.declarativeNetRequest.updateSessionRules({
+          removeRuleIds: [8888],
+          addRules: [{
+            id: 8888,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders',
+              requestHeaders: [{
+                header: 'Referer',
+                operation: 'set',
+                value: pageOrigin + '/'
+              }]
+            },
+            condition: {
+              resourceTypes: ['image', 'xmlhttprequest', 'media'],
+              urlFilter: '*'
+            }
+          }]
+        });
+      }
+    }
+  } catch (e) {}
+
   let viewportScreenshot = null;
   try {
     viewportScreenshot = await chrome.tabs.captureVisibleTab(winId, { format: 'png' });
@@ -489,19 +518,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === 'FETCH_IMAGE') {
-    fetch(request.url)
-      .then(res => {
+    (async () => {
+      try {
+        const res = await fetch(request.url);
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.blob();
-      })
-      .then(blob => {
-        const reader = new FileReader();
-        reader.onloadend = () => sendResponse({ data: reader.result, error: null });
-        reader.readAsDataURL(blob);
-      })
-      .catch(err => {
-        sendResponse({ data: null, error: err.message });
-      });
+        const mime = res.headers.get('content-type') || 'image/png';
+        const buffer = await res.arrayBuffer();
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const chunkSize = 8192;
+        for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+          const chunk = bytes.subarray(i, i + chunkSize);
+          binary += String.fromCharCode.apply(null, chunk);
+        }
+        sendResponse({ data: `data:${mime};base64,${btoa(binary)}`, error: null });
+      } catch (err) {
+        sendResponse({ data: null, error: err.message || String(err) });
+      }
+    })();
     return true;
   }
 
