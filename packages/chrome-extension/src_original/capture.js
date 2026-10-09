@@ -2420,8 +2420,14 @@
       }
     }
     if (el instanceof HTMLImageElement) {
-      if (el.currentSrc) attrs.currentSrc = el.currentSrc;
-      if (el.src) attrs.src = el.src;
+      const best = typeof getBestImageUrl === 'function' ? getBestImageUrl(el) : null;
+      if (best && (!best.startsWith('data:image/') || best.length > 3000)) {
+        attrs.src = best;
+        attrs.currentSrc = best;
+      } else {
+        if (el.currentSrc) attrs.currentSrc = el.currentSrc;
+        if (el.src) attrs.src = el.src;
+      }
     }
     if (el instanceof HTMLInputElement) {
       if (el.type) attrs.type = el.type;
@@ -5006,6 +5012,67 @@
     return false;
   }
 
+  function resolveAbsoluteUrl(u) {
+    if (!u) return u;
+    if (u.startsWith('data:') || u.startsWith('blob:')) return u;
+    try {
+      return new URL(u, document.baseURI).href;
+    } catch {
+      return u;
+    }
+  }
+
+  function getBestImageUrl(imgEl) {
+    if (!imgEl) return null;
+    let url = null;
+    // 1. Check parent <picture> <source> tags for best srcset URL
+    if (imgEl.parentElement instanceof HTMLPictureElement) {
+      const sources = Array.from(imgEl.parentElement.querySelectorAll('source'));
+      for (const s of sources) {
+        const srcset = s.getAttribute('srcset') || s.getAttribute('data-srcset');
+        if (srcset) {
+          const parts = srcset.split(',');
+          const candidate = parts[parts.length - 1].trim().split(' ')[0];
+          if (candidate && !candidate.startsWith('data:image/')) {
+            url = resolveAbsoluteUrl(candidate);
+            break;
+          }
+        }
+      }
+    }
+    // 2. Check img srcset
+    if (!url) {
+      const srcset = imgEl.getAttribute('srcset') || imgEl.getAttribute('data-srcset');
+      if (srcset) {
+        const parts = srcset.split(',');
+        const candidate = parts[parts.length - 1].trim().split(' ')[0];
+        if (candidate && !candidate.startsWith('data:image/')) {
+          url = resolveAbsoluteUrl(candidate);
+        }
+      }
+    }
+    // 3. currentSrc / src — skip tiny base64 placeholders (1x1 pixels < 3KB)
+    if (!url) {
+      const src = imgEl.currentSrc || imgEl.src;
+      if (src && (!src.startsWith('data:image/') || src.length > 3000)) {
+        url = resolveAbsoluteUrl(src);
+      }
+    }
+    // 4. Lazy-load data attributes
+    if (!url) {
+      const candidate = imgEl.getAttribute('data-src') ||
+                        imgEl.getAttribute('data-lazy-src') ||
+                        imgEl.getAttribute('data-original') ||
+                        imgEl.getAttribute('data-image-src') ||
+                        imgEl.currentSrc ||
+                        imgEl.src;
+      if (candidate) {
+        url = resolveAbsoluteUrl(candidate);
+      }
+    }
+    return url || null;
+  }
+
   async function serializeNode(node, assets, fonts, parentStyles) {
     if (captureTimedOut) return null;
     if (node.nodeType === TEXT_NODE) {
@@ -5644,9 +5711,16 @@
 
     let isHidden = (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02);
 
-    // If an image is fully loaded with dimensions but marked hidden by lazy loading or poster classes (e.g. Porsche car cards), don't drop it!
-    if ((tag === 'IMG' || el instanceof HTMLImageElement) && (el.currentSrc || el.src) && (el.naturalWidth > 10 || el.complete)) {
-      if (styles.display !== 'none') {
+    // If an image has a real URL but is hidden by lazy-load CSS (opacity:0, visibility:hidden), don't drop it!
+    if (tag === 'IMG' || el instanceof HTMLImageElement || el instanceof HTMLPictureElement || tag === 'PICTURE') {
+      let hasImgUrl = false;
+      if (tag === 'IMG' || el instanceof HTMLImageElement) {
+        hasImgUrl = !!getBestImageUrl(el);
+      } else {
+        const imgChild = el.querySelector('img');
+        if (imgChild) hasImgUrl = !!getBestImageUrl(imgChild);
+      }
+      if (hasImgUrl && styles.display !== 'none') {
         styles.visibility = 'visible';
         styles.opacity = '1';
         isHidden = false;
@@ -5954,15 +6028,28 @@
     if (styles.fontFamily) fonts.addFont(styles.fontFamily);
 
     if (el instanceof HTMLImageElement) {
-      const url = el.currentSrc || el.src || el.getAttribute('data-src') || el.getAttribute('data-lazy-src') || el.getAttribute('data-original') || el.srcset?.split(',')[0]?.trim()?.split(' ')[0];
+      const url = getBestImageUrl(el);
       if (url) assets.addImage(url);
+      if (el.currentSrc && el.currentSrc !== url && (!el.currentSrc.startsWith('data:image/') || el.currentSrc.length > 3000)) {
+        assets.addImage(el.currentSrc);
+      }
+      if (el.src && el.src !== url && (!el.src.startsWith('data:image/') || el.src.length > 3000)) {
+        assets.addImage(el.src);
+      }
     } else if (el instanceof HTMLPictureElement) {
       const imgChild = el.querySelector('img');
       if (imgChild) {
-        const url = imgChild.currentSrc || imgChild.src || imgChild.getAttribute('data-src') || imgChild.getAttribute('data-lazy-src');
+        const url = getBestImageUrl(imgChild);
         if (url) assets.addImage(url);
+        if (imgChild.currentSrc && imgChild.currentSrc !== url && (!imgChild.currentSrc.startsWith('data:image/') || imgChild.currentSrc.length > 3000)) {
+          assets.addImage(imgChild.currentSrc);
+        }
+        if (imgChild.src && imgChild.src !== url && (!imgChild.src.startsWith('data:image/') || imgChild.src.length > 3000)) {
+          assets.addImage(imgChild.src);
+        }
       }
     }
+    
     const rawRepeat = styles.backgroundRepeat || '';
     const isRepeatingBg = rawRepeat && !rawRepeat.includes('no-repeat') && (rawRepeat.includes('repeat') || rawRepeat === 'round' || rawRepeat === 'space');
     const allImgProps = [styles.backgroundImage, styles.maskImage, styles.webkitMaskImage];
@@ -6098,7 +6185,7 @@
         }
       }
     } else if (el instanceof HTMLImageElement) {
-      const rawSrc = el.currentSrc || el.src || el.getAttribute('data-src') || el.getAttribute('data-lazy-src') || el.getAttribute('data-original') || el.getAttribute('src') || '';
+      const rawSrc = getBestImageUrl(el) || '';
       if (rawSrc.includes('.svg') || rawSrc.startsWith('data:image/svg+xml')) {
         try {
           let svgText = null;
@@ -6724,7 +6811,40 @@
       // 1. Scroll through page to activate lazy-loaded elements & image sources
       restorePage = await prepareAndScrollPage();
 
-      // 2. Decode all visible and lazy-loaded images (save original attributes for restoration)
+      // 2. Force-resolve lazy-loaded images that still have placeholder src (1x1 data-uri or missing src)
+      //    Sites like Porsche.com use IntersectionObserver to swap src from a tiny placeholder
+      //    to the real URL — but the 60ms scroll steps are too fast for the network to catch up.
+      //    We manually trigger the swap now by setting src/srcset from data attributes.
+      const allImgs = Array.from(document.querySelectorAll('img, picture img'));
+      for (const img of allImgs) {
+        try {
+          const realSrc = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') ||
+                          img.getAttribute('data-original') || img.getAttribute('data-image-src');
+          const realSrcset = img.getAttribute('data-srcset');
+          // Detect placeholder: tiny base64, or empty/missing src, or naturalWidth <= 1
+          const isPlaceholder = !img.currentSrc ||
+                                 (img.currentSrc.startsWith('data:image/') && img.currentSrc.length < 3000) ||
+                                 img.naturalWidth <= 1;
+          if (isPlaceholder && realSrc) {
+            img.src = realSrc;
+            if (realSrcset) img.srcset = realSrcset;
+          } else if (isPlaceholder && realSrcset) {
+            img.srcset = realSrcset;
+          }
+          // Also try parent <picture> <source> tags
+          if (isPlaceholder && img.parentElement instanceof HTMLPictureElement) {
+            const sources = Array.from(img.parentElement.querySelectorAll('source'));
+            for (const s of sources) {
+              const dss = s.getAttribute('data-srcset');
+              if (dss && !s.srcset) { s.srcset = dss; }
+            }
+          }
+        } catch (_) {}
+      }
+      // Wait for newly-triggered image loads to settle (network round-trip)
+      await new Promise(r => setTimeout(r, 1500));
+
+      // 3. Decode all visible and lazy-loaded images (save original attributes for restoration)
       const images = Array.from(document.images || []);
       savedImageAttrs = images.map(img => ({ img, decoding: img.decoding, loading: img.loading }));
       images.forEach(img => {
