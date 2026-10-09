@@ -490,14 +490,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.type === 'FETCH_IMAGE') {
     fetch(request.url)
-      .then(res => {
+      .then(async res => {
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.blob();
-      })
-      .then(blob => {
-        const reader = new FileReader();
-        reader.onloadend = () => sendResponse({ data: reader.result, error: null });
-        reader.readAsDataURL(blob);
+        const mime = res.headers.get('content-type') || 'image/png';
+        const buffer = await res.arrayBuffer();
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const chunkSize = 8192;
+        for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+          const chunk = bytes.subarray(i, i + chunkSize);
+          binary += String.fromCharCode.apply(null, chunk);
+        }
+        sendResponse({ data: `data:${mime};base64,${btoa(binary)}`, error: null });
       })
       .catch(err => {
         sendResponse({ data: null, error: err.message });

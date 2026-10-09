@@ -240,6 +240,9 @@ function clamp01(v) { return Math.max(0, Math.min(1, v)); }
  * ====================================================================== */
 function decodeBase64Image(base64Obj) {
   if (!base64Obj) return null;
+  if (typeof base64Obj === 'object' && base64Obj._cachedBytes) {
+    return base64Obj._cachedBytes;
+  }
   try {
     let dataStr = typeof base64Obj === 'string' ? base64Obj : (base64Obj.data || base64Obj.base64Blob || '');
     if (!dataStr) return null;
@@ -247,29 +250,49 @@ function decodeBase64Image(base64Obj) {
     const meta = commaIdx >= 0 ? dataStr.slice(0, commaIdx).toLowerCase() : '';
     let raw = commaIdx >= 0 ? dataStr.slice(commaIdx + 1) : dataStr;
 
+    let bytes = null;
     // Check if it is explicitly base64 encoded
     if (meta.includes(';base64')) {
-      return figma.base64Decode(raw.trim());
-    }
-
-    // Support UTF-8 or URL-encoded SVG/image data URIs
-    if (meta.startsWith('data:') || raw.trim().startsWith('<svg') || raw.trim().startsWith('%3csvg')) {
+      bytes = figma.base64Decode(raw.trim());
+    } else if (meta.startsWith('data:') || raw.trim().startsWith('<svg') || raw.trim().startsWith('%3csvg')) {
+      // Support UTF-8 or URL-encoded SVG/image data URIs
       let decoded = raw;
       try {
         decoded = decodeURIComponent(raw);
       } catch {}
       if (sharedTextEncoder) {
-        return sharedTextEncoder.encode(decoded);
+        bytes = sharedTextEncoder.encode(decoded);
+      } else {
+        bytes = new Uint8Array(decoded.length);
+        for (let i = 0; i < decoded.length; i++) {
+          bytes[i] = decoded.charCodeAt(i) & 0xff;
+        }
       }
-      const bytes = new Uint8Array(decoded.length);
-      for (let i = 0; i < decoded.length; i++) {
-        bytes[i] = decoded.charCodeAt(i) & 0xff;
-      }
-      return bytes;
+    } else {
+      bytes = figma.base64Decode(raw.trim());
     }
 
-    return figma.base64Decode(raw.trim());
+    if (bytes && typeof base64Obj === 'object') {
+      base64Obj._cachedBytes = bytes;
+    }
+    return bytes;
   } catch (e) {
+    return null;
+  }
+}
+
+function getOrCreateFigmaImage(blobObj, bytes) {
+  if (!bytes) return null;
+  if (blobObj && typeof blobObj === 'object' && blobObj._cachedFigmaImage) {
+    return blobObj._cachedFigmaImage;
+  }
+  try {
+    const img = figma.createImage(bytes);
+    if (img && blobObj && typeof blobObj === 'object') {
+      blobObj._cachedFigmaImage = img;
+    }
+    return img;
+  } catch {
     return null;
   }
 }
@@ -1895,7 +1918,8 @@ async function applyFills(node, styles, assets, nodeW, nodeH, hasChildren = fals
         const bytes = decodeBase64Image(blobObj);
         if (bytes) {
           try {
-            const img = figma.createImage(bytes);
+            const img = getOrCreateFigmaImage(blobObj, bytes);
+            if (!img) continue;
             
             const bgSize = ((isMask ? (styles.maskSize || styles.webkitMaskSize) : null) || styles.backgroundSize || 'auto').toLowerCase().trim();
             const posX = ((isMask ? (styles.maskPositionX || styles.webkitMaskPositionX) : null) || styles.backgroundPositionX || '0%').trim();
@@ -3487,9 +3511,12 @@ function getUnrotatedRectInRotationRoot(nodeRect, activeRotation, isText = false
 }
 
 let lastYieldTime = Date.now();
+let renderedNodeCount = 0;
 async function yieldIfNeeded() {
-  if (Date.now() - lastYieldTime > 30) {
-    await new Promise(resolve => setTimeout(resolve, 0));
+  renderedNodeCount++;
+  const now = Date.now();
+  if (renderedNodeCount % 35 === 0 || now - lastYieldTime > 40) {
+    await new Promise(resolve => setTimeout(resolve, 12));
     lastYieldTime = Date.now();
   }
 }
@@ -3924,7 +3951,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
             imgFrame.appendChild(rect);
             rect.x = 0; rect.y = 0;
             rect.resize(w, h);
-            const img = figma.createImage(bytes);
+            const img = getOrCreateFigmaImage(blobObj, bytes);
+            if (!img) { reportProgress(); return null; }
             const objFit = (s.objectFit || 'fill').toLowerCase().trim();
             let fillScaleMode = 'CROP';
             let fillTransform = [[1, 0, 0], [0, 1, 0]];
@@ -3971,7 +3999,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
 
           rect.x = x; rect.y = y;
           rect.resize(w, h);
-          const img = figma.createImage(bytes);
+          const img = getOrCreateFigmaImage(blobObj, bytes);
+          if (!img) { reportProgress(); return null; }
           const objFit = (s.objectFit || 'fill').toLowerCase().trim();
           const isIconImg = (sNode.id && sNode.id.includes('icon')) || sNode.attributes?.alt === 'icon';
           let fillScaleMode = isIconImg ? 'FIT' : 'CROP';
@@ -4089,8 +4118,8 @@ async function renderNode(sNode, parentFrame, parentX, parentY, assets, inherite
           parentFrame.appendChild(rect);
           rect.x = x; rect.y = y;
           rect.resize(w, h);
-          const img = figma.createImage(bytes);
-          rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+          const img = getOrCreateFigmaImage(blobObj, bytes);
+          if (img) rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
           applyStrokes(rect, s);
           applyEffects(rect, s, currentBgColor);
           applyCornerRadius(rect, s);

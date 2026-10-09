@@ -1588,17 +1588,23 @@
 
     const MAX_SIZE = 2560; // Keep safely high-res while preventing massive memory blowout in Figma
 
+    let _sharedTestCanvas = null;
+    let _sharedTestCtx = null;
     function isCanvasOpaque(c, ctx, w, h) {
       try {
         // Fast test on downscaled 32x32 canvas for transparent pixels
         const scW = Math.min(32, w);
         const scH = Math.min(32, h);
-        const testC = document.createElement('canvas');
-        testC.width = scW;
-        testC.height = scH;
-        const testCtx = testC.getContext('2d', { willReadFrequently: true });
-        testCtx.drawImage(c, 0, 0, scW, scH);
-        const data = testCtx.getImageData(0, 0, scW, scH).data;
+        if (!_sharedTestCanvas) {
+          _sharedTestCanvas = document.createElement('canvas');
+          _sharedTestCanvas.width = 32;
+          _sharedTestCanvas.height = 32;
+          _sharedTestCtx = _sharedTestCanvas.getContext('2d', { willReadFrequently: true });
+        }
+        if (!_sharedTestCtx) return false;
+        _sharedTestCtx.clearRect(0, 0, 32, 32);
+        _sharedTestCtx.drawImage(c, 0, 0, scW, scH);
+        const data = _sharedTestCtx.getImageData(0, 0, scW, scH).data;
         for (let i = 3; i < data.length; i += 4) {
           if (data[i] < 250) return false; // Has transparency
         }
@@ -2052,9 +2058,30 @@
   }
 
   class AssetCollector {
-    constructor() {
-      this.promises = new Map();
+    constructor(concurrency = 6) {
+      this.concurrency = concurrency;
+      this.activeCount = 0;
+      this.queue = [];
+      this.entries = new Map();
       this.rasterizedId = 0;
+    }
+    _enqueue(taskFn) {
+      return new Promise((resolve, reject) => {
+        this.queue.push({ taskFn, resolve, reject });
+        this._pump();
+      });
+    }
+    _pump() {
+      while (this.activeCount < this.concurrency && this.queue.length > 0) {
+        const { taskFn, resolve, reject } = this.queue.shift();
+        this.activeCount++;
+        taskFn()
+          .then(resolve, reject)
+          .finally(() => {
+            this.activeCount--;
+            this._pump();
+          });
+      }
     }
     addImage(url, forcePng = false) {
       if (!url) return;
@@ -2062,10 +2089,16 @@
       try {
         absoluteUrl = new URL(url, document.baseURI).href;
       } catch {}
-      if (this.promises.has(absoluteUrl)) return;
-      this.promises.set(absoluteUrl, fetchImage(absoluteUrl, forcePng));
+      if (this.entries.has(absoluteUrl)) {
+        if (url !== absoluteUrl && !this.entries.has(url)) {
+          this.entries.set(url, this.entries.get(absoluteUrl));
+        }
+        return;
+      }
+      const promise = this._enqueue(() => fetchImage(absoluteUrl, forcePng));
+      this.entries.set(absoluteUrl, promise);
       if (url !== absoluteUrl) {
-        this.promises.set(url, this.promises.get(absoluteUrl));
+        this.entries.set(url, promise);
       }
     }
     addFadedImage(url, fadeLeftPct = 0.18, fadeRightPct = 0.18) {
@@ -2074,33 +2107,41 @@
       try {
         absoluteUrl = new URL(url, document.baseURI).href;
       } catch {}
-      if (this.promises.has(absoluteUrl)) return;
-      this.promises.set(absoluteUrl, fetchFadedImage(absoluteUrl, fadeLeftPct, fadeRightPct));
+      if (this.entries.has(absoluteUrl)) {
+        if (url !== absoluteUrl && !this.entries.has(url)) {
+          this.entries.set(url, this.entries.get(absoluteUrl));
+        }
+        return;
+      }
+      const promise = this._enqueue(() => fetchFadedImage(absoluteUrl, fadeLeftPct, fadeRightPct));
+      this.entries.set(absoluteUrl, promise);
       if (url !== absoluteUrl) {
-        this.promises.set(url, this.promises.get(absoluteUrl));
+        this.entries.set(url, promise);
       }
     }
     addCanvas(canvas) {
       const id = `rasterized:canvas:${++this.rasterizedId}`;
-      this.promises.set(id, rasterizeCanvas(canvas).then(blob => ({ url: id, blob })));
+      const promise = this._enqueue(() => rasterizeCanvas(canvas).then(blob => ({ url: id, blob })));
+      this.entries.set(id, promise);
       return id;
     }
     addDataUrl(dataUrl) {
       if (!dataUrl) return;
       const b64Data = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
       const blobObj = { type: 'image/png', data: b64Data };
-      this.promises.set(dataUrl, Promise.resolve({ url: dataUrl, blob: blobObj }));
+      this.entries.set(dataUrl, Promise.resolve({ url: dataUrl, blob: blobObj }));
       return dataUrl;
     }
     addVideo(video) {
       const id = `rasterized:video:${++this.rasterizedId}`;
-      this.promises.set(id, rasterizeVideo(video).then(blob => ({ url: id, blob })));
+      const promise = this._enqueue(() => rasterizeVideo(video).then(blob => ({ url: id, blob })));
+      this.entries.set(id, promise);
       return id;
     }
     async getBlobMap() {
-      const ASSET_TIMEOUT = 20000;
+      const ASSET_TIMEOUT = 25000;
       const map = {};
-      const entries = Array.from(this.promises.entries());
+      const entries = Array.from(this.entries.entries());
       const results = await Promise.allSettled(
         entries.map(([url, p]) =>
           Promise.race([
@@ -6848,7 +6889,7 @@
       const images = Array.from(document.images || []);
       savedImageAttrs = images.map(img => ({ img, decoding: img.decoding, loading: img.loading }));
       images.forEach(img => {
-        if (img.decoding !== 'sync') img.decoding = 'sync';
+        if (img.decoding !== 'async') img.decoding = 'async';
         if (img.loading !== 'eager') img.loading = 'eager';
       });
       await Promise.allSettled(images.map(img => {
