@@ -948,6 +948,19 @@
               } catch (e) {}
             }
 
+            // Fast-forward delayed entrance elements (Framer Motion, Webflow interactions, AOS, scroll-reveal)
+            const delayedEntranceEls = document.querySelectorAll('[data-framer-appear-id], [data-w-id], [data-aos], .wow, [class*="fade_anim"], [class*="scroll-reveal"], [data-sal], [data-anime]');
+            for (const el of delayedEntranceEls) {
+              try {
+                if (el.style && (el.style.opacity === '0' || el.style.opacity === '0.001' || (el.style.opacity && parseFloat(el.style.opacity) < 0.95))) {
+                  el.style.opacity = '1';
+                }
+                if (el.style && el.style.transform && /translateY/i.test(el.style.transform)) {
+                  el.style.transform = 'none';
+                }
+              } catch (e) {}
+            }
+
             // Fast-forward any background-clip:text scrub animations (e.g. gt_text_invert, SplitText scrubs)
             try {
               (function() {
@@ -3813,13 +3826,76 @@
   /* ======================================================================
    *  SVG EMBEDDED RASTER-TO-VECTOR CONVERTER
    *  Converts SVGs containing raster <pattern><image> or <image> into 100%
-   *  pure vector shapes (<rect>, <g fill="...">) with solid color fills.
+   *  pure vector shapes (<rect>, <g fill="...">) with solid color fills, or
+   *  renders the full SVG onto canvas if it uses repeating <pattern> fills.
    * ====================================================================== */
-  async function vectorizeEmbeddedSvgImages(svgString) {
+  async function rasterizeSvgToDataUrl(svgString, targetWidth, targetHeight) {
+    if (!svgString || typeof svgString !== 'string') return null;
+    try {
+      let w = targetWidth;
+      let h = targetHeight;
+      if (!w || !h) {
+        const vbMatch = svgString.match(/viewBox=["']\s*([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s*["']/i);
+        if (vbMatch) {
+          w = w || parseFloat(vbMatch[3]);
+          h = h || parseFloat(vbMatch[4]);
+        }
+        const wMatch = svgString.match(/width=["']([\d.]+)p?x?["']/i);
+        const hMatch = svgString.match(/height=["']([\d.]+)p?x?["']/i);
+        if (wMatch) w = w || parseFloat(wMatch[1]);
+        if (hMatch) h = h || parseFloat(hMatch[1]);
+      }
+      w = Math.min(2560, Math.max(1, Math.round(w || 300)));
+      h = Math.min(2560, Math.max(1, Math.round(h || 300)));
+
+      let svgToRender = svgString;
+      if (!svgToRender.includes('xmlns=')) {
+        svgToRender = svgToRender.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg" ');
+      }
+      if (!svgToRender.includes('xmlns:xlink=') && svgToRender.includes('xlink:')) {
+        svgToRender = svgToRender.replace(/<svg\b/i, '<svg xmlns:xlink="http://www.w3.org/1999/xlink" ');
+      }
+
+      let dataUri;
+      try {
+        dataUri = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgToRender)));
+      } catch (_) {
+        dataUri = 'data:image/svg+xml;utf8,' + encodeURIComponent(svgToRender);
+      }
+
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = dataUri;
+      });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      return canvas.toDataURL('image/png');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function vectorizeEmbeddedSvgImages(svgString, targetWidth, targetHeight) {
     if (!svgString || typeof svgString !== 'string') return { isVector: true, svg: svgString };
 
+    // 1. If SVG contains <pattern>, Figma's native SVG importer does NOT support pattern fills.
+    // Never extract just an isolated pattern tile! Render the full SVG onto canvas so the pattern
+    // tiles seamlessly across the canvas with all gradients and shapes.
+    if (svgString.includes('<pattern')) {
+      const fullRaster = await rasterizeSvgToDataUrl(svgString, targetWidth, targetHeight);
+      if (fullRaster) {
+        return { isVector: false, dataUri: fullRaster };
+      }
+      return { isVector: true, svg: svgString };
+    }
 
-    if (!svgString.includes('<pattern') && !svgString.includes('<image')) return { isVector: true, svg: svgString };
+    if (!svgString.includes('<image')) return { isVector: true, svg: svgString };
 
     // Check for embedded data:image
     const imgMatch = svgString.match(/(?:xlink:)?href=["'](data:image\/[^"']+)["']/i);
@@ -3836,9 +3912,10 @@
       if (!img.width || !img.height) return { isVector: false, dataUri };
 
       const w = img.width, h = img.height;
-      // If graphic is larger than 300x300, it's a photo or large graphic -> return as IMAGE!
+      // If graphic is larger than 300x300, it's a photo or large graphic -> rasterize whole SVG or return as IMAGE!
       if (w > 300 || h > 300) {
-        return { isVector: false, dataUri };
+        const fullRaster = await rasterizeSvgToDataUrl(svgString, targetWidth, targetHeight);
+        return { isVector: false, dataUri: fullRaster || dataUri };
       }
 
       const c = document.createElement('canvas');
@@ -4251,8 +4328,28 @@
       delete pseudoRect.offsetHeight;
       const w = parseFloat(cs.width);
       const h = parseFloat(cs.height);
-      if (!isNaN(w) && cs.width !== 'auto') pseudoRect.width = w;
-      if (!isNaN(h) && cs.height !== 'auto') pseudoRect.height = h;
+
+      const targetEl = containingEl || el;
+      const elLayoutW = targetEl.offsetWidth || 0;
+      const elLayoutH = targetEl.offsetHeight || 0;
+      const scaleX = (elLayoutW > 0 && baseRect.width > 0) ? (baseRect.width / elLayoutW) : 1;
+      const scaleY = (elLayoutH > 0 && baseRect.height > 0) ? (baseRect.height / elLayoutH) : 1;
+      const isScaleApplied = Math.abs(scaleX - 1) > 0.005 || Math.abs(scaleY - 1) > 0.005;
+
+      if (!isNaN(w) && cs.width !== 'auto') {
+        if (isScaleApplied && Math.abs(w - elLayoutW) <= 2) {
+          pseudoRect.width = baseRect.width;
+        } else {
+          pseudoRect.width = isScaleApplied ? w * scaleX : w;
+        }
+      }
+      if (!isNaN(h) && cs.height !== 'auto') {
+        if (isScaleApplied && Math.abs(h - elLayoutH) <= 2) {
+          pseudoRect.height = baseRect.height;
+        } else {
+          pseudoRect.height = isScaleApplied ? h * scaleY : h;
+        }
+      }
 
       // If text exists and width is auto, size pseudoRect to text width to avoid stretching across parentRect
       const isIconPseudo = isIconElementOrFont(text, cs.fontFamily, el.className) || (parentRect.width > 0 && parentRect.width <= 48 && Math.abs(parentRect.width - parentRect.height) <= 4);
@@ -4286,11 +4383,14 @@
         const ml = parseFloat(cs.marginLeft) || 0;
         const mr = parseFloat(cs.marginRight) || 0;
 
-        if (!isNaN(l) && cs.left !== 'auto') pseudoRect.x = baseRect.x + l + ml;
-        else if (!isNaN(r) && cs.right !== 'auto') pseudoRect.x = baseRect.x + baseRect.width - pseudoRect.width - r - mr;
+        const effectiveScaleX = isScaleApplied ? scaleX : 1;
+        const effectiveScaleY = isScaleApplied ? scaleY : 1;
+
+        if (!isNaN(l) && cs.left !== 'auto') pseudoRect.x = baseRect.x + (l + ml) * effectiveScaleX;
+        else if (!isNaN(r) && cs.right !== 'auto') pseudoRect.x = baseRect.x + baseRect.width - pseudoRect.width - (r + mr) * effectiveScaleX;
         
-        if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = baseRect.y + t + mt;
-        else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = baseRect.y + baseRect.height - pseudoRect.height - b - mb;
+        if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = baseRect.y + (t + mt) * effectiveScaleY;
+        else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = baseRect.y + baseRect.height - pseudoRect.height - (b + mb) * effectiveScaleY;
 
         // Filter out pseudo-elements that are completely outside an overflow:hidden ancestor
         let clipAncestor = containingEl || el.parentElement;
@@ -4319,17 +4419,16 @@
           clipAncestor = clipAncestor.parentElement;
         }
 
-        // Inherit border radius from containing block if pseudo covers it
-        if (containingEl && containingEl !== el) {
-          const cbCs = window.getComputedStyle(containingEl);
-          if (cbCs.borderRadius && cbCs.borderRadius !== '0px' && (!styles.borderRadius || styles.borderRadius === '0px')) {
-            if (Math.abs(pseudoRect.width - baseRect.width) <= 4 && Math.abs(pseudoRect.height - baseRect.height) <= 4) {
-              styles.borderRadius = cbCs.borderRadius;
-              styles.borderTopLeftRadius = cbCs.borderTopLeftRadius;
-              styles.borderTopRightRadius = cbCs.borderTopRightRadius;
-              styles.borderBottomLeftRadius = cbCs.borderBottomLeftRadius;
-              styles.borderBottomRightRadius = cbCs.borderBottomRightRadius;
-            }
+        // Inherit border radius from containing block or el if pseudo covers it
+        const refBorderEl = (containingEl && containingEl !== el) ? containingEl : el;
+        const cbCs = window.getComputedStyle(refBorderEl);
+        if (cbCs.borderRadius && cbCs.borderRadius !== '0px' && (!styles.borderRadius || styles.borderRadius === '0px' || cs.borderRadius === 'inherit')) {
+          if (Math.abs(pseudoRect.width - baseRect.width) <= 4 && Math.abs(pseudoRect.height - baseRect.height) <= 4) {
+            styles.borderRadius = cbCs.borderRadius;
+            styles.borderTopLeftRadius = cbCs.borderTopLeftRadius;
+            styles.borderTopRightRadius = cbCs.borderTopRightRadius;
+            styles.borderBottomLeftRadius = cbCs.borderBottomLeftRadius;
+            styles.borderBottomRightRadius = cbCs.borderBottomRightRadius;
           }
         }
       } else {
@@ -6033,14 +6132,16 @@
     ));
 
     const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInteractiveOrComponent && (
-      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos-item|scroll-reveal|invert|fade_anim/i.test(cls) ||
+      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos-item|scroll-reveal|invert|fade_anim|framer-appear|fade-in|slide-up|animate-/i.test(cls) ||
       el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') ||
-      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [class*="invert"], [class*="fade_anim"]'))
+      el.hasAttribute('data-framer-appear-id') || el.hasAttribute('data-w-id') || el.hasAttribute('data-anime') ||
+      el.hasAttribute('data-sal') || el.hasAttribute('data-scroll') || el.hasAttribute('data-animate') ||
+      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [class*="invert"], [class*="fade_anim"], [data-framer-appear-id], [data-w-id]'))
     );
 
     // Strategy 2: behavioural heuristics — detect ANY element with a scroll/entrance animation
     // that is currently stuck in a pre-reveal state, regardless of class names.
-    // This covers generic CSS transitions (opacity 0 → 1) on any text or block element.
+    // This covers generic CSS transitions (opacity 0 → 1) on text or content containers.
     let hasScrollRevealBehavior = false;
     if (!isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInteractiveOrComponent && !hasAnimClass) {
       try {
@@ -6082,10 +6183,13 @@
           }
         }
 
-        // Only flag as scroll-reveal if the element is an actual text element, never generic layout blocks
+        // Eligible for entrance reveal: text elements OR content containers (has text or visual media)
         const isTextLike = ['SPAN', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'A', 'LI',
                             'B', 'STRONG', 'EM', 'I', 'LABEL', 'FIGCAPTION', 'BLOCKQUOTE'].includes(tag) ||
                             (tag === 'DIV' && el.children.length === 0 && (el.textContent || '').trim().length > 0);
+        const hasVisibleContent = ((el.textContent || '').trim().length > 0) ||
+                                  !!(el.querySelector && el.querySelector('img, svg, picture, video, canvas'));
+        const isEligibleContainer = isTextLike || (!isHoverOrOverlay && !isNavDropdown && !isInteractiveOrComponent && hasVisibleContent);
 
         // Detect scroll-driven COLOR reveal: element has an inline color set to a muted/grey
         // value — the classic GSAP/ScrollTrigger scrub pattern where text goes from grey → final color.
@@ -6111,7 +6215,7 @@
                                  (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) &&
                                 (styles.backgroundImage && styles.backgroundImage.includes('gradient'));
 
-        if (isTextLike && (
+        if (isEligibleContainer && (
           // Stuck at low opacity with opacity-transition or set inline by JS scroll scrub
           (inlineOp !== null && inlineOp < 0.98) ||
           (hasOpacityAnim && inlineOp !== null && inlineOp < 0.98) ||
@@ -6124,7 +6228,9 @@
           // Inline grey color = scroll-scrub color reveal
           hasMutedInlineColor ||
           // Background-clip text gradient scrub
-          isTextClipScrub
+          isTextClipScrub ||
+          // Framer or Webflow entrance elements stuck at low opacity
+          ((el.hasAttribute('data-framer-appear-id') || el.hasAttribute('data-w-id')) && (isNaN(curOpacity) || curOpacity < 0.98))
         )) {
           hasScrollRevealBehavior = true;
         }
@@ -6151,19 +6257,20 @@
       }
 
       // Neutralize entrance transforms (translateY offsets and tiny tilts)
-      // but ONLY for split-text animations, NEVER for components or layout containers
-      if (hasAnimClass && styles.transform && styles.transform !== 'none') {
+      if (styles.transform && styles.transform !== 'none') {
         const parts = styles.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
         if (parts) {
           const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
           const a = vals[0], b = vals[1];
           const tAngle = Math.abs(Math.atan2(b, a) * (180 / Math.PI));
-          // Preserve structural rotations (≥ 15°), only remove entrance tilts / translateY
+          // Preserve structural rotations (≥ 15°)
           const isStructuralRot = (tAngle >= 15 && tAngle <= 345);
-          if (!isStructuralRot) {
+          // Preserve pure centering transforms (e.g. translate(-50%, -50%))
+          const isCentering = !hasAnimClass && vals.length >= 6 && vals[4] < -10 && vals[5] < -10;
+          if (!isStructuralRot && !isCentering) {
             styles.transform = 'none';
           }
-        } else if (!/rotate\s*\(\s*[-+]?(?:90|180|270|45)/i.test(styles.transform)) {
+        } else if (!/rotate\s*\(\s*[-+]?(?:90|180|270|45)/i.test(styles.transform) && !/translate\s*\(\s*-50%/i.test(styles.transform)) {
           styles.transform = 'none';
         }
       }
@@ -6406,7 +6513,9 @@
       svgTexts = extractSvgTexts(el);
       const rawSvg = await serializeSVG(el);
       if (rawSvg) {
-        const vRes = await vectorizeEmbeddedSvgImages(rawSvg);
+        const targetW = Math.max(1, Math.round(docRect.width || el.offsetWidth || 100));
+        const targetH = Math.max(1, Math.round(docRect.height || el.offsetHeight || 100));
+        const vRes = await vectorizeEmbeddedSvgImages(rawSvg, targetW, targetH);
         if (vRes && vRes.dataUri && !vRes.isVector) {
           placeholderUrl = vRes.dataUri;
           if (assets) assets.addDataUrl(vRes.dataUri);
@@ -6455,7 +6564,9 @@
             }
           }
           if (svgText) {
-            const vRes = await vectorizeEmbeddedSvgImages(svgText);
+            const targetW = Math.max(1, Math.round(docRect.width || el.offsetWidth || el.naturalWidth || 100));
+            const targetH = Math.max(1, Math.round(docRect.height || el.offsetHeight || el.naturalHeight || 100));
+            const vRes = await vectorizeEmbeddedSvgImages(svgText, targetW, targetH);
             if (vRes && vRes.dataUri && !vRes.isVector) {
               placeholderUrl = vRes.dataUri;
               if (assets) assets.addDataUrl(vRes.dataUri);
@@ -6523,6 +6634,33 @@
           tag = 'SVG';
           svgContent = tintedSvg;
           styles.backgroundColor = 'transparent';
+        }
+      }
+
+      const bgImgVal = (styles.backgroundImage && styles.backgroundImage !== 'none') ? styles.backgroundImage : null;
+      if (!hasChildElements && !hasText && !svgContent && bgImgVal && (bgImgVal.includes('data:image/svg+xml') || bgImgVal.includes('<svg') || bgImgVal.includes('%3csvg'))) {
+        let rawSvg = '';
+        let dataUri = '';
+        const idx = bgImgVal.toLowerCase().indexOf('data:image/svg+xml');
+        if (idx !== -1) {
+          let raw = bgImgVal.slice(idx);
+          if (raw.endsWith(')')) raw = raw.slice(0, -1);
+          if (raw.endsWith('"') || raw.endsWith("'")) raw = raw.slice(0, -1);
+          dataUri = raw.trim();
+        }
+        if (dataUri) {
+          const commaIdx = dataUri.indexOf(',');
+          const raw = commaIdx >= 0 ? dataUri.slice(commaIdx + 1) : dataUri;
+          try {
+            rawSvg = dataUri.includes(';base64') ? atob(raw) : decodeURIComponent(raw);
+          } catch {
+            rawSvg = raw;
+          }
+        }
+        if (rawSvg && rawSvg.includes('<svg')) {
+          tag = 'SVG';
+          svgContent = rawSvg;
+          styles.backgroundImage = 'none';
         }
       }
 
@@ -6638,8 +6776,84 @@
       }
     }
 
-    const before = await serializePseudo(el, '::before', assets, fonts, docRect);
-    const after = await serializePseudo(el, '::after', assets, fonts, docRect);
+    let before = await serializePseudo(el, '::before', assets, fonts, docRect);
+    let after = await serializePseudo(el, '::after', assets, fonts, docRect);
+
+    // Fold pure border overlay pseudo-elements (e.g. Framer's [data-border="true"]::after or full-coverage border overlays)
+    // directly onto the parent element's styles. This renders native, crisp Figma strokes without offset child layers.
+    function isPureBorderOverlay(pseudoNode, targetEl) {
+      if (!pseudoNode || !pseudoNode.styles) return false;
+      const ps = pseudoNode.styles;
+      if (pseudoNode.text && pseudoNode.text.trim().length > 0) return false;
+      if (ps.backgroundImage && ps.backgroundImage !== 'none') return false;
+      if (ps.backgroundColor && ps.backgroundColor !== 'transparent' && ps.backgroundColor !== 'rgba(0, 0, 0, 0)') return false;
+      if (ps.boxShadow && ps.boxShadow !== 'none') return false;
+      if (ps.maskImage && ps.maskImage !== 'none') return false;
+
+      const bTop = parseFloat(ps.borderTopWidth) || 0;
+      const bRight = parseFloat(ps.borderRightWidth) || 0;
+      const bBottom = parseFloat(ps.borderBottomWidth) || 0;
+      const bLeft = parseFloat(ps.borderLeftWidth) || 0;
+      if (bTop <= 0 && bRight <= 0 && bBottom <= 0 && bLeft <= 0) return false;
+
+      if (targetEl.hasAttribute && (targetEl.hasAttribute('data-border') || targetEl.getAttribute('data-border') === 'true')) {
+        return true;
+      }
+
+      if (ps.position === 'absolute') {
+        const pr = pseudoNode.rect;
+        const er = targetEl.getBoundingClientRect ? targetEl.getBoundingClientRect() : null;
+        if (pr && er && er.width > 0 && er.height > 0) {
+          const widthDiff = Math.abs(pr.width - er.width);
+          const heightDiff = Math.abs(pr.height - er.height);
+          if (widthDiff <= 4 && heightDiff <= 4) return true;
+        }
+      }
+      return false;
+    }
+
+    const elHasBorder = (parseFloat(styles.borderTopWidth) || 0) > 0 ||
+                        (parseFloat(styles.borderRightWidth) || 0) > 0 ||
+                        (parseFloat(styles.borderBottomWidth) || 0) > 0 ||
+                        (parseFloat(styles.borderLeftWidth) || 0) > 0;
+
+    const overlayPseudo = (after && isPureBorderOverlay(after, el)) ? after : ((before && isPureBorderOverlay(before, el)) ? before : null);
+
+    if (overlayPseudo && (!elHasBorder || (el.hasAttribute && el.hasAttribute('data-border')))) {
+      const varTopW = el.style?.getPropertyValue ? el.style.getPropertyValue('--border-top-width') : '';
+      const varRightW = el.style?.getPropertyValue ? el.style.getPropertyValue('--border-right-width') : '';
+      const varBottomW = el.style?.getPropertyValue ? el.style.getPropertyValue('--border-bottom-width') : '';
+      const varLeftW = el.style?.getPropertyValue ? el.style.getPropertyValue('--border-left-width') : '';
+      const varColor = el.style?.getPropertyValue ? el.style.getPropertyValue('--border-color') : '';
+      const varStyle = el.style?.getPropertyValue ? el.style.getPropertyValue('--border-style') : '';
+
+      styles.borderTopWidth = varTopW || overlayPseudo.styles.borderTopWidth || '0px';
+      styles.borderRightWidth = varRightW || overlayPseudo.styles.borderRightWidth || '0px';
+      styles.borderBottomWidth = varBottomW || overlayPseudo.styles.borderBottomWidth || '0px';
+      styles.borderLeftWidth = varLeftW || overlayPseudo.styles.borderLeftWidth || '0px';
+
+      const strokeColor = (overlayPseudo.styles.borderTopColor && overlayPseudo.styles.borderTopColor !== 'transparent' && overlayPseudo.styles.borderTopColor !== 'none')
+        ? overlayPseudo.styles.borderTopColor
+        : (varColor && !varColor.includes('var(') ? convertColors(normalizeColor(varColor)) : 'transparent');
+      styles.borderTopColor = strokeColor;
+      styles.borderRightColor = overlayPseudo.styles.borderRightColor || strokeColor;
+      styles.borderBottomColor = overlayPseudo.styles.borderBottomColor || strokeColor;
+      styles.borderLeftColor = overlayPseudo.styles.borderLeftColor || strokeColor;
+
+      const strokeStyle = varStyle || overlayPseudo.styles.borderTopStyle || 'solid';
+      styles.borderTopStyle = strokeStyle;
+      styles.borderRightStyle = overlayPseudo.styles.borderRightStyle || strokeStyle;
+      styles.borderBottomStyle = overlayPseudo.styles.borderBottomStyle || strokeStyle;
+      styles.borderLeftStyle = overlayPseudo.styles.borderLeftStyle || strokeStyle;
+
+      if ((!styles.borderRadius || styles.borderRadius === '0px') && overlayPseudo.styles.borderRadius) {
+        styles.borderRadius = overlayPseudo.styles.borderRadius;
+      }
+
+      if (overlayPseudo === after) after = null;
+      else if (overlayPseudo === before) before = null;
+    }
+
     const pseudoElementNodes = (before || after) ? { before, after } : undefined;
 
     // Multiline inline elements (e.g. <span class="underline">wrapped text</span>):
