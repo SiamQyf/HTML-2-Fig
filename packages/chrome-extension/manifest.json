@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HTML.to.Figma — Perfect Capture",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Capture any webpage and convert it into fully editable native Figma layers.",
   "permissions": [
     "activeTab",
