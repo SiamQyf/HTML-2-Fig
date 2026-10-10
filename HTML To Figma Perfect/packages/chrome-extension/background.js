@@ -367,7 +367,7 @@ async function executeCaptureOnTab(tabId) {
   } catch (e) {}
 
   // Capture viewport screenshot as fallback for any cleared WebGL canvases or protected media
-  // 0. Update declarativeNetRequest session rules to set Referer header matching the target page
+  // 0. Update declarativeNetRequest session rules to set Referer and Origin headers matching the target page (Image builder engine)
   try {
     const tabInfo = await chrome.tabs.get(tabId);
     if (tabInfo && tabInfo.url && (tabInfo.url.startsWith('http://') || tabInfo.url.startsWith('https://'))) {
@@ -380,15 +380,23 @@ async function executeCaptureOnTab(tabId) {
             priority: 1,
             action: {
               type: 'modifyHeaders',
-              requestHeaders: [{
-                header: 'Referer',
-                operation: 'set',
-                value: pageOrigin + '/'
-              }]
+              requestHeaders: [
+                {
+                  header: 'Referer',
+                  operation: 'set',
+                  value: pageOrigin.endsWith('/') ? pageOrigin : pageOrigin + '/'
+                },
+                {
+                  header: 'Origin',
+                  operation: 'set',
+                  value: pageOrigin
+                }
+              ]
             },
             condition: {
-              resourceTypes: ['image', 'xmlhttprequest', 'media'],
-              urlFilter: '*'
+              urlFilter: '|http*',
+              resourceTypes: ['xmlhttprequest', 'image', 'media', 'other'],
+              initiatorDomains: [chrome.runtime.id]
             }
           }]
         });
@@ -517,15 +525,70 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+function detectImageMime(bytes, url) {
+  if (bytes && bytes.length >= 4) {
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return 'image/png';
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return 'image/jpeg';
+    if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return 'image/gif';
+    if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+        bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp';
+    const head = String.fromCharCode.apply(null, bytes.subarray(0, Math.min(200, bytes.length))).toLowerCase();
+    if (head.includes('<svg') || head.includes('<?xml')) return 'image/svg+xml';
+  }
+  if (url) {
+    const clean = url.split('?')[0].split('#')[0].toLowerCase();
+    if (clean.endsWith('.svg')) return 'image/svg+xml';
+    if (clean.endsWith('.png')) return 'image/png';
+    if (clean.endsWith('.jpg') || clean.endsWith('.jpeg')) return 'image/jpeg';
+    if (clean.endsWith('.webp')) return 'image/webp';
+    if (clean.endsWith('.gif')) return 'image/gif';
+    if (clean.endsWith('.ico')) return 'image/x-icon';
+  }
+  return 'image/png';
+}
+
   if (request.type === 'FETCH_IMAGE') {
     (async () => {
       try {
-        const res = await fetch(request.url);
+        if (!request.url) throw new Error('Missing URL');
+        if (request.url.startsWith('data:')) {
+          sendResponse({ data: request.url, error: null });
+          return;
+        }
+
+        // Only request formats that Figma natively supports (PNG, JPEG, GIF, SVG - NOT WebP or AVIF)
+        const headers = {
+          'Accept': 'image/png,image/jpeg,image/gif,image/svg+xml;q=0.9,*/*;q=0.5'
+        };
+        let res;
+        try {
+          res = await fetch(request.url, { headers, credentials: 'omit' });
+        } catch (_) {
+          res = await fetch(request.url);
+        }
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        const mime = res.headers.get('content-type') || 'image/png';
+
+        let mime = res.headers ? res.headers.get('content-type') : null;
+        if (mime && mime.includes(';')) mime = mime.split(';')[0].trim();
+
         const buffer = await res.arrayBuffer();
-        let binary = '';
         const bytes = new Uint8Array(buffer);
+        if (bytes.length === 0) throw new Error('Empty image buffer');
+
+        // Prevent HTML error pages (e.g. 200 OK containing <!DOCTYPE html>) from being encoded as images
+        if (bytes.length >= 4) {
+          const head = String.fromCharCode.apply(null, bytes.subarray(0, Math.min(100, bytes.length))).toLowerCase().trim();
+          if (head.startsWith('<!doctype') || head.startsWith('<html') || head.startsWith('<!html')) {
+            throw new Error('Server returned HTML instead of image');
+          }
+        }
+
+        // Mime detection fallback by magic bytes and extension
+        if (!mime || mime === 'application/octet-stream' || mime === 'binary/octet-stream' || mime.startsWith('text/')) {
+          mime = detectImageMime(bytes, request.url);
+        }
+
+        let binary = '';
         const chunkSize = 8192;
         for (let i = 0; i < bytes.byteLength; i += chunkSize) {
           const chunk = bytes.subarray(i, i + chunkSize);

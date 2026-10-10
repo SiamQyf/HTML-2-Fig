@@ -2732,7 +2732,60 @@
     }
   }
 
-  function executeImport() {
+  async function sanitizeAssetsForFigma(payload) {
+    if (!payload || !payload.assets) return;
+    const entries = Object.entries(payload.assets);
+    const tasks = entries.map(async ([key, asset]) => {
+      try {
+        if (!asset) return;
+        const blobObj = asset.blob || asset.base64Blob || asset;
+        const data = typeof blobObj === 'string' ? blobObj : (blobObj.data || blobObj.base64Blob || '');
+        if (!data || typeof data !== 'string') return;
+
+        let needsConvert = data.includes('image/webp') || data.includes('image/avif');
+        if (!needsConvert && data.startsWith('data:')) {
+          const commaIdx = data.indexOf(',');
+          const b64Prefix = data.slice(commaIdx + 1, commaIdx + 30);
+          try {
+            const rawHeader = atob(b64Prefix);
+            if (rawHeader.startsWith('RIFF') && rawHeader.includes('WEBP')) needsConvert = true;
+            if (rawHeader.includes('ftypavif') || rawHeader.includes('ftypavis')) needsConvert = true;
+          } catch (_) {}
+        }
+
+        if (needsConvert) {
+          await new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              try {
+                const cv = document.createElement('canvas');
+                cv.width = img.naturalWidth || 1;
+                cv.height = img.naturalHeight || 1;
+                const ctx = cv.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(img, 0, 0);
+                  const pngUrl = cv.toDataURL('image/png');
+                  if (typeof asset.blob === 'string') {
+                    asset.blob = pngUrl;
+                  } else if (asset.blob && typeof asset.blob === 'object') {
+                    asset.blob.type = 'image/png';
+                    asset.blob.data = pngUrl;
+                  }
+                }
+              } catch (_) {}
+              resolve();
+            };
+            img.onerror = () => resolve();
+            img.src = data;
+          });
+        }
+      } catch (_) {}
+    });
+    await Promise.all(tasks);
+  }
+
+  async function executeImport() {
     if (isImporting || !currentPayloadData) return;
     if (!isPro && freeExportsUsed >= MAX_FREE_EXPORTS) {
       setStatus('Free export limit reached (8/8 used). Purchase for lifetime access.', 'error');
@@ -2750,6 +2803,11 @@
     setStatus('Painting.....', 'info');
     resetPaintingProgress();
     updateProgress(0);
+
+    // Sanitize image assets: ensure all WebP / AVIF formats are converted to standard PNG for Figma
+    try {
+      await sanitizeAssetsForFigma(currentPayloadData);
+    } catch (_) {}
 
     resetImportWatchdog();
     importWatchdogTimer = setTimeout(() => {

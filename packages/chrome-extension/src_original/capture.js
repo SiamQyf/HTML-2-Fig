@@ -1963,6 +1963,38 @@
 
   async function fetchImage(url, forcePng = false) {
     if (!url) return null;
+
+    // Fast-path for data: URLs (zero-latency in-memory parsing)
+    if (url.startsWith('data:')) {
+      const commaIdx = url.indexOf(',');
+      const meta = commaIdx >= 0 ? url.slice(0, commaIdx) : '';
+      const raw = commaIdx >= 0 ? url.slice(commaIdx + 1) : url;
+      const mime = (meta.match(/data:([^;,]+)/) || [])[1] || 'image/png';
+      const isB64 = meta.includes(';base64');
+      let dataUrl = url;
+      if (!isB64) {
+        try {
+          dataUrl = `data:${mime};base64,${btoa(decodeURIComponent(raw))}`;
+        } catch {
+          try { dataUrl = `data:${mime};base64,${btoa(raw)}`; } catch {}
+        }
+      }
+      // Figma's Plugin API cannot decode WebP or AVIF — convert if necessary
+      if (mime.includes('webp') || mime.includes('avif')) {
+        try {
+          const rawB64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+          const byteChars = atob(rawB64);
+          const byteNumbers = new Uint8Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+          let rawBlob = new Blob([byteNumbers], { type: mime });
+          rawBlob = await convertToPngBlob(rawBlob, forcePng);
+          const b64 = await blobToBase64(rawBlob);
+          if (b64 && b64.data) return { url, blob: b64 };
+        } catch {}
+      }
+      return { url, blob: { type: mime, data: dataUrl } };
+    }
+
     let absoluteUrl = url;
     try {
       absoluteUrl = new URL(url, document.baseURI).href;
@@ -1982,32 +2014,65 @@
       }
     } catch {}
 
-    // Method 2: Extension background worker fetch (bypasses CORS restrictions)
+    // Method 2: Extension background worker fetch (bypasses CORS restrictions & sets Referer header)
     try {
       if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         const bgRes = await new Promise((res) => {
           const timer = setTimeout(() => res(null), FETCH_TIMEOUT);
-          chrome.runtime.sendMessage({ type: 'FETCH_IMAGE', url: absoluteUrl }, (resp) => {
+          chrome.runtime.sendMessage({
+            type: 'FETCH_IMAGE',
+            url: absoluteUrl,
+            origin: window.location.origin
+          }, (resp) => {
             clearTimeout(timer);
             if (chrome.runtime.lastError) res(null);
             else res(resp);
           });
         });
         if (bgRes && bgRes.data) {
+          const commaIdx = bgRes.data.indexOf(',');
+          const meta = commaIdx >= 0 ? bgRes.data.slice(0, commaIdx) : '';
+          const mime = (meta.match(/data:([^;,]+)/) || [])[1] || 'image/png';
+          let blobObj = { type: mime, data: bgRes.data };
+
+          // Figma strictly only decodes PNG, JPEG, and GIF.
+          // Convert WebP, AVIF, or forcePng SVGs to PNG/JPEG via convertToPngBlob
           try {
-            const res = await fetch(bgRes.data);
-            let blob = await res.blob();
-            blob = await convertToPngBlob(blob, forcePng);
-            const b64 = await blobToBase64(blob);
-            if (b64 && b64.data) return { url: absoluteUrl, blob: b64 };
-          } catch {
-            return { url: absoluteUrl, blob: { type: 'image/png', data: bgRes.data } };
-          }
+            const rawB64 = commaIdx >= 0 ? bgRes.data.slice(commaIdx + 1) : bgRes.data;
+            const byteChars = atob(rawB64);
+            const byteNumbers = new Uint8Array(byteChars.length);
+            for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+            let rawBlob = new Blob([byteNumbers], { type: mime });
+            rawBlob = await convertToPngBlob(rawBlob, forcePng);
+            const b64 = await blobToBase64(rawBlob);
+            if (b64 && b64.data) {
+              blobObj = b64;
+            }
+          } catch (_) {}
+          return { url: absoluteUrl, blob: blobObj };
         }
       }
     } catch {}
 
-    // Method 3: HTMLImageElement + Canvas draw fallback (for raster images only, never SVGs)
+    // Method 3: In-memory DOM extraction fallback
+    // If the image is already decoded and rendered on the page in an <img> tag, draw it to an offscreen canvas
+    try {
+      const allImgs = Array.from(document.images || []);
+      const existingImg = allImgs.find(img => img.currentSrc === absoluteUrl || img.src === absoluteUrl);
+      if (existingImg && existingImg.complete && existingImg.naturalWidth > 0) {
+        const c = document.createElement('canvas');
+        c.width = existingImg.naturalWidth;
+        c.height = existingImg.naturalHeight;
+        const ctx = c.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(existingImg, 0, 0);
+          const dataUrl = c.toDataURL('image/png');
+          return { url: absoluteUrl, blob: { type: 'image/png', data: dataUrl } };
+        }
+      }
+    } catch {}
+
+    // Method 4: HTMLImageElement + Canvas draw fallback (for raster images only, never SVGs)
     if (absoluteUrl.includes('.svg') || absoluteUrl.startsWith('data:image/svg+xml')) {
       return { url: absoluteUrl, blob: null };
     }
@@ -2481,6 +2546,10 @@
       }
     }
     if (el instanceof HTMLImageElement) {
+      try {
+        const best = (typeof getBestImageUrl === 'function') ? getBestImageUrl(el) : null;
+        if (best) attrs.bestSrc = best;
+      } catch (_) {}
       if (el.currentSrc) attrs.currentSrc = el.currentSrc;
       if (el.src) attrs.src = el.src;
     }
@@ -3818,8 +3887,10 @@
   async function vectorizeEmbeddedSvgImages(svgString) {
     if (!svgString || typeof svgString !== 'string') return { isVector: true, svg: svgString };
 
+    // SVGs with repeating pattern fills cannot be simplified to a single tile
+    if (svgString.includes('<pattern')) return { isVector: true, svg: svgString };
 
-    if (!svgString.includes('<pattern') && !svgString.includes('<image')) return { isVector: true, svg: svgString };
+    if (!svgString.includes('<image')) return { isVector: true, svg: svgString };
 
     // Check for embedded data:image
     const imgMatch = svgString.match(/(?:xlink:)?href=["'](data:image\/[^"']+)["']/i);
@@ -5163,17 +5234,366 @@
     }
   }
 
+  /* ======================================================================
+   *  IMAGE BUILDER ENGINE (Harvesting, SVG Definition Resolution, Responsive Engine)
+   * ====================================================================== */
+  function svgToBase64(svgText) {
+    if (!svgText) return null;
+    try {
+      const bytes = new TextEncoder().encode(svgText);
+      const binary = Array.from(bytes, b => String.fromCharCode(b)).join('');
+      return `data:image/svg+xml;base64,${btoa(binary)}`;
+    } catch (e) {
+      return `data:image/svg+xml;utf8,${encodeURIComponent(svgText)}`;
+    }
+  }
+
+  function getCompleteSVGString(svg) {
+    if (!svg) return '';
+    try {
+      const svgClone = svg.cloneNode(true);
+      const referencedIds = new Set();
+
+      function extractIdFromUrl(url) {
+        if (!url) return null;
+        const match = url.match(/url\(['"]?#([^'")]+)['"]?\)/);
+        return match ? match[1] : null;
+      }
+
+      function extractIdFromHref(href) {
+        if (!href) return null;
+        return href.startsWith('#') ? href.substring(1) : href;
+      }
+
+      function collectReferencedIds(element) {
+        const href = element.getAttribute('href') || element.getAttribute('xlink:href');
+        if (href && href.startsWith('#')) {
+          element.removeAttribute('xlink:href');
+          element.setAttribute('href', href);
+          const id = extractIdFromHref(href);
+          if (id) referencedIds.add(id);
+        }
+
+        const style = element.getAttribute('style') || '';
+        const styleUrlId = extractIdFromUrl(style);
+        if (styleUrlId) referencedIds.add(styleUrlId);
+
+        for (const attr of ['fill', 'stroke', 'clip-path', 'mask', 'filter', 'marker-start', 'marker-end']) {
+          const val = element.getAttribute(attr);
+          const aId = extractIdFromUrl(val);
+          if (aId) referencedIds.add(aId);
+        }
+
+        try {
+          const computedStyle = window.getComputedStyle ? window.getComputedStyle(element) : null;
+          if (computedStyle) {
+            const clipPath = computedStyle.clipPath;
+            const mask = computedStyle.mask;
+            const filter = computedStyle.filter;
+            [clipPath, mask, filter].forEach(prop => {
+              if (prop && prop !== 'none') {
+                const _id = extractIdFromUrl(prop);
+                if (_id) referencedIds.add(_id);
+              }
+            });
+          }
+        } catch (e) {}
+
+        Array.from(element.children || []).forEach(child => {
+          collectReferencedIds(child);
+        });
+      }
+
+      svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      collectReferencedIds(svgClone);
+
+      const referencedElements = [];
+      referencedIds.forEach(id => {
+        let element = document.getElementById(id);
+        if (!element) {
+          try { element = document.querySelector(`[id="${CSS.escape(id)}"]`); } catch (e) {}
+        }
+        if (element && element !== svg && !svg.contains(element)) {
+          const clonedElement = element.cloneNode(true);
+          clonedElement.setAttribute('id', id);
+          referencedElements.push(clonedElement);
+        }
+      });
+
+      if (referencedElements.length > 0) {
+        let defs = svgClone.querySelector('defs');
+        if (!defs) {
+          defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+          svgClone.insertBefore(defs, svgClone.firstChild);
+        }
+        referencedElements.forEach(elem => {
+          try {
+            if (!defs.querySelector(`#${CSS.escape(elem.id)}`)) {
+              defs.appendChild(elem);
+            }
+          } catch (e) {
+            try { defs.appendChild(elem); } catch (e2) {}
+          }
+        });
+      }
+      return svgClone.outerHTML || '';
+    } catch (err) {
+      return (svg && svg.outerHTML) ? svg.outerHTML : '';
+    }
+  }
+
+  const imageManager = {
+    imageType: {
+      IMG: 'IMG',
+      TEXT: 'TEXT',
+      LINK: 'LINK',
+      INPUT_IMG: 'INPUT_IMG',
+      BACKGROUND: 'BACKGROUND',
+      DATAURL: 'DATAURL'
+    },
+    imgList: [],
+    getImages: function() {
+      this.imgList = [];
+      if (typeof document === 'undefined') return this.imgList;
+
+      // 1. Tag name 'img'
+      try {
+        const imgs = document.getElementsByTagName('img');
+        for (let i = 0; i < imgs.length; i++) {
+          const img = imgs[i];
+          if (!img.src) continue;
+          const newImg = new Image();
+          newImg.src = img.src;
+          let width = parseInt(img.naturalWidth) || 0;
+          let height = parseInt(img.naturalHeight) || 0;
+          const nwidth = parseInt(newImg.width) || 0;
+          const nheight = parseInt(newImg.height) || 0;
+          width = nwidth > width ? nwidth : width;
+          height = nheight > height ? nheight : height;
+          this.addImg(imageManager.imageType.IMG, resolveAbsoluteUrl(img.src), width, height, img);
+        }
+      } catch (e) {}
+
+      // 2. document.images (currentSrc)
+      try {
+        const docImgs = document.images;
+        if (docImgs && docImgs.length > 0) {
+          for (let i = 0; i < docImgs.length; i++) {
+            const img = docImgs[i];
+            const src = img.currentSrc || img.src;
+            if (src) {
+              const newImg = new Image();
+              newImg.src = src;
+              let width = parseInt(img.naturalWidth) || 0;
+              let height = parseInt(img.naturalHeight) || 0;
+              const nwidth = parseInt(newImg.width) || 0;
+              const nheight = parseInt(newImg.height) || 0;
+              width = nwidth > width ? nwidth : width;
+              height = nheight > height ? nheight : height;
+              this.addImg(imageManager.imageType.IMG, resolveAbsoluteUrl(src), width, height, img);
+            }
+          }
+        }
+      } catch (e) {}
+
+      // 3. Shadow DOM penetration
+      try {
+        const shadowImgs = querySelectorAllShadows('img');
+        if (shadowImgs && shadowImgs.length > 0) {
+          for (let i = 0; i < shadowImgs.length; i++) {
+            const img = shadowImgs[i];
+            const src = img.currentSrc || img.src;
+            if (src) {
+              const newImg = new Image();
+              newImg.src = src;
+              let width = parseInt(img.naturalWidth) || 0;
+              let height = parseInt(img.naturalHeight) || 0;
+              const nwidth = parseInt(newImg.width) || 0;
+              const nheight = parseInt(newImg.height) || 0;
+              width = nwidth > width ? nwidth : width;
+              height = nheight > height ? nheight : height;
+              this.addImg(imageManager.imageType.IMG, resolveAbsoluteUrl(src), width, height, img);
+            }
+          }
+        }
+      } catch (e) {}
+
+      // 4. <source> tags with srcset
+      try {
+        const sources = document.getElementsByTagName('source');
+        if (sources && sources.length > 0) {
+          for (let i = 0; i < sources.length; i++) {
+            const source = sources[i];
+            const rawSet = source.srcset || source.getAttribute('srcset') || source.getAttribute('data-srcset');
+            if (!rawSet) continue;
+            const parts = rawSet.split(',');
+            for (let k = 0; k < parts.length; k++) {
+              const item = parts[k].trim();
+              const src = item.substring(0, item.indexOf(' ') !== -1 ? item.indexOf(' ') : item.length);
+              if (src) {
+                this.addImg(imageManager.imageType.IMG, resolveAbsoluteUrl(src), 0, 0, source);
+              }
+            }
+          }
+        }
+      } catch (e) {}
+
+      // 5. img[srcset] and [data-srcset] tags
+      try {
+        const srcsets = document.querySelectorAll('img[srcset], [data-srcset]');
+        if (srcsets && srcsets.length > 0) {
+          for (let i = 0; i < srcsets.length; i++) {
+            const img = srcsets[i];
+            const rawSet = img.srcset || img.getAttribute('srcset') || img.getAttribute('data-srcset');
+            if (!rawSet) continue;
+            const srcset = rawSet.split(',');
+            for (let j = 0; j < srcset.length; j++) {
+              const item = srcset[j].trim();
+              const src = item.substring(0, item.indexOf(' ') !== -1 ? item.indexOf(' ') : item.length);
+              if (src) {
+                this.addImg(imageManager.imageType.IMG, resolveAbsoluteUrl(src), 0, 0, img);
+              }
+            }
+          }
+        }
+      } catch (e) {}
+
+      // 6. input[type="IMAGE"]
+      try {
+        const inputs = document.getElementsByTagName('input');
+        for (let i = 0; i < inputs.length; i++) {
+          const input = inputs[i];
+          if ((input.type || '').toUpperCase() === 'IMAGE' && input.src) {
+            this.addImg(imageManager.imageType.INPUT_IMG, resolveAbsoluteUrl(input.src), 0, 0, input);
+          }
+        }
+      } catch (e) {}
+
+      // 7. a[href] ending in image extensions
+      try {
+        const links = document.getElementsByTagName('a');
+        for (let i = 0; i < links.length; i++) {
+          const link = links[i];
+          const href = link.href || '';
+          if (/\.(jpg|jpeg|bmp|ico|gif|png|webp|svg|avif)($|\?|#)/i.test(href)) {
+            this.addImg(imageManager.imageType.LINK, resolveAbsoluteUrl(href), 0, 0, link);
+          }
+        }
+      } catch (e) {}
+
+      // 8. svgs
+      try {
+        const svgs = document.getElementsByTagName('svg');
+        for (let i = 0; i < svgs.length; i++) {
+          const svg = svgs[i];
+          const svgString = getCompleteSVGString(svg);
+          const dataUrl = svgToBase64(svgString);
+          if (dataUrl) this.addImg(imageManager.imageType.DATAURL, dataUrl, 0, 0, svg);
+        }
+      } catch (e) {}
+
+      // 9. background-image from inline styles and data attributes (fast-path)
+      try {
+        const seen = new Set();
+        const bgEls = document.querySelectorAll('[style*="background"], [data-bg], [data-background], [data-background-image]');
+        for (let i = 0; i < bgEls.length; i++) {
+          const el = bgEls[i];
+          const url1 = this.deepCss(el, 'background-image');
+          if (url1 && url1 !== 'none') {
+            const re1 = /url\(['"]?([^"')]+)/g;
+            let m1;
+            while ((m1 = re1.exec(url1)) !== null) {
+              const src1 = m1[1];
+              if (src1 && !src1.startsWith('data:') && !seen.has(src1)) {
+                seen.add(src1);
+                this.addImg(imageManager.imageType.BACKGROUND, resolveAbsoluteUrl(src1), 0, 0, el);
+              }
+            }
+          }
+
+          const dataBg = el.getAttribute('data-bg') || el.getAttribute('data-background') || el.getAttribute('data-background-image');
+          if (dataBg) {
+            const cleanBg = dataBg.replace(/^url\(['"]?|['"]?\)$/g, '').trim();
+            if (cleanBg && !seen.has(cleanBg)) {
+              seen.add(cleanBg);
+              this.addImg(imageManager.imageType.BACKGROUND, resolveAbsoluteUrl(cleanBg), 0, 0, el);
+            }
+          }
+        }
+      } catch (e) {}
+
+      return this.imgList;
+    },
+    addImg: function(type, src, width, height, el) {
+      if (!src || typeof src !== 'string' || src.startsWith('javascript:')) return;
+      this.imgList.push({
+        type: type,
+        src: src,
+        width: width,
+        height: height,
+        element: el
+      });
+    },
+    getUniqueImagesSrcs: function() {
+      const images = this.getImages();
+      const arr = [];
+      for (let i = 0; i < images.length; i++) {
+        if (images[i].src) arr.push(images[i].src);
+      }
+      return arr.reverse().filter((e, i, a) => a.indexOf(e, i + 1) === -1).reverse();
+    },
+    deepCss: function(who, css) {
+      if (!who || !who.style) return '';
+      const sty = css.replace(/-([a-z])/g, (a, b) => b.toUpperCase());
+      if (who.currentStyle) {
+        return who.style[sty] || who.currentStyle[sty] || '';
+      }
+      const dv = document.defaultView || window;
+      try {
+        return who.style[sty] || (dv.getComputedStyle ? dv.getComputedStyle(who, '').getPropertyValue(css) : '') || '';
+      } catch (e) {
+        return who.style[sty] || '';
+      }
+    }
+  };
+
   function getBestImageUrl(imgEl) {
     if (!imgEl) return null;
     let url = null;
-    // 1. Check parent <picture> <source> tags for best srcset URL
+    // 1. Check parent <picture> <source> tags for best srcset URL (highest resolution candidate)
     if (imgEl.parentElement instanceof HTMLPictureElement) {
       const sources = Array.from(imgEl.parentElement.querySelectorAll('source'));
       for (const s of sources) {
         const srcset = s.getAttribute('srcset') || s.getAttribute('data-srcset');
         if (srcset) {
           const parts = srcset.split(',');
-          const candidate = parts[parts.length - 1].trim().split(' ')[0];
+          for (let k = parts.length - 1; k >= 0; k--) {
+            const item = parts[k].trim();
+            const candidate = item.substring(0, item.indexOf(' ') !== -1 ? item.indexOf(' ') : item.length);
+            if (candidate && !candidate.startsWith('data:image/')) {
+              url = resolveAbsoluteUrl(candidate);
+              break;
+            }
+          }
+          if (url) break;
+        }
+      }
+    }
+    // 2. Check img currentSrc (active responsive asset chosen by browser engine)
+    if (!url) {
+      const cSrc = imgEl.currentSrc;
+      if (cSrc && (!cSrc.startsWith('data:image/') || cSrc.length > 3000)) {
+        url = resolveAbsoluteUrl(cSrc);
+      }
+    }
+    // 3. Check img srcset (pick highest resolution candidate)
+    if (!url) {
+      const srcset = imgEl.getAttribute('srcset') || imgEl.getAttribute('data-srcset');
+      if (srcset) {
+        const parts = srcset.split(',');
+        for (let k = parts.length - 1; k >= 0; k--) {
+          const item = parts[k].trim();
+          const candidate = item.substring(0, item.indexOf(' ') !== -1 ? item.indexOf(' ') : item.length);
           if (candidate && !candidate.startsWith('data:image/')) {
             url = resolveAbsoluteUrl(candidate);
             break;
@@ -5181,32 +5601,26 @@
         }
       }
     }
-    // 2. Check img srcset
+    // 4. Check img.src
     if (!url) {
-      const srcset = imgEl.getAttribute('srcset') || imgEl.getAttribute('data-srcset');
-      if (srcset) {
-        const parts = srcset.split(',');
-        const candidate = parts[parts.length - 1].trim().split(' ')[0];
-        if (candidate && !candidate.startsWith('data:image/')) {
-          url = resolveAbsoluteUrl(candidate);
-        }
-      }
-    }
-    // 3. currentSrc / src — skip tiny base64 placeholders (1x1 pixels < 3KB)
-    if (!url) {
-      const src = imgEl.currentSrc || imgEl.src;
+      const src = imgEl.src;
       if (src && (!src.startsWith('data:image/') || src.length > 3000)) {
         url = resolveAbsoluteUrl(src);
       }
     }
-    // 4. Lazy-load data attributes
+    // 5. Lazy-load data attributes (Image builder comprehensive attribute set)
     if (!url) {
       const candidate = imgEl.getAttribute('data-src') ||
                         imgEl.getAttribute('data-lazy-src') ||
                         imgEl.getAttribute('data-original') ||
                         imgEl.getAttribute('data-image-src') ||
-                        imgEl.currentSrc ||
-                        imgEl.src;
+                        imgEl.getAttribute('data-hi-res-src') ||
+                        imgEl.getAttribute('data-highres') ||
+                        imgEl.getAttribute('data-src-retina') ||
+                        imgEl.getAttribute('data-full') ||
+                        imgEl.getAttribute('data-zoom-src') ||
+                        imgEl.getAttribute('data-large_image') ||
+                        imgEl.getAttribute('data-fallback-src');
       if (candidate) {
         url = resolveAbsoluteUrl(candidate);
       }
@@ -6283,7 +6697,26 @@
           assets.addImage(imgChild.src);
         }
       }
+    } else if (el instanceof HTMLInputElement && (el.type || '').toUpperCase() === 'IMAGE' && el.src) {
+      assets.addImage(el.src);
     }
+
+    // Promote container background images from inline styles or data-bg attributes
+    if (!styles.backgroundImage || styles.backgroundImage === 'none') {
+      const inlineBg = el.style?.backgroundImage;
+      if (inlineBg && inlineBg !== 'none') {
+        styles.backgroundImage = inlineBg;
+      } else {
+        const dataBg = el.getAttribute('data-bg') || el.getAttribute('data-background') || el.getAttribute('data-background-image');
+        if (dataBg) {
+          const cleanBg = dataBg.replace(/^url\(['"]?|['"]?\)$/g, '').trim();
+          if (cleanBg) {
+            styles.backgroundImage = `url("${resolveAbsoluteUrl(cleanBg)}")`;
+          }
+        }
+      }
+    }
+
     const rawRepeat = styles.backgroundRepeat || '';
     const isRepeatingBg = rawRepeat && !rawRepeat.includes('no-repeat') && (rawRepeat.includes('repeat') || rawRepeat === 'round' || rawRepeat === 'space');
     const allImgProps = [styles.backgroundImage, styles.maskImage, styles.webkitMaskImage];
@@ -6455,18 +6888,26 @@
             }
           }
           if (svgText) {
-            const vRes = await vectorizeEmbeddedSvgImages(svgText);
-            if (vRes && vRes.dataUri && !vRes.isVector) {
-              placeholderUrl = vRes.dataUri;
-              if (assets) assets.addDataUrl(vRes.dataUri);
+            if (svgText.includes('<pattern')) {
+              // Patterned SVG: do NOT extract a single tile. Rasterize entire SVG via canvas at native resolution!
+              assets.addImage(rawSrc, true);
               tag = 'IMG';
+              placeholderUrl = null;
               svgContent = null;
-            } else if (vRes && vRes.isVector) {
-              svgContent = vRes.svg;
-              tag = 'SVG';
             } else {
-              svgContent = svgText;
-              tag = 'SVG';
+              const vRes = await vectorizeEmbeddedSvgImages(svgText);
+              if (vRes && vRes.dataUri && !vRes.isVector) {
+                placeholderUrl = vRes.dataUri;
+                if (assets) assets.addDataUrl(vRes.dataUri);
+                tag = 'IMG';
+                svgContent = null;
+              } else if (vRes && vRes.isVector) {
+                svgContent = vRes.svg;
+                tag = 'SVG';
+              } else {
+                svgContent = svgText;
+                tag = 'SVG';
+              }
             }
 
             if (svgContent) {
@@ -7048,12 +7489,16 @@
       // 2. Force-resolve lazy-loaded images that still have placeholder src (1x1 data-uri or missing src)
       //    Sites like Porsche.com use IntersectionObserver to swap src from a tiny placeholder
       //    to the real URL — but the 60ms scroll steps are too fast for the network to catch up.
-      //    We manually trigger the swap now by setting src/srcset from data attributes.
-      const allImgs = Array.from(document.querySelectorAll('img, picture img')).concat(querySelectorAllShadows('img'));
+      //    We manually trigger the swap now by setting src/srcset from data attributes across DOM and Shadow Roots.
+      const allImgs = Array.from(document.querySelectorAll('img, picture img, input[type="image"]')).concat(querySelectorAllShadows('img'));
       for (const img of allImgs) {
         try {
           const realSrc = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') ||
-                          img.getAttribute('data-original') || img.getAttribute('data-image-src');
+                          img.getAttribute('data-original') || img.getAttribute('data-image-src') ||
+                          img.getAttribute('data-hi-res-src') || img.getAttribute('data-highres') ||
+                          img.getAttribute('data-src-retina') || img.getAttribute('data-full') ||
+                          img.getAttribute('data-zoom-src') || img.getAttribute('data-large_image') ||
+                          img.getAttribute('data-fallback-src');
           const realSrcset = img.getAttribute('data-srcset');
           const isPlaceholder = !img.currentSrc ||
                                  (img.currentSrc.startsWith('data:image/') && img.currentSrc.length < 3000) ||
@@ -7073,6 +7518,20 @@
           }
         } catch (_) {}
       }
+
+      // Also promote lazy-loaded background images on containers
+      try {
+        const bgContainers = Array.from(document.querySelectorAll('[data-bg], [data-background], [data-background-image]'));
+        for (const el of bgContainers) {
+          const rawBg = el.getAttribute('data-bg') || el.getAttribute('data-background') || el.getAttribute('data-background-image');
+          if (rawBg) {
+            const clean = rawBg.replace(/^url\(['"]?|['"]?\)$/g, '').trim();
+            if (clean && (!el.style.backgroundImage || el.style.backgroundImage === 'none')) {
+              el.style.backgroundImage = `url("${resolveAbsoluteUrl(clean)}")`;
+            }
+          }
+        }
+      } catch (_) {}
       await new Promise(r => setTimeout(r, 600));
 
       // 3. Decode all visible and lazy-loaded images (save original attributes for restoration)
@@ -7091,6 +7550,17 @@
 
       const assets = new AssetCollector();
       const fonts = new FontCollector();
+
+      // Pre-warm: pre-register visible & on-page images (Image builder engine)
+      try {
+        const discovered = imageManager.getUniqueImagesSrcs();
+        const toWarm = discovered.slice(0, 100);
+        for (const imgUrl of toWarm) {
+          if (imgUrl && !imgUrl.startsWith('data:image/svg+xml')) {
+            assets.addImage(imgUrl);
+          }
+        }
+      } catch (err) {}
 
       // Target document.body directly to avoid double nesting HTML + BODY frames
       const targetElement = document.body || document.documentElement;
