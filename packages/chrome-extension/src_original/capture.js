@@ -523,13 +523,43 @@
     }
     freezeAndResetSwipers();
 
-    // Neutralize GSAP ScrollSmoother — save state for restoration
+    // Reset Skrollr parallax transforms on elements with [data-bottom-top], [data-top-bottom], etc.
+    try {
+      const skrollrEls = document.querySelectorAll('[data-bottom-top], [data-top-bottom], [data-center], [data-anchor-target]');
+      const savedSkTransforms = [];
+      for (const el of skrollrEls) {
+        savedSkTransforms.push({ el, transform: el.style.transform, transition: el.style.transition });
+        el.style.setProperty('transform', 'none', 'important');
+        el.style.setProperty('transition', 'none', 'important');
+      }
+      cleanupTasks.push(() => {
+        for (const item of savedSkTransforms) {
+          try {
+            if (item.transform) item.el.style.transform = item.transform;
+            else item.el.style.removeProperty('transform');
+            if (item.transition) item.el.style.transition = item.transition;
+            else item.el.style.removeProperty('transition');
+          } catch(e){}
+        }
+      });
+    } catch(e) {}
+
+    // Neutralize GSAP ScrollSmoother & Skrollr — save state for restoration
     // Neutralize GSAP ScrollSmoother and ScrollTrigger — save state for restoration via injected script
     try {
       const injectScript = document.createElement('script');
       injectScript.textContent = `
         window.__h2f_cleanup = window.__h2f_cleanup || [];
         try {
+          if (window.skrollr && typeof window.skrollr.get === 'function') {
+            const skr = window.skrollr.get();
+            if (skr && typeof skr.destroy === 'function') {
+              skr.destroy();
+              window.__h2f_cleanup.push(() => {
+                try { if (window.skrollr && typeof window.skrollr.init === 'function') window.skrollr.init(); } catch(e){}
+              });
+            }
+          }
           if (window.ScrollSmoother) {
             const sm = window.ScrollSmoother.get();
             if (sm) {
@@ -911,6 +941,13 @@
 
     // Ensure all Swipers remain frozen and reset to slide 0 after scrolling completes
     freezeAndResetSwipers();
+    try {
+      const skrollrEls = document.querySelectorAll('[data-bottom-top], [data-top-bottom], [data-center], [data-anchor-target]');
+      for (const el of skrollrEls) {
+        el.style.setProperty('transform', 'none', 'important');
+        el.style.setProperty('transition', 'none', 'important');
+      }
+    } catch(e) {}
 
     // Fast-forward any ScrollTrigger / GSAP animations triggered during scrolling
     try {
