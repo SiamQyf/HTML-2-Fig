@@ -6654,7 +6654,7 @@
       (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
       (styles.clip && /rect\(\s*1px[,\s]+1px[,\s]+1px[,\s]+1px\s*\)/.test(styles.clip)) ||
       (styles.clipPath && /inset\([^)]*100%[^)]*\)/.test(styles.clipPath)) ||
-      (styles.clipPath && /inset\(\s*(?:50%|100%|0px)\s*\)/.test(styles.clipPath))
+      (styles.clipPath && /inset\(\s*(?:50%|100%)\s*\)/.test(styles.clipPath))
     );
     const isZeroClipped = !hasAnimClass &&
                           (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') &&

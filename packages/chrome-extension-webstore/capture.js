@@ -523,13 +523,43 @@
     }
     freezeAndResetSwipers();
 
-    // Neutralize GSAP ScrollSmoother — save state for restoration
+    // Reset Skrollr parallax transforms on elements with [data-bottom-top], [data-top-bottom], etc.
+    try {
+      const skrollrEls = document.querySelectorAll('[data-bottom-top], [data-top-bottom], [data-center], [data-anchor-target]');
+      const savedSkTransforms = [];
+      for (const el of skrollrEls) {
+        savedSkTransforms.push({ el, transform: el.style.transform, transition: el.style.transition });
+        el.style.setProperty('transform', 'none', 'important');
+        el.style.setProperty('transition', 'none', 'important');
+      }
+      cleanupTasks.push(() => {
+        for (const item of savedSkTransforms) {
+          try {
+            if (item.transform) item.el.style.transform = item.transform;
+            else item.el.style.removeProperty('transform');
+            if (item.transition) item.el.style.transition = item.transition;
+            else item.el.style.removeProperty('transition');
+          } catch(e){}
+        }
+      });
+    } catch(e) {}
+
+    // Neutralize GSAP ScrollSmoother & Skrollr — save state for restoration
     // Neutralize GSAP ScrollSmoother and ScrollTrigger — save state for restoration via injected script
     try {
       const injectScript = document.createElement('script');
       injectScript.textContent = `
         window.__h2f_cleanup = window.__h2f_cleanup || [];
         try {
+          if (window.skrollr && typeof window.skrollr.get === 'function') {
+            const skr = window.skrollr.get();
+            if (skr && typeof skr.destroy === 'function') {
+              skr.destroy();
+              window.__h2f_cleanup.push(() => {
+                try { if (window.skrollr && typeof window.skrollr.init === 'function') window.skrollr.init(); } catch(e){}
+              });
+            }
+          }
           if (window.ScrollSmoother) {
             const sm = window.ScrollSmoother.get();
             if (sm) {
@@ -911,6 +941,13 @@
 
     // Ensure all Swipers remain frozen and reset to slide 0 after scrolling completes
     freezeAndResetSwipers();
+    try {
+      const skrollrEls = document.querySelectorAll('[data-bottom-top], [data-top-bottom], [data-center], [data-anchor-target]');
+      for (const el of skrollrEls) {
+        el.style.setProperty('transform', 'none', 'important');
+        el.style.setProperty('transition', 'none', 'important');
+      }
+    } catch(e) {}
 
     // Fast-forward any ScrollTrigger / GSAP animations triggered during scrolling
     try {
@@ -3887,8 +3924,10 @@
   async function vectorizeEmbeddedSvgImages(svgString) {
     if (!svgString || typeof svgString !== 'string') return { isVector: true, svg: svgString };
 
+    // SVGs with repeating pattern fills cannot be simplified to a single tile
+    if (svgString.includes('<pattern')) return { isVector: true, svg: svgString };
 
-    if (!svgString.includes('<pattern') && !svgString.includes('<image')) return { isVector: true, svg: svgString };
+    if (!svgString.includes('<image')) return { isVector: true, svg: svgString };
 
     // Check for embedded data:image
     const imgMatch = svgString.match(/(?:xlink:)?href=["'](data:image\/[^"']+)["']/i);
@@ -4137,7 +4176,7 @@
       
       const display = cs.display;
       if (display === 'none' || parseFloat(cs.opacity) < 0.02 || cs.visibility === 'hidden') return null;
-      if (cs.clipPath && cs.clipPath !== 'none' && (cs.clipPath.includes('inset(100%)') || cs.clipPath.includes('(0px'))) return null;
+      if (cs.clipPath && cs.clipPath !== 'none' && (cs.clipPath.includes('inset(100%)') || /inset\(\s*(?:50%|100%)\s*\)/.test(cs.clipPath))) return null;
 
       // Resolve containing block for absolutely positioned pseudo-elements
       let containingEl = el;
@@ -6476,7 +6515,7 @@
         // Must NOT match 100% insets, which represent collapsed accordions / hidden states
         const clipPath = cs.clipPath || styles.clipPath || '';
         const hasClipEntrance = clipPath && clipPath !== 'none' &&
-          /inset\(.*\d+%/.test(clipPath) && !(/inset\([^)]*100%[^)]*\)/.test(clipPath)) && !(/inset\(\s*0[^)]*\)/.test(clipPath));
+          /inset\(/.test(clipPath) && !(/inset\(\s*(?:50%|100%)\s*\)/.test(clipPath));
 
         // Detect translate-Y entrance (element shifted below viewport for reveal)
         const transform = cs.transform || styles.transform || '';
@@ -6558,7 +6597,7 @@
 
       // Remove clip-path entrance masks (inset-based reveals)
       if (styles.clipPath && styles.clipPath !== 'none' &&
-          /inset\(.*\d+%/.test(styles.clipPath) && !(/inset\([^)]*100%[^)]*\)/.test(styles.clipPath)) && !(/inset\(\s*0[^)]*\)/.test(styles.clipPath))) {
+          /inset\(/.test(styles.clipPath) && !(/inset\(\s*(?:50%|100%)\s*\)/.test(styles.clipPath))) {
         styles.clipPath = 'none';
       }
 
@@ -6614,8 +6653,7 @@
     const isClipHidden = !hasAnimClass && (
       (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
       (styles.clip && /rect\(\s*1px[,\s]+1px[,\s]+1px[,\s]+1px\s*\)/.test(styles.clip)) ||
-      (styles.clipPath && /inset\([^)]*100%[^)]*\)/.test(styles.clipPath)) ||
-      (styles.clipPath && /inset\(\s*(?:50%|100%|0px)\s*\)/.test(styles.clipPath))
+      (styles.clipPath && /inset\(\s*(?:50%|100%)\s*\)/.test(styles.clipPath))
     );
     const isZeroClipped = !hasAnimClass &&
                           (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') &&
@@ -6886,18 +6924,26 @@
             }
           }
           if (svgText) {
-            const vRes = await vectorizeEmbeddedSvgImages(svgText);
-            if (vRes && vRes.dataUri && !vRes.isVector) {
-              placeholderUrl = vRes.dataUri;
-              if (assets) assets.addDataUrl(vRes.dataUri);
+            if (svgText.includes('<pattern')) {
+              // Patterned SVG: do NOT extract a single tile. Rasterize entire SVG via canvas at native resolution!
+              assets.addImage(rawSrc, true);
               tag = 'IMG';
+              placeholderUrl = null;
               svgContent = null;
-            } else if (vRes && vRes.isVector) {
-              svgContent = vRes.svg;
-              tag = 'SVG';
             } else {
-              svgContent = svgText;
-              tag = 'SVG';
+              const vRes = await vectorizeEmbeddedSvgImages(svgText);
+              if (vRes && vRes.dataUri && !vRes.isVector) {
+                placeholderUrl = vRes.dataUri;
+                if (assets) assets.addDataUrl(vRes.dataUri);
+                tag = 'IMG';
+                svgContent = null;
+              } else if (vRes && vRes.isVector) {
+                svgContent = vRes.svg;
+                tag = 'SVG';
+              } else {
+                svgContent = svgText;
+                tag = 'SVG';
+              }
             }
 
             if (svgContent) {
