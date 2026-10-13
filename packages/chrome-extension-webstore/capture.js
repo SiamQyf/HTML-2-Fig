@@ -6028,6 +6028,17 @@
     const scrollY = (isFixed ? 0 : window.scrollY) + fixedShiftY;
     const scrollX = isFixed ? 0 : window.scrollX;
     const cs = window.getComputedStyle(el);
+    const padLeft = parseFloat(cs.paddingLeft) || 0;
+    const padTop = parseFloat(cs.paddingTop) || 0;
+    const padRight = parseFloat(cs.paddingRight) || 0;
+    const padBottom = parseFloat(cs.paddingBottom) || 0;
+    const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
+    const borderTop = parseFloat(cs.borderTopWidth) || 0;
+    const borderRight = parseFloat(cs.borderRightWidth) || 0;
+    const borderBottom = parseFloat(cs.borderBottomWidth) || 0;
+
+    const contentWidth = Math.max(0, Math.ceil(rect.width - padLeft - padRight - borderLeft - borderRight));
+    const contentHeight = Math.max(0, Math.ceil(rect.height - padTop - padBottom - borderTop - borderBottom));
 
     if (fonts && typeof fonts.addFont === 'function') {
       fonts.addFont(effectiveStyles.fontFamily, effectiveStyles.fontWeight, effectiveStyles.fontStyle);
@@ -6038,13 +6049,13 @@
       id: getNodeId('unified-text'),
       text: fullText,
       rect: {
-        x: rect.x + scrollX,
-        y: rect.y + scrollY,
-        width: Math.ceil(rect.width),
-        height: Math.ceil(rect.height)
+        x: rect.x + padLeft + borderLeft + scrollX,
+        y: rect.y + padTop + borderTop + scrollY,
+        width: contentWidth > 0 ? contentWidth : Math.ceil(rect.width),
+        height: contentHeight > 0 ? contentHeight : Math.ceil(rect.height)
       },
       styles: getTextNodeStyles(effectiveStyles),
-      lineCount: Math.max(1, Math.round(rect.height / (parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 16) * 1.4))),
+      lineCount: Math.max(1, Math.round((contentHeight || rect.height) / (parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 16) * 1.4))),
       styledSegments: diffSegments.length > 0 ? diffSegments : undefined
     };
   }
