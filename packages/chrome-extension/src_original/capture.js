@@ -3740,6 +3740,7 @@
   }
 
   function convertMultipleBackgroundsToSvg(csOrEl, w, h, defaultColor) {
+    return null; // Preserved multi-gradient backgrounds for native Figma layer parsing in code.js
     if (!csOrEl) return null;
     const cs = (csOrEl instanceof Element) ? window.getComputedStyle(csOrEl) : csOrEl;
     const bgImage = cs.backgroundImage || '';
@@ -3948,29 +3949,37 @@
       return true;
     }
     const repeat = (bgRepeat || '').toLowerCase();
-    const isRepeating = repeat.includes('repeat') && !repeat.includes('no-repeat');
+    const isRepeating = (repeat.includes('repeat') || repeat === 'space' || repeat === 'round') && !repeat.includes('no-repeat');
     if (bgSize && bgSize !== 'auto' && bgSize !== 'cover' && bgSize !== 'contain') {
       const parts = bgSize.trim().split(/\s+/);
       const isPercent = parts[0].endsWith('%');
       const w = parseFloat(parts[0]);
-      if (!isPercent && w > 0 && (isRepeating || w <= 160) && (lower.includes('radial-gradient') || lower.includes('linear-gradient'))) {
+      if (isPercent && w < 99 && (isRepeating || lower.includes('gradient'))) {
+        return true;
+      }
+      if (!isPercent && w > 0 && (isRepeating || w <= 180) && lower.includes('gradient')) {
         return true;
       }
     }
+    if (isRepeating && lower.includes('gradient')) {
+      return true;
+    }
     return false;
   }
-
-  async function renderPatternToDataUrl(bgStr, bgSize, bgRepeat, width, height, bgColor = 'transparent') {
+  async function renderPatternToDataUrl(bgStr, bgSize, bgRepeat, width, height, bgColor = 'transparent', bgPos = '', borderRadius = '') {
     try {
       const w = Math.min(2048, Math.max(1, Math.round(width || 100)));
       const h = Math.min(2048, Math.max(1, Math.round(height || 100)));
       const sizeStr = bgSize || 'auto';
       const repeatStr = bgRepeat || 'repeat';
       const colorStr = bgColor || 'transparent';
+      const posCss = bgPos ? `background-position:${bgPos};` : '';
+      const radCss = borderRadius ? `border-radius:${borderRadius};` : '';
+      const safeBg = (bgStr || '').replace(/"/g, "'");
 
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
         <foreignObject width="100%" height="100%">
-          <div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;background-image:${bgStr};background-size:${sizeStr};background-repeat:${repeatStr};background-color:${colorStr};"></div>
+          <div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;background-image:${safeBg};background-size:${sizeStr};background-repeat:${repeatStr};${posCss}${radCss}background-color:${colorStr};"></div>
         </foreignObject>
       </svg>`;
 
@@ -3980,16 +3989,17 @@
       await img.decode();
 
       const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
+      const dpr = Math.min(2, window.devicePixelRatio || 2);
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
       const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
       ctx.drawImage(img, 0, 0);
       return canvas.toDataURL('image/png');
     } catch {
       return null;
     }
   }
-
   async function rasterizeSvgToDataUri(svgString) {
     try {
       const wMatch = svgString.match(/width=["']([\d.]+)px?["']/i);
@@ -6892,10 +6902,43 @@
 
 
     // Detect inactive tabs and true modals so we don't inappropriately unhide them
-    const isInactiveTab = !!(el.closest && el.closest('[role="tabpanel"][aria-hidden="true"], .tab-pane:not(.active):not(.show)'));
+    const isInactiveTab = !!(el.closest && el.closest('[role="tabpanel"][aria-hidden="true"], .tab-pane:not(.active):not(.show), [class*="-pane"]:not([class*="active"])'));
+    const isInactiveVariant = !!(
+      el.parentElement &&
+      (el.className && typeof el.className === 'string' && /gradient|theme|panel|slide|tab|item|layer/i.test(el.className)) &&
+      Array.from(el.parentElement.children).some(sibling =>
+        sibling !== el &&
+        sibling.className &&
+        typeof sibling.className === 'string' &&
+        (/\b(?:active|is-active|selected)\b|--active\b/i.test(sibling.className))
+      )
+    );
     const isModalOrOffcanvas = !!(el.closest && el.closest('.modal:not(.show):not(.in), .offcanvas:not(.show), [aria-modal="true"][style*="display: none"]'));
+    const isAccordionOrToggleState = (() => {
+      if (!el.closest) return false;
+      if (el.closest('.customer-story-button:not(.customer-story-button--open)') && (el.classList?.contains('customer-story-button__text') || el.closest('.customer-story-button__text'))) return true;
+      if (el.closest('.customer-story-button--open') && (el.classList?.contains('customer-story-button__icon') || el.closest('.customer-story-button__icon'))) return true;
+      if (el.closest('.customer-story-button') && el.parentElement?.classList?.contains('customer-story-button__container')) {
+        const sibs = Array.from(el.parentElement.children);
+        if (sibs.some(s => s !== el && parseFloat(window.getComputedStyle(s).opacity) > 0.5)) return true;
+      }
+      if (el.closest('[aria-expanded="false"], [data-state="closed"], [data-state="collapsed"]')) {
+        const collapsedRoot = el.closest('[aria-expanded="false"], [data-state="closed"], [data-state="collapsed"]');
+        if (!collapsedRoot.closest('[aria-expanded="true"], [data-state="open"]')) return true;
+      }
+      if (el.closest('.accordion-collapse:not(.show), .collapse:not(.show), [aria-hidden="true"]')) return true;
+      if (el.parentElement && el.parentElement.children.length === 2) {
+        const other = el.parentElement.children[0] === el ? el.parentElement.children[1] : el.parentElement.children[0];
+        try {
+          if (parseFloat(window.getComputedStyle(other).opacity) > 0.8 && parseFloat(styles.opacity) < 0.1) {
+            return true;
+          }
+        } catch (_) {}
+      }
+      return false;
+    })();
 
-    const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isModalOrOffcanvas && (
+    const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && (
       /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos|sal|scroll-reveal|invert|fade_anim|has-animation|appear|in-view|inview|is-visible|fadeIn|fade-in|fadeUp|fade-up|fadeDown|fade-down|fadeLeft|fade-left|fadeRight|fade-right|animate|animated|animation|zoomIn|bounceIn|reveal/i.test(cls) ||
       el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-scroll') || el.hasAttribute('data-animation') || el.hasAttribute('data-animate') ||
       !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [data-sal], [data-scroll], [class*="invert"], [class*="fade_anim"], [class*="has-animation"], [class*="fadeIn"], [class*="fade-"], [class*="animate"]'))
@@ -6904,7 +6947,7 @@
     // Strategy 2: behavioural heuristics — detect ANY element with a scroll/entrance animation
     // that is currently stuck in a pre-reveal state, regardless of class names.
     let hasScrollRevealBehavior = false;
-    if (!isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isModalOrOffcanvas && !hasAnimClass) {
+    if (!isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && !hasAnimClass) {
       try {
         const cs = window.getComputedStyle(el);
         const curOpacity = parseFloat(styles.opacity);
@@ -6997,7 +7040,7 @@
       styles.display !== 'none' &&
       (styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.05) &&
       hasVisibleContent &&
-      !isNavDropdown && !isHoverOrOverlay && !isInactiveTab && !isModalOrOffcanvas &&
+      !isNavDropdown && !isHoverOrOverlay && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState &&
       !el.closest('.vertical-counter, .odometer, .swiper-slide:not(.swiper-slide-active)')
     );
 
@@ -7715,6 +7758,7 @@
               attributes: getAttributes(el),
               styles: fragStyles,
               rect: fragRect,
+              bgClipRect: { x: docRect.x, y: docRect.y, width: docRect.width, height: docRect.height },
               childNodes: fragChildNodes,
               pseudoElementNodes: Object.keys(fragPseudo).length > 0 ? fragPseudo : undefined
             });
