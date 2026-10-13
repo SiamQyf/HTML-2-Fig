@@ -472,6 +472,25 @@
   async function prepareAndScrollPage() {
     const cleanupTasks = [];
 
+    // 1. Ensure document has finished initial loading and DOM parsing
+    if (document.readyState !== 'complete') {
+      await new Promise(resolve => {
+        const onLoad = () => { resolve(); window.removeEventListener('load', onLoad); };
+        window.addEventListener('load', onLoad);
+        setTimeout(resolve, 2500);
+      });
+    }
+
+    // 2. Wait for web fonts readiness if available
+    try {
+      if (document.fonts && document.fonts.ready) {
+        await Promise.race([
+          document.fonts.ready,
+          new Promise(r => setTimeout(r, 2000))
+        ]);
+      }
+    } catch (_) {}
+
     const style = document.createElement('style');
     style.id = 'h2f-scroll-fix';
     style.innerHTML = 'html, body { scroll-behavior: auto !important; }';
@@ -743,19 +762,8 @@
       });
     }
 
-    // Clean up Odometer and other animated counters to prevent overlapping number ribbons
-    try {
-      const counters = document.querySelectorAll('.odometer, .counter, [data-count], [data-to]');
-      for (const el of counters) {
-        const val = el.getAttribute('data-count') || el.getAttribute('data-to') || el.getAttribute('data-val');
-        if (val) {
-          el.innerHTML = val;
-        } else if (el.classList.contains('odometer')) {
-          // If no data attribute is found but it's an odometer, just use the stripped text
-          el.innerHTML = el.innerText.replace(/\s+/g, '');
-        }
-      }
-    } catch (e) {}
+    // Animated counters (odometers, vertical-counters, data-to) are resolved purely
+    // during serializeNode without mutating the live DOM or corrupting the user's page.
 
     // The animatedEls inline style mutations have been removed.
     // We now rely natively on the scrolling mechanisms above to trigger IntersectionObservers natively.
@@ -858,11 +866,12 @@
         else container.scrollTo(0, cp);
       }
 
-      // Fire scroll event to trigger intersection observers and scroll listeners
+      // Fire scroll and resize events to trigger intersection observers and lazy load listeners
       window.dispatchEvent(new Event('scroll'));
+      window.dispatchEvent(new Event('resize'));
 
-      // Small pause for intersection observers to register the section in-view
-      await new Promise(r => setTimeout(r, 60));
+      // Pause for intersection observers to register the section in-view and load lazy components
+      await new Promise(r => setTimeout(r, 120));
 
       // Fast-forward & settle all active animations for this section:
       // a) Web Animations API (CSS transitions, keyframes, WAAPI)
@@ -895,7 +904,7 @@
         const aosEls = document.querySelectorAll('[data-aos]');
         for (const el of aosEls) {
           const r = el.getBoundingClientRect();
-          if (r.top < vh * 1.2 && r.bottom > -50) {
+          if (r.top < vh * 1.5 && r.bottom > -100) {
             el.classList.add('aos-animate');
             el.setAttribute('data-aos-once', 'true');
           }
@@ -907,14 +916,22 @@
         const wowEls = document.querySelectorAll('.wow');
         for (const el of wowEls) {
           const r = el.getBoundingClientRect();
-          if (r.top < vh * 1.2 && r.bottom > -50) {
+          if (r.top < vh * 1.5 && r.bottom > -100) {
             el.style.visibility = 'visible';
             el.classList.add('animated');
           }
         }
       } catch (e) {}
 
-      // d) GSAP / ScrollTrigger active in this viewport
+      // d) Sal.js
+      try {
+        const salEls = document.querySelectorAll('[data-sal]');
+        for (const el of salEls) {
+          el.classList.add('sal-animate');
+        }
+      } catch (e) {}
+
+      // e) GSAP / ScrollTrigger active in this viewport
       try {
         if (window.ScrollTrigger) {
           window.ScrollTrigger.getAll().forEach(st => {
@@ -975,15 +992,52 @@
                 } catch {}
               });
             }
-            // Fast-forward any SplitText / scroll reveal opacity on words and chars in the DOM:
-            const scrubEls = document.querySelectorAll('[data-splitting] .word, [data-splitting] .char, .splitting .word, .splitting .char, .split-text .word, .split-text .char, [class*="word"], [class*="char"], .text-anim, .title-anim');
+            // Fast-forward any scroll reveal opacity and visibility on animated elements in the DOM:
+            const scrubEls = document.querySelectorAll(
+              '[data-splitting] .word, [data-splitting] .char, .splitting .word, .splitting .char, ' +
+              '.split-text .word, .split-text .char, [class*="word"], [class*="char"], .text-anim, .title-anim, ' +
+              '.hero-text-anim, .wow, [data-wow-delay], [data-aos], [data-sal], [data-scroll], .animated, ' +
+              '.fadeInUp, .fadeIn, .fadeInLeft, .fadeInRight, .fadeInDown, .bounceIn, .zoomIn, ' +
+              '[class*="wow"], [class*="fadeIn"], [class*="-anim"], [class*="has-animation"], [class*="scroll-reveal"]'
+            );
             for (const el of scrubEls) {
               try {
-                if (el.style.opacity && parseFloat(el.style.opacity) < 0.95 && parseFloat(el.style.opacity) > 0.01) {
-                  el.style.opacity = '1';
+                if (el.style) {
+                  if (el.style.opacity && parseFloat(el.style.opacity) < 0.98) {
+                    el.style.opacity = '1';
+                  }
+                  if (el.style.visibility === 'hidden') {
+                    el.style.visibility = 'visible';
+                  }
+                }
+                if (el.hasAttribute('data-aos')) {
+                  el.classList.add('aos-animate');
+                  el.setAttribute('data-aos-once', 'true');
+                }
+                if (el.hasAttribute('data-sal')) {
+                  el.classList.add('sal-animate');
+                }
+                if (el.classList.contains('wow')) {
+                  el.classList.add('animated');
+                  el.style.visibility = 'visible';
                 }
               } catch (e) {}
             }
+
+            // Force-resolve lazy-loaded image sources
+            try {
+              const lazyImgs = document.querySelectorAll('img[data-src], img[data-lazy-src], img[data-original], img[data-lazy], img[data-srcset]');
+              for (const img of lazyImgs) {
+                const s = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original') || img.getAttribute('data-lazy');
+                if (s && (!img.src || img.src.startsWith('data:') || img.src.length < 50)) {
+                  img.src = s;
+                }
+                const ss = img.getAttribute('data-srcset');
+                if (ss && !img.srcset) {
+                  img.srcset = ss;
+                }
+              }
+            } catch (e) {}
 
             // Fast-forward any background-clip:text scrub animations (e.g. gt_text_invert, SplitText scrubs)
             try {
@@ -1414,29 +1468,10 @@
           Array.from(box.children).find(c => window.getComputedStyle(c).position === 'sticky') || 
           box.firstElementChild;
         
-        if (contain && contain !== box) {
+          if (contain && contain !== box) {
           const cRect = contain.getBoundingClientRect();
           const targetH = Math.max(1, Math.round(cRect.height));
           if (targetH <= 50) continue;
-
-          const savedH = box.style.height;
-          const savedMinH = box.style.minHeight;
-          const savedMaxH = box.style.maxHeight;
-          const savedPb = box.style.paddingBottom;
-
-          box.style.setProperty('height', targetH + 'px', 'important');
-          box.style.setProperty('min-height', '0px', 'important');
-          box.style.setProperty('max-height', 'none', 'important');
-          if (box.classList.contains('pin-spacer') || (box.className && String(box.className).includes('pin-spacer'))) {
-            box.style.setProperty('padding-bottom', '0px', 'important');
-          }
-
-          cleanupTasks.push(() => {
-            box.style.height = savedH;
-            box.style.minHeight = savedMinH;
-            box.style.maxHeight = savedMaxH;
-            box.style.paddingBottom = savedPb;
-          });
 
           // Detect stacked sibling items (e.g. .stack-item or identical absolute sibling cards)
           // Ensure we only select top-level sibling cards, NEVER nested child wrappers like .stack-item-wrapper!
@@ -1454,7 +1489,90 @@
             }
           }
 
-          if (items.length > 0) {
+          if (items.length > 1) {
+            // Keep ALL stacked cards and position them into a clean stack container, with the last card on top!
+            const maxItemH = Math.max(targetH, ...items.map(it => Math.round(it.getBoundingClientRect().height || it.offsetHeight || 0)));
+            const primaryW = Math.round(items[0].getBoundingClientRect().width || box.getBoundingClientRect().width);
+
+            const savedPos = box.style.position;
+            const savedH = box.style.height;
+            const savedMinH = box.style.minHeight;
+            const savedMaxH = box.style.maxHeight;
+            const savedPb = box.style.paddingBottom;
+
+            box.style.setProperty('position', 'relative', 'important');
+            box.style.setProperty('height', maxItemH + 'px', 'important');
+            box.style.setProperty('min-height', maxItemH + 'px', 'important');
+            box.style.setProperty('max-height', 'none', 'important');
+            if (box.classList.contains('pin-spacer') || (box.className && String(box.className).includes('pin-spacer'))) {
+              box.style.setProperty('padding-bottom', '0px', 'important');
+            }
+
+            cleanupTasks.push(() => {
+              box.style.position = savedPos;
+              box.style.height = savedH;
+              box.style.minHeight = savedMinH;
+              box.style.maxHeight = savedMaxH;
+              box.style.paddingBottom = savedPb;
+            });
+
+            const itemParent = items[0].parentElement;
+            if (itemParent && itemParent !== box) {
+              const savedParentPos = itemParent.style.position;
+              const savedParentH = itemParent.style.height;
+              itemParent.style.setProperty('position', 'relative', 'important');
+              itemParent.style.setProperty('height', maxItemH + 'px', 'important');
+              cleanupTasks.push(() => {
+                itemParent.style.position = savedParentPos;
+                itemParent.style.height = savedParentH;
+              });
+            }
+
+            // Stack cards on top of each other with sequential z-index so the last card is on top
+            items.forEach((item, idx) => {
+              const sPos = item.style.position;
+              const sTop = item.style.top;
+              const sLeft = item.style.left;
+              const sWidth = item.style.width;
+              const sMargin = item.style.margin;
+              const sZIndex = item.style.zIndex;
+
+              item.style.setProperty('position', 'absolute', 'important');
+              item.style.setProperty('top', '0px', 'important');
+              item.style.setProperty('left', '0px', 'important');
+              item.style.setProperty('width', primaryW + 'px', 'important');
+              item.style.setProperty('margin', '0px', 'important');
+              item.style.setProperty('z-index', String(idx + 1), 'important');
+
+              cleanupTasks.push(() => {
+                item.style.position = sPos;
+                item.style.top = sTop;
+                item.style.left = sLeft;
+                item.style.width = sWidth;
+                item.style.margin = sMargin;
+                item.style.zIndex = sZIndex;
+              });
+            });
+          } else if (items.length === 1) {
+            const savedH = box.style.height;
+            const savedMinH = box.style.minHeight;
+            const savedMaxH = box.style.maxHeight;
+            const savedPb = box.style.paddingBottom;
+
+            box.style.setProperty('height', targetH + 'px', 'important');
+            box.style.setProperty('min-height', '0px', 'important');
+            box.style.setProperty('max-height', 'none', 'important');
+            if (box.classList.contains('pin-spacer') || (box.className && String(box.className).includes('pin-spacer'))) {
+              box.style.setProperty('padding-bottom', '0px', 'important');
+            }
+
+            cleanupTasks.push(() => {
+              box.style.height = savedH;
+              box.style.minHeight = savedMinH;
+              box.style.maxHeight = savedMaxH;
+              box.style.paddingBottom = savedPb;
+            });
+
             const primaryItem = items[0];
             const savedItemH = primaryItem.style.height;
             const savedItemMinH = primaryItem.style.minHeight;
@@ -1469,15 +1587,6 @@
               primaryItem.style.minHeight = savedItemMinH;
               primaryItem.style.maxHeight = savedItemMaxH;
             });
-
-            for (let i = 1; i < items.length; i++) {
-              const item = items[i];
-              const savedDisplay = item.style.display;
-              item.style.setProperty('display', 'none', 'important');
-              cleanupTasks.push(() => {
-                item.style.display = savedDisplay;
-              });
-            }
           }
         }
       }
@@ -1921,7 +2030,21 @@
   }
 
   async function rasterizeCanvas(cv) {
+    if (!cv || cv.width <= 0 || cv.height <= 0) return null;
     const tainted = isCanvasTainted(cv);
+
+    const is2d = (function() {
+      try {
+        return !cv.getContext('webgl') && !cv.getContext('webgl2');
+      } catch {
+        return true;
+      }
+    })();
+
+    // 1. Direct read for 2D canvases or untainted canvases:
+    // 2D canvases (particles, charts, graphs, sketches) keep their bitmap buffer in memory.
+    // Reading directly captures pure canvas drawings with transparent background,
+    // avoiding taking a viewport screenshot that bakes HTML headings, buttons, and text into the canvas fill.
     if (!tainted) {
       try {
         const MAX_CANVAS = 2560;
@@ -1940,36 +2063,21 @@
           }
         }
 
-        // Verify canvas actually contains drawn pixels and is not transparent/blank
-        if (!isCanvasElementBlank(targetCv)) {
-          const blob = await new Promise(res => {
-            try { targetCv.toBlob(res, 'image/png'); } catch(_) { res(null); }
-          });
-          if (blob) {
-            const b64 = await blobToBase64(blob);
-            if (b64 && b64.data && b64.data.length > 100) return b64;
-          }
-          const dataUrl = cv.toDataURL('image/png');
-          if (dataUrl && dataUrl.length > 100) return { type: 'image/png', data: dataUrl };
+        const dataUrl = targetCv.toDataURL('image/png');
+        if (dataUrl && dataUrl.length > 200) {
+          const b64Data = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+          return { type: 'image/png', data: b64Data };
         }
       } catch {}
     }
 
-    // Fallback 1: If WebGL buffer was cleared / preserveDrawingBuffer was false,
-    // crop canvas from initial viewport screenshot if visible in top viewport!
-    if (typeof window !== 'undefined' && window.__html2FigViewportScreenshot) {
+    // 2. Fallback for WebGL canvases: scroll into view and read directly from WebGL buffer
+    if (!is2d) {
       try {
-        const fallback = await cropCanvasFromScreenshot(cv, window.__html2FigViewportScreenshot);
-        if (fallback) return fallback;
+        const liveResult = await captureCanvasWithLiveScroll(cv);
+        if (liveResult) return liveResult;
       } catch {}
     }
-
-    // Fallback 2: For canvases located anywhere down the page (lazy-loaded, offscreen WebGL, tainted cross-origin, shaders, carousels),
-    // scroll canvas into view and capture live high-DPR screenshot!
-    try {
-      const liveResult = await captureCanvasWithLiveScroll(cv);
-      if (liveResult) return liveResult;
-    } catch {}
 
     return null;
   }
@@ -3852,16 +3960,17 @@
     return false;
   }
 
-  async function renderPatternToDataUrl(bgStr, bgSize, bgRepeat, width, height) {
+  async function renderPatternToDataUrl(bgStr, bgSize, bgRepeat, width, height, bgColor = 'transparent') {
     try {
       const w = Math.min(2048, Math.max(1, Math.round(width || 100)));
       const h = Math.min(2048, Math.max(1, Math.round(height || 100)));
       const sizeStr = bgSize || 'auto';
       const repeatStr = bgRepeat || 'repeat';
+      const colorStr = bgColor || 'transparent';
 
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
         <foreignObject width="100%" height="100%">
-          <div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;background-image:${bgStr};background-size:${sizeStr};background-repeat:${repeatStr};background-color:transparent;"></div>
+          <div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;background-image:${bgStr};background-size:${sizeStr};background-repeat:${repeatStr};background-color:${colorStr};"></div>
         </foreignObject>
       </svg>`;
 
@@ -4176,7 +4285,7 @@
       
       const display = cs.display;
       if (display === 'none' || parseFloat(cs.opacity) < 0.02 || cs.visibility === 'hidden') return null;
-      if (cs.clipPath && cs.clipPath !== 'none' && (cs.clipPath.includes('inset(100%)') || /inset\(\s*(?:50%|100%)\s*\)/.test(cs.clipPath))) return null;
+      if (cs.clipPath && cs.clipPath !== 'none' && (cs.clipPath.includes('inset(100%)') || cs.clipPath.includes('(0px'))) return null;
 
       // Resolve containing block for absolutely positioned pseudo-elements
       let containingEl = el;
@@ -4399,6 +4508,17 @@
         
         if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = baseRect.y + t + mt;
         else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = baseRect.y + baseRect.height - pseudoRect.height - b - mb;
+        if (cs.translate && cs.translate !== 'none') {
+          const tr = cs.translate.trim().split(/\s+/);
+          if (tr[0]) {
+            const tx = tr[0].endsWith('%') ? pseudoRect.width * (parseFloat(tr[0]) / 100) : parseFloat(tr[0]);
+            if (!isNaN(tx)) pseudoRect.x += tx;
+          }
+          if (tr[1]) {
+            const ty = tr[1].endsWith('%') ? pseudoRect.height * (parseFloat(tr[1]) / 100) : parseFloat(tr[1]);
+            if (!isNaN(ty)) pseudoRect.y += ty;
+          }
+        }
 
         // Filter out pseudo-elements that are completely outside an overflow:hidden ancestor
         let clipAncestor = containingEl || el.parentElement;
@@ -4675,34 +4795,38 @@
       const isTextClip = (styles.backgroundClip && styles.backgroundClip.includes('text')) ||
                          (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'));
 
-      if (styles.backgroundImage && styles.backgroundImage !== 'none' && !isTextClip) {
-        const w = Math.max(1, Math.round(pseudoRect.width || 100));
-        const h = Math.max(1, Math.round(pseudoRect.height || 100));
-        if (isPatternGradient(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat)) {
-          const dataUrl = await renderPatternToDataUrl(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat, w, h);
-          if (dataUrl) {
-            if (assets) assets.addDataUrl(dataUrl);
-            styles.backgroundImage = `url("${dataUrl}")`;
-            styles.backgroundSize = 'cover';
-          }
-        } else {
-          const bgs = splitByTopLevelCommas(styles.backgroundImage);
-          let changed = false;
-          const newBgs = [];
-          for (const bg of bgs) {
-            if (isPatternGradient(bg, styles.backgroundSize, styles.backgroundRepeat)) {
-              const dataUrl = await renderPatternToDataUrl(bg, styles.backgroundSize, styles.backgroundRepeat, w, h);
-              if (dataUrl) {
-                if (assets) assets.addDataUrl(dataUrl);
-                newBgs.push(`url("${dataUrl}")`);
-                styles.backgroundSize = 'cover';
-                changed = true;
-                continue;
-              }
+      if (styles.backgroundImage && styles.backgroundImage !== 'none') {
+        const isPattern = isPatternGradient(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat);
+        if (!isTextClip || isPattern) {
+          const w = Math.max(1, Math.round(pseudoRect.width || 100));
+          const h = Math.max(1, Math.round(pseudoRect.height || 100));
+          const bgColor = (styles.backgroundColor && styles.backgroundColor !== 'transparent' && styles.backgroundColor !== 'rgba(0, 0, 0, 0)') ? styles.backgroundColor : 'transparent';
+          if (isPattern) {
+            const dataUrl = await renderPatternToDataUrl(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat, w, h, bgColor);
+            if (dataUrl) {
+              if (assets) assets.addDataUrl(dataUrl);
+              styles.backgroundImage = `url("${dataUrl}")`;
+              styles.backgroundSize = 'cover';
             }
-            newBgs.push(bg);
+          } else {
+            const bgs = splitByTopLevelCommas(styles.backgroundImage);
+            let changed = false;
+            const newBgs = [];
+            for (const bg of bgs) {
+              if (isPatternGradient(bg, styles.backgroundSize, styles.backgroundRepeat)) {
+                const dataUrl = await renderPatternToDataUrl(bg, styles.backgroundSize, styles.backgroundRepeat, w, h, bgColor);
+                if (dataUrl) {
+                  if (assets) assets.addDataUrl(dataUrl);
+                  newBgs.push(`url("${dataUrl}")`);
+                  styles.backgroundSize = 'cover';
+                  changed = true;
+                  continue;
+                }
+              }
+              newBgs.push(bg);
+            }
+            if (changed) styles.backgroundImage = newBgs.join(', ');
           }
-          if (changed) styles.backgroundImage = newBgs.join(', ');
         }
       }
 
@@ -5665,6 +5789,267 @@
     return url || null;
   }
 
+  
+  function canUnifyTextContainer(el) {
+    if (!el || el.childNodes.length === 0) return false;
+    const tag = el.tagName.toUpperCase();
+    const isSemanticText = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'FIGCAPTION', 'LABEL'].includes(tag);
+    const isTextClass = typeof el.className === 'string' && /split-text|text-reveal|splitting|word-wrap|char-wrap/i.test(el.className);
+
+    if (!isSemanticText && !isTextClass) {
+      if (['BODY', 'HTML', 'MAIN', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'NAV', 'ASIDE', 'FORM', 'TABLE', 'TBODY', 'TR', 'TD', 'TH', 'UL', 'OL', 'BUTTON', 'A'].includes(tag)) {
+        return false;
+      }
+    }
+
+    let totalTextLength = 0;
+    let textNodeCount = 0;
+    let elementCount = 0;
+    let hasIncompatibleChild = false;
+
+    function inspect(curr) {
+      if (hasIncompatibleChild) return;
+      for (const child of curr.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          totalTextLength += (child.textContent || '').trim().length;
+          textNodeCount++;
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          elementCount++;
+          const cTag = child.tagName.toUpperCase();
+          if (cTag === 'BR') continue;
+          if (['IMG', 'SVG', 'CANVAS', 'VIDEO', 'IFRAME', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'HR'].includes(cTag)) {
+            hasIncompatibleChild = true;
+            return;
+          }
+          if (typeof child.className === 'string' && /\b(?:fa[srbld]?|fa-|glyphicon|material-icons|icon|glyph)\b/i.test(child.className)) {
+            hasIncompatibleChild = true;
+            return;
+          }
+          const cs = window.getComputedStyle(child);
+          if (cs.display === 'none') continue;
+          const bContent = window.getComputedStyle(child, '::before').content;
+          const aContent = window.getComputedStyle(child, '::after').content;
+          if ((bContent && bContent !== 'none' && bContent !== 'normal') || (aContent && aContent !== 'none' && aContent !== 'normal')) {
+            hasIncompatibleChild = true;
+            return;
+          }
+          if ((cs.backgroundImage && cs.backgroundImage !== 'none') ||
+              (parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderBottomWidth) > 0 || parseFloat(cs.borderLeftWidth) > 0 || parseFloat(cs.borderRightWidth) > 0) ||
+              (cs.boxShadow && cs.boxShadow !== 'none')) {
+            hasIncompatibleChild = true;
+            return;
+          }
+          if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent') {
+            const isWhiteOrSame = cs.backgroundColor === 'rgb(255, 255, 255)' || cs.backgroundColor === 'rgba(255, 255, 255, 1)' || cs.backgroundColor === '#fff' || cs.backgroundColor === '#ffffff';
+            if (!isWhiteOrSame) {
+              hasIncompatibleChild = true;
+              return;
+            }
+          }
+          if (!cs.display.startsWith('inline') && cs.display !== 'contents') {
+            hasIncompatibleChild = true;
+            return;
+          }
+          inspect(child);
+        }
+      }
+    }
+
+    inspect(el);
+
+    if (hasIncompatibleChild || totalTextLength === 0) return false;
+    return isSemanticText || (elementCount >= 1 && (textNodeCount + elementCount) >= 2);
+  }
+
+  function compressStyledSegments(rawSegments, containerStyles) {
+    const merged = [];
+    let current = null;
+    for (const seg of rawSegments) {
+      if (!current) {
+        current = { ...seg };
+        continue;
+      }
+      const same = current.fontFamily === seg.fontFamily &&
+                   current.fontWeight === seg.fontWeight &&
+                   current.fontStyle === seg.fontStyle &&
+                   current.fontStretch === seg.fontStretch &&
+                   current.fontSize === seg.fontSize &&
+                   current.color === seg.color &&
+                   current.lineHeight === seg.lineHeight &&
+                   current.letterSpacing === seg.letterSpacing &&
+                   current.textDecoration === seg.textDecoration;
+      if (same && current.end === seg.start) {
+        current.end = seg.end;
+      } else {
+        merged.push(current);
+        current = { ...seg };
+      }
+    }
+    if (current) merged.push(current);
+
+    if (merged.length <= 1) return [];
+
+    const diffSegments = [];
+    for (const seg of merged) {
+      const diff = { start: seg.start, end: seg.end };
+      let hasDiff = false;
+
+      if (seg.fontWeight && seg.fontWeight !== (containerStyles.fontWeight || '400')) {
+        diff.fontWeight = seg.fontWeight;
+        hasDiff = true;
+      }
+      if (seg.fontFamily && seg.fontFamily !== containerStyles.fontFamily) {
+        diff.fontFamily = seg.fontFamily;
+        hasDiff = true;
+      }
+      if (seg.fontStyle && seg.fontStyle !== (containerStyles.fontStyle || 'normal')) {
+        diff.fontStyle = seg.fontStyle;
+        hasDiff = true;
+      }
+      if (seg.fontSize && Math.abs(seg.fontSize - (parseFloat(containerStyles.fontSize) || 16)) > 0.5) {
+        diff.fontSize = seg.fontSize;
+        hasDiff = true;
+      }
+      if (seg.color && seg.color !== containerStyles.color && seg.color !== containerStyles.webkitTextFillColor) {
+        diff.color = seg.color;
+        hasDiff = true;
+      }
+      if (seg.textDecoration && !['none', ''].includes(seg.textDecoration) && seg.textDecoration !== containerStyles.textDecoration) {
+        diff.textDecoration = seg.textDecoration;
+        hasDiff = true;
+      }
+      if (hasDiff) {
+        diffSegments.push(diff);
+      }
+    }
+
+    return diffSegments;
+  }
+
+  function buildUnifiedTextNode(el, containerStyles, fonts) {
+    let fullText = "";
+    const rawSegments = [];
+
+    // Ordered / Unordered list marker support
+    let listMarkerPrefix = "";
+    const isListItem = el.tagName === 'LI' || (containerStyles && containerStyles.display === 'list-item');
+    if (isListItem) {
+      const parentList = el.parentElement;
+      const cs = window.getComputedStyle(el);
+      const isOrdered = (parentList && parentList.tagName === 'OL') || (cs.listStyleType && /decimal|numeric|roman|alpha/i.test(cs.listStyleType));
+      if (isOrdered) {
+        let num = 1;
+        if (parentList && parentList.hasAttribute('start')) {
+          num = parseInt(parentList.getAttribute('start'), 10) || 1;
+        }
+        for (let s = el.previousElementSibling; s; s = s.previousElementSibling) {
+          if (s.tagName === 'LI') num++;
+        }
+        listMarkerPrefix = `${num}. `;
+      } else if (cs.listStyleType && cs.listStyleType !== 'none') {
+        listMarkerPrefix = '• ';
+      }
+    }
+
+    function walk(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        let t = node.textContent;
+        if (!t) return;
+        const parentCs = window.getComputedStyle(node.parentElement);
+        const ws = parentCs.whiteSpace || 'normal';
+        if (ws === 'normal' || ws === 'nowrap') {
+          t = t.replace(/[\r\n\t]+/g, ' ');
+        }
+        const start = fullText.length;
+        fullText += t;
+        const end = fullText.length;
+        if (fonts && typeof fonts.addFont === 'function') {
+          fonts.addFont(parentCs.fontFamily, parentCs.fontWeight, parentCs.fontStyle);
+        }
+        rawSegments.push({
+          start,
+          end,
+          fontFamily: parentCs.fontFamily,
+          fontWeight: parentCs.fontWeight,
+          fontStyle: parentCs.fontStyle,
+          fontStretch: parentCs.fontStretch,
+          fontSize: parseFloat(parentCs.fontSize) || 16,
+          color: convertColors(parentCs.color),
+          lineHeight: parentCs.lineHeight,
+          letterSpacing: parentCs.letterSpacing,
+          textDecoration: parentCs.textDecorationLine || parentCs.textDecoration
+        });
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        if (node.tagName === 'BR') {
+          fullText += "\n";
+          return;
+        }
+        for (const child of node.childNodes) {
+          walk(child);
+        }
+      }
+    }
+
+    walk(el);
+
+    if (listMarkerPrefix && !fullText.trimStart().startsWith(listMarkerPrefix.trim())) {
+      const prefixLen = listMarkerPrefix.length;
+      fullText = listMarkerPrefix + fullText;
+      for (const seg of rawSegments) {
+        seg.start += prefixLen;
+        seg.end += prefixLen;
+      }
+    }
+
+    // Determine effective container styles:
+    // If all text segments share a uniform property that differs from containerStyles
+    // (e.g. entire LI wrapped in <strong style="color: red">), adopt that property on the container!
+    const effectiveStyles = { ...containerStyles };
+    if (rawSegments.length > 0) {
+      const first = rawSegments[0];
+      const allSameColor = rawSegments.every(s => s.color === first.color);
+      if (allSameColor && first.color) {
+        effectiveStyles.color = first.color;
+        effectiveStyles.webkitTextFillColor = first.color;
+      }
+      const allSameWeight = rawSegments.every(s => s.fontWeight === first.fontWeight);
+      if (allSameWeight && first.fontWeight) effectiveStyles.fontWeight = first.fontWeight;
+      const allSameStyle = rawSegments.every(s => s.fontStyle === first.fontStyle);
+      if (allSameStyle && first.fontStyle) effectiveStyles.fontStyle = first.fontStyle;
+      const allSameSize = rawSegments.every(s => Math.abs(s.fontSize - first.fontSize) < 0.1);
+      if (allSameSize && first.fontSize) effectiveStyles.fontSize = `${first.fontSize}px`;
+    }
+
+    const diffSegments = compressStyledSegments(rawSegments, effectiveStyles);
+
+    const rect = el.getBoundingClientRect();
+    const isFixed = isElementOrAncestorFixed(el, containerStyles);
+    const fixedShiftY = isFixed ? getFixedShiftY(el, containerStyles) : 0;
+    const scrollY = (isFixed ? 0 : window.scrollY) + fixedShiftY;
+    const scrollX = isFixed ? 0 : window.scrollX;
+    const cs = window.getComputedStyle(el);
+
+    if (fonts && typeof fonts.addFont === 'function') {
+      fonts.addFont(effectiveStyles.fontFamily, effectiveStyles.fontWeight, effectiveStyles.fontStyle);
+    }
+
+    return {
+      nodeType: TEXT_NODE,
+      id: getNodeId('unified-text'),
+      text: fullText,
+      rect: {
+        x: rect.x + scrollX,
+        y: rect.y + scrollY,
+        width: Math.ceil(rect.width),
+        height: Math.ceil(rect.height)
+      },
+      styles: getTextNodeStyles(effectiveStyles),
+      lineCount: Math.max(1, Math.round(rect.height / (parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 16) * 1.4))),
+      styledSegments: diffSegments.length > 0 ? diffSegments : undefined
+    };
+  }
+
+  const sectionActiveHover = new Map();
   async function serializeNode(node, assets, fonts, parentStyles) {
     if (captureTimedOut) return null;
     if (node.nodeType === TEXT_NODE) {
@@ -6304,40 +6689,7 @@
       }
 
       if (segments.length === 1) return segments[0];
-      if (segments.length > 1) {
-        // Return a group array as pseudo element or return segments
-        // We can return a flat virtual group node or element node
-        return {
-          nodeType: ELEMENT_NODE,
-          id: getNodeId('text-wrap'),
-          tag: 'SPAN',
-          styles: {
-            ...parentStyles,
-            backgroundColor: 'rgba(0, 0, 0, 0)',
-            backgroundImage: 'none',
-            borderTopWidth: '0px',
-            borderRightWidth: '0px',
-            borderBottomWidth: '0px',
-            borderLeftWidth: '0px',
-            borderTopStyle: 'none',
-            borderRightStyle: 'none',
-            borderBottomStyle: 'none',
-            borderLeftStyle: 'none',
-            boxShadow: 'none',
-            outlineWidth: '0px',
-            outlineStyle: 'none',
-            textDecoration: 'none',
-            textDecorationLine: 'none'
-          },
-          rect: {
-            x: rect.x + scrollX,
-            y: rect.y + scrollY,
-            width: Math.ceil(rect.width),
-            height: Math.ceil(rect.height)
-          },
-          childNodes: segments
-        };
-      }
+      if (segments.length > 1) return segments;
 
       return {
         nodeType: TEXT_NODE,
@@ -6416,12 +6768,33 @@
     const cls = (el.className && typeof el.className === 'string') ? el.className : '';
     const isCarouselOrTab = !!(el.closest && el.closest('.swiper-slide, .slick-slide, .owl-item, .carousel-item, .splide__slide, .tab-pane'));
 
-    // Strictly suppress hover overlays, hover states, and inactive popup layers
-    const isHoverOrOverlay = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay/i.test(cls) ||
-                             !!(el.closest && el.closest('.hover-box, [class*="hover-"], .feature-box') && /overlay|mask|reveal|box-overlay/i.test(cls));
+    // Section-based hover state management:
+    // If there are more than one hover state in a particular section, only one will be shown, others will be non-hover states
+    const isHoverOrOverlay = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay|show-on-hover|hover-img|portfolio-hover|overlay-hover|hover-item|hover-box-content|on-hover/i.test(cls) ||
+                             !!(el.closest && el.closest('.hover-box, [class*="hover-"], .feature-box') && /overlay|mask|reveal|box-overlay|hover-content/i.test(cls));
 
-    if (isHoverOrOverlay && isHidden) {
-      return null;
+    if (isHoverOrOverlay) {
+      const sec = (el.closest && el.closest('section, article, header, footer, [class*="section"], [id*="section"], .elementor-section, .vc_row, main')) || document.body || document.documentElement;
+      const hoverUnit = (el.closest && el.closest('.feature-box, .hover-box, .menu-item, .card, [class*="card"], [class*="item"], .hover-reveal, .feature-box-overlay, .hover-overlay, .hover-content, .show-on-hover, .hover-show, .hover-item')) || el;
+
+      if (!sectionActiveHover.has(sec)) {
+        sectionActiveHover.set(sec, hoverUnit);
+      }
+      const activeUnit = sectionActiveHover.get(sec);
+      const isFirstHoverUnit = (activeUnit === hoverUnit || (hoverUnit && hoverUnit.contains && hoverUnit.contains(activeUnit)) || (activeUnit && activeUnit.contains && activeUnit.contains(hoverUnit)));
+
+      if (!isFirstHoverUnit) {
+        // Subsequent hover states in this section remain in default non-hover state
+        styles.opacity = '0';
+        styles.visibility = 'hidden';
+        return null;
+      } else {
+        // Reveal the single active hover state for this section
+        styles.visibility = 'visible';
+        styles.opacity = '1';
+        if (styles.display === 'none') styles.display = 'block';
+        isHidden = false;
+      }
     }
 
     // Detect UI elements that are intentionally hidden via CSS interaction patterns
@@ -6474,26 +6847,20 @@
     })();
 
 
-    // Detect text scrub animations and scroll-animated targets:
-    // Only apply to actual text elements/spans, never hover overlays or generic section containers
-    const isInteractiveOrComponent = !!(el.closest && el.closest(
-      '[class*="graphic"], [class*="demo"], [class*="bento"], [class*="interactive"], [class*="mockup"], [class*="device"], ' +
-      '[class*="accordion"], [class*="collapse"], [class*="details"], [class*="card-details"], [class*="panel"], [class*="tab"], ' +
-      '[class*="ticker"], [class*="marquee"], [class*="values"], [class*="slider"], [class*="carousel"], [class*="payment"], ' +
-      '[class*="checkout"]'
-    ));
+    // Detect inactive tabs and true modals so we don't inappropriately unhide them
+    const isInactiveTab = !!(el.closest && el.closest('[role="tabpanel"][aria-hidden="true"], .tab-pane:not(.active):not(.show)'));
+    const isModalOrOffcanvas = !!(el.closest && el.closest('.modal:not(.show):not(.in), .offcanvas:not(.show), [aria-modal="true"][style*="display: none"]'));
 
-    const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInteractiveOrComponent && (
-      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos-item|scroll-reveal|invert|fade_anim/i.test(cls) ||
-      el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') ||
-      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [class*="invert"], [class*="fade_anim"]'))
+    const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isModalOrOffcanvas && (
+      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos|sal|scroll-reveal|invert|fade_anim|has-animation|appear|in-view|inview|is-visible|fadeIn|fade-in|fadeUp|fade-up|fadeDown|fade-down|fadeLeft|fade-left|fadeRight|fade-right|animate|animated|animation|zoomIn|bounceIn|reveal/i.test(cls) ||
+      el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-scroll') || el.hasAttribute('data-animation') || el.hasAttribute('data-animate') ||
+      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [data-sal], [data-scroll], [class*="invert"], [class*="fade_anim"], [class*="has-animation"], [class*="fadeIn"], [class*="fade-"], [class*="animate"]'))
     );
 
     // Strategy 2: behavioural heuristics — detect ANY element with a scroll/entrance animation
     // that is currently stuck in a pre-reveal state, regardless of class names.
-    // This covers generic CSS transitions (opacity 0 → 1) on any text or block element.
     let hasScrollRevealBehavior = false;
-    if (!isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInteractiveOrComponent && !hasAnimClass) {
+    if (!isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isModalOrOffcanvas && !hasAnimClass) {
       try {
         const cs = window.getComputedStyle(el);
         const curOpacity = parseFloat(styles.opacity);
@@ -6514,8 +6881,9 @@
         // Detect scroll-reveal clip-path entrance (e.g. inset(0% 0% 100% 0%) → inset(0%))
         // Must NOT match 100% insets, which represent collapsed accordions / hidden states
         const clipPath = cs.clipPath || styles.clipPath || '';
-        const hasClipEntrance = clipPath && clipPath !== 'none' &&
-          /inset\(/.test(clipPath) && !(/inset\(\s*(?:50%|100%)\s*\)/.test(clipPath));
+        const isZeroInset = /^inset\(\s*(?:0(?:px|%|em|rem)?\s*)+\)$/i.test(clipPath);
+        const isHundredInset = /100%/i.test(clipPath);
+        const hasClipEntrance = clipPath && clipPath !== 'none' && clipPath.includes('inset') && !isZeroInset && !isHundredInset;
 
         // Detect translate-Y entrance (element shifted below viewport for reveal)
         const transform = cs.transform || styles.transform || '';
@@ -6524,22 +6892,19 @@
           const matParts = transform.match(/matrix(?:3d)?\(([^)]+)\)/);
           if (matParts) {
             const vals = matParts[1].split(',').map(v => parseFloat(v.trim()));
-            // matrix(a,b,c,d,tx,ty) — ty is vals[5]; matrix3d — ty is vals[13]
             const ty = vals.length >= 16 ? vals[13] : (vals.length >= 6 ? vals[5] : 0);
-            // Entrance offset: element translated Y significantly (> 10px) while opacity < 1
             if (Math.abs(ty) > 10 && (isNaN(curOpacity) || curOpacity < 0.99)) {
               hasEntranceTranslate = true;
             }
           }
         }
 
-        // Only flag as scroll-reveal if the element is an actual text element, never generic layout blocks
-        const isTextLike = ['SPAN', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'A', 'LI',
-                            'B', 'STRONG', 'EM', 'I', 'LABEL', 'FIGCAPTION', 'BLOCKQUOTE'].includes(tag) ||
-                            (tag === 'DIV' && el.children.length === 0 && (el.textContent || '').trim().length > 0);
+        // Match text elements as well as content containers
+        const isContentElement = ['SPAN', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'A', 'LI',
+                                  'B', 'STRONG', 'EM', 'I', 'LABEL', 'FIGCAPTION', 'BLOCKQUOTE'].includes(tag) ||
+                                  (el.children.length > 0) ||
+                                  ((el.textContent || '').trim().length > 0);
 
-        // Detect scroll-driven COLOR reveal: element has an inline color set to a muted/grey
-        // value — the classic GSAP/ScrollTrigger scrub pattern where text goes from grey → final color.
         let hasMutedInlineColor = false;
         if (!hasScrollRevealBehavior && el.style && el.style.color && el.style.color !== '') {
           try {
@@ -6550,7 +6915,6 @@
               const cMin = Math.min(cr, cg, cb), cMax = Math.max(cr, cg, cb);
               const cSat = cMax === 0 ? 0 : (cMax - cMin) / cMax;
               const cLum = 0.2126 * (cr / 255) + 0.7152 * (cg / 255) + 0.0722 * (cb / 255);
-              // Grey-ish (low saturation) and mid-range luminance = muted scroll-driven color
               if (cSat < 0.15 && cLum > 0.25 && cLum < 0.85) {
                 hasMutedInlineColor = true;
               }
@@ -6562,19 +6926,13 @@
                                  (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) &&
                                 (styles.backgroundImage && styles.backgroundImage.includes('gradient'));
 
-        if (isTextLike && (
-          // Stuck at low opacity with opacity-transition or set inline by JS scroll scrub
+        if (isContentElement && (
           (inlineOp !== null && inlineOp < 0.98) ||
           (hasOpacityAnim && inlineOp !== null && inlineOp < 0.98) ||
-          // Has active WAAPI animation and is not fully visible
           (hasActiveAnim && (isNaN(curOpacity) || curOpacity < 0.99)) ||
-          // Clip-path entrance state
           hasClipEntrance ||
-          // Entrance translate combined with low opacity
           hasEntranceTranslate ||
-          // Inline grey color = scroll-scrub color reveal
           hasMutedInlineColor ||
-          // Background-clip text gradient scrub
           isTextClipScrub
         )) {
           hasScrollRevealBehavior = true;
@@ -6582,7 +6940,24 @@
       } catch (_) {}
     }
 
-    const isAnimTarget = hasAnimClass || hasScrollRevealBehavior;
+    // Strategy 3: Content-based preservation — if an in-flow element has text/children/media
+    // but is hidden by opacity:0 or visibility:hidden, it is an entrance animation target!
+    const hasVisibleContent = (
+      (el.textContent && el.textContent.trim().length > 0) ||
+      (el.children && el.children.length > 0) ||
+      tag === 'IMG' || tag === 'PICTURE' || tag === 'SVG' || tag === 'CANVAS' || tag === 'VIDEO' ||
+      (styles.backgroundImage && styles.backgroundImage !== 'none')
+    );
+
+    const isAnimHiddenContent = (
+      styles.display !== 'none' &&
+      (styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.05) &&
+      hasVisibleContent &&
+      !isNavDropdown && !isHoverOrOverlay && !isInactiveTab && !isModalOrOffcanvas &&
+      !el.closest('.vertical-counter, .odometer, .swiper-slide:not(.swiper-slide-active)')
+    );
+
+    const isAnimTarget = hasAnimClass || hasScrollRevealBehavior || isAnimHiddenContent;
 
     if (isAnimTarget) {
       // Force element to its final / fully-revealed state
@@ -6596,9 +6971,12 @@
       }
 
       // Remove clip-path entrance masks (inset-based reveals)
-      if (styles.clipPath && styles.clipPath !== 'none' &&
-          /inset\(/.test(styles.clipPath) && !(/inset\(\s*(?:50%|100%)\s*\)/.test(styles.clipPath))) {
-        styles.clipPath = 'none';
+      if (styles.clipPath && styles.clipPath !== 'none' && styles.clipPath.includes('inset')) {
+        const isZero = /^inset\(\s*(?:0(?:px|%|em|rem)?\s*)+\)$/i.test(styles.clipPath);
+        const isHundred = /100%/i.test(styles.clipPath);
+        if (!isZero && (!isHundred || hasAnimClass)) {
+          styles.clipPath = 'none';
+        }
       }
 
       // Neutralize entrance transforms (translateY offsets and tiny tilts)
@@ -6653,6 +7031,7 @@
     const isClipHidden = !hasAnimClass && (
       (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
       (styles.clip && /rect\(\s*1px[,\s]+1px[,\s]+1px[,\s]+1px\s*\)/.test(styles.clip)) ||
+      (styles.clipPath && /inset\([^)]*100%[^)]*\)/.test(styles.clipPath)) ||
       (styles.clipPath && /inset\(\s*(?:50%|100%)\s*\)/.test(styles.clipPath))
     );
     const isZeroClipped = !hasAnimClass &&
@@ -6666,7 +7045,7 @@
     if (isClipHidden || isTinyHidden || isZeroClipped || isSrOnlyClass) return null;
 
     const clientRect = el.getBoundingClientRect();
-    if (!isAnimTarget && (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') && (clientRect.height <= 0.5 || clientRect.width <= 0.5)) {
+    if (!hasAnimClass && (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') && (clientRect.height <= 0.5 || clientRect.width <= 0.5)) {
       return null;
     }
 
@@ -6814,6 +7193,18 @@
     // If anchored to bottom, ensure it renders visibly at the bottom of the full document frame.
     let posX = clientRect.x + (isFixed ? 0 : window.scrollX);
     let posY = clientRect.y + (isFixed ? 0 : window.scrollY) + fixedShiftY;
+    if (isHoverOrOverlay && clientRect.left <= 0 && clientRect.top <= 0) {
+      const hUnit = (el.closest && el.closest('.feature-box, .hover-box, .menu-item, .card, [class*="card"], [class*="item"]'));
+      if (hUnit && hUnit !== el && hUnit.getBoundingClientRect) {
+        try {
+          const hR = hUnit.getBoundingClientRect();
+          if (hR.width > 0 && hR.height > 0) {
+            posX = Math.max(0, Math.round(hR.left + window.scrollX + (hR.width - (clientRect.width || 420)) / 2));
+            posY = Math.max(0, Math.round(hR.top + window.scrollY + (hR.height - (clientRect.height || 420)) / 2));
+          }
+        } catch (_) {}
+      }
+    }
 
     // Parallax Jarallax image alignment:
     // Parallax scripts shift the image Y mid-scroll; anchor jarallax-img relative Y to parent
@@ -6838,34 +7229,38 @@
     const isTextClip = (styles.backgroundClip && styles.backgroundClip.includes('text')) ||
                        (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'));
 
-    if (styles.backgroundImage && styles.backgroundImage !== 'none' && !isTextClip) {
-      const w = Math.max(1, Math.round(docRect.width || el.offsetWidth || 100));
-      const h = Math.max(1, Math.round(docRect.height || el.offsetHeight || 100));
-      if (isPatternGradient(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat)) {
-        const dataUrl = await renderPatternToDataUrl(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat, w, h);
-        if (dataUrl) {
-          if (assets) assets.addDataUrl(dataUrl);
-          styles.backgroundImage = `url("${dataUrl}")`;
-          styles.backgroundSize = 'cover';
-        }
-      } else {
-        const bgs = splitByTopLevelCommas(styles.backgroundImage);
-        let changed = false;
-        const newBgs = [];
-        for (const bg of bgs) {
-          if (isPatternGradient(bg, styles.backgroundSize, styles.backgroundRepeat)) {
-            const dataUrl = await renderPatternToDataUrl(bg, styles.backgroundSize, styles.backgroundRepeat, w, h);
-            if (dataUrl) {
-              if (assets) assets.addDataUrl(dataUrl);
-              newBgs.push(`url("${dataUrl}")`);
-              styles.backgroundSize = 'cover';
-              changed = true;
-              continue;
-            }
+    if (styles.backgroundImage && styles.backgroundImage !== 'none') {
+      const isPattern = isPatternGradient(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat);
+      if (!isTextClip || isPattern) {
+        const w = Math.max(1, Math.round(docRect.width || el.offsetWidth || 100));
+        const h = Math.max(1, Math.round(docRect.height || el.offsetHeight || 100));
+        const bgColor = (styles.backgroundColor && styles.backgroundColor !== 'transparent' && styles.backgroundColor !== 'rgba(0, 0, 0, 0)') ? styles.backgroundColor : 'transparent';
+        if (isPattern) {
+          const dataUrl = await renderPatternToDataUrl(styles.backgroundImage, styles.backgroundSize, styles.backgroundRepeat, w, h, bgColor);
+          if (dataUrl) {
+            if (assets) assets.addDataUrl(dataUrl);
+            styles.backgroundImage = `url("${dataUrl}")`;
+            styles.backgroundSize = 'cover';
           }
-          newBgs.push(bg);
+        } else {
+          const bgs = splitByTopLevelCommas(styles.backgroundImage);
+          let changed = false;
+          const newBgs = [];
+          for (const bg of bgs) {
+            if (isPatternGradient(bg, styles.backgroundSize, styles.backgroundRepeat)) {
+              const dataUrl = await renderPatternToDataUrl(bg, styles.backgroundSize, styles.backgroundRepeat, w, h, bgColor);
+              if (dataUrl) {
+                if (assets) assets.addDataUrl(dataUrl);
+                newBgs.push(`url("${dataUrl}")`);
+                styles.backgroundSize = 'cover';
+                changed = true;
+                continue;
+              }
+            }
+            newBgs.push(bg);
+          }
+          if (changed) styles.backgroundImage = newBgs.join(', ');
         }
-        if (changed) styles.backgroundImage = newBgs.join(', ');
       }
     }
 
@@ -7219,10 +7614,18 @@
               const midY = cRect.top + cRect.height / 2;
               if (midY >= dl.minY - 6 && midY <= dl.maxY + 6) {
                 const sChild = await serializeNode(child, assets, fonts, styles);
-                if (Array.isArray(sChild)) {
-                  fragChildNodes.push(...sChild);
-                } else if (sChild) {
-                  fragChildNodes.push(sChild);
+                if (sChild) {
+                  const _items = Array.isArray(sChild) ? sChild : [sChild];
+                  for (const _g of _items) {
+                    if (_g && _g.rect) {
+                      const _gy = _g.rect.y + (_g.rect.height || 0) / 2;
+                      if (_gy >= dl.minY - 6 && _gy <= dl.maxY + 6) {
+                        fragChildNodes.push(_g);
+                      }
+                    } else {
+                      fragChildNodes.push(_g);
+                    }
+                  }
                 }
               }
             }
@@ -7296,14 +7699,53 @@
     }
 
     if (!svgContent) {
-      const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
-      for (const child of sourceNodes) {
-        const sChild = await serializeNode(child, assets, fonts, styles);
-        if (sChild) {
-          const itemsToAdd = Array.isArray(sChild) ? sChild : [sChild];
-          for (const item of itemsToAdd) {
-            childNodes.push(item);
+      if (canUnifyTextContainer(el)) {
+        const uNode = buildUnifiedTextNode(el, styles, fonts);
+        if (uNode) childNodes.push(uNode);
+      } else {
+        const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
+        for (const child of sourceNodes) {
+          const sChild = await serializeNode(child, assets, fonts, styles);
+          if (sChild) {
+            const itemsToAdd = Array.isArray(sChild) ? sChild : [sChild];
+            for (const item of itemsToAdd) {
+              childNodes.push(item);
+            }
           }
+        }
+      }
+
+      // Animated counters: If element is an odometer, vertical-counter, or data-to container,
+      // resolve its final number cleanly so ribbons don't create duplicate overlapping digits
+      const isCounterContainer = (typeof el.className === 'string' && (el.className.includes('odometer') || el.className.includes('vertical-counter') || el.className.includes('counter'))) ||
+                                 el.hasAttribute('data-to') || el.hasAttribute('data-count');
+      if (isCounterContainer) {
+        const counterVal = el.getAttribute('data-to') || el.getAttribute('data-count') || el.getAttribute('data-val') ||
+                           ((typeof el.className === 'string' && el.className.includes('odometer')) ? el.innerText.replace(/\s+/g, '') : '');
+        if (counterVal && !childNodes.some(c => c.text && c.text.trim() === counterVal)) {
+          // Remove internal digit ribbons (.vertical-counter-number, .odometer-digit) to prevent ribbons + static number both rendering
+          const filteredChildren = childNodes.filter(c => {
+            const cls = (c.attributes && c.attributes.class) || '';
+            return !cls.includes('vertical-counter-number') && !cls.includes('odometer-digit');
+          });
+          childNodes.length = 0;
+          childNodes.push(...filteredChildren);
+
+          // Add clean counter text node
+          const textW = Math.round(docRect.width) || 100;
+          const textH = Math.round(docRect.height) || 40;
+          childNodes.unshift({
+            nodeType: TEXT_NODE,
+            id: getNodeId('counter-text'),
+            text: counterVal + ' ',
+            rect: {
+              x: docRect.x,
+              y: docRect.y,
+              width: textW,
+              height: textH
+            },
+            styles: { ...styles }
+          });
         }
       }
 
