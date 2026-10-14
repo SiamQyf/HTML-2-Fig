@@ -5195,7 +5195,7 @@
 
       for (const c of all) {
         const cLevel = getRawStackingLevel(c.styles);
-        if (cLevel > maxZ) {
+        if (cLevel >= 100000 && cLevel > maxZ) {
           maxZ = cLevel;
         }
         if (!createsStackingContext(c)) {
