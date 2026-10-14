@@ -1393,6 +1393,7 @@
           while (col && col.parentElement && col.parentElement !== document.body && col.parentElement !== document.documentElement) {
             const p = col.parentElement;
             const pcs = window.getComputedStyle(p);
+        if (pcs.backgroundImage && pcs.backgroundImage !== 'none') break;
             const isLayout = pcs.display.includes('flex') || pcs.display.includes('grid') || p.classList.contains('row') || (p.className && typeof p.className === 'string' && /row|grid|flex/i.test(p.className));
             if (isLayout && p.children.length >= 2) {
               layoutContainer = p;
@@ -2072,12 +2073,10 @@
     }
 
     // 2. Fallback for WebGL canvases: scroll into view and read directly from WebGL buffer
-    if (!is2d) {
-      try {
-        const liveResult = await captureCanvasWithLiveScroll(cv);
-        if (liveResult) return liveResult;
-      } catch {}
-    }
+    try {
+      const liveResult = await captureCanvasWithLiveScroll(cv);
+      if (liveResult) return liveResult;
+    } catch {}
 
     return null;
   }
@@ -2585,10 +2584,11 @@
     // We resolve the effective background color from ancestor elements so Figma renders
     // the identical visual: a clean unshadowed interior matching the background, and
     // the soft drop shadow cast outward.
-    if (cs.boxShadow && cs.boxShadow !== 'none' && isTransparentColor(cs.backgroundColor)) {
+    if (cs.boxShadow && cs.boxShadow !== 'none' && isTransparentColor(cs.backgroundColor) && (!cs.backgroundImage || cs.backgroundImage === 'none')) {
       let p = el.parentElement;
       while (p && p !== document.documentElement) {
         const pcs = window.getComputedStyle(p);
+        if (pcs.backgroundImage && pcs.backgroundImage !== 'none') break;
         if (pcs.backgroundColor && !isTransparentColor(pcs.backgroundColor)) {
           styles.backgroundColor = convertColors(pcs.backgroundColor);
           styles._effectiveBgColor = convertColors(pcs.backgroundColor);
@@ -3960,9 +3960,6 @@
       if (!isPercent && w > 0 && (isRepeating || w <= 180) && lower.includes('gradient')) {
         return true;
       }
-    }
-    if (isRepeating && lower.includes('gradient')) {
-      return true;
     }
     return false;
   }
@@ -5800,6 +5797,59 @@
   }
 
   
+  function getEffectiveTextDecoration(el) {
+    if (!el || el.nodeType !== 1) return 'none';
+    let curr = el;
+    while (curr && curr !== document.body) {
+      const cs = window.getComputedStyle(curr);
+      const dec = cs.textDecorationLine || cs.textDecoration || '';
+      if (dec && !dec.includes('none')) return dec;
+      if (curr.assignedSlot) {
+        let slotCurr = curr.assignedSlot;
+        while (slotCurr) {
+          const scs = window.getComputedStyle(slotCurr);
+          const sdec = scs.textDecorationLine || scs.textDecoration || '';
+          if (sdec && !sdec.includes('none')) return sdec;
+          slotCurr = slotCurr.parentElement;
+        }
+      }
+      if (curr.shadowRoot) {
+        try {
+          const innerRoots = curr.shadowRoot.querySelectorAll('.root, [class*="root"], [class*="label"], a, span');
+          for (const ir of innerRoots) {
+            const ircs = window.getComputedStyle(ir);
+            const irdec = ircs.textDecorationLine || ircs.textDecoration || '';
+            if (irdec && !irdec.includes('none')) return irdec;
+          }
+        } catch (_) {}
+      }
+      curr = curr.parentElement;
+    }
+    return 'none';
+  }
+
+  function hasVisualPseudoContent(el, pseudo) {
+    try {
+      const cs = window.getComputedStyle(el, pseudo);
+      const content = cs.content;
+      if (!content || content === 'none' || content === 'normal') return false;
+      const clean = content.replace(/['"\s]/g, '');
+      if (clean) return true;
+      const w = parseFloat(cs.width) || 0;
+      const h = parseFloat(cs.height) || 0;
+      const hasBg = (cs.backgroundColor && cs.backgroundColor !== 'transparent' && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') ||
+                    (cs.backgroundImage && cs.backgroundImage !== 'none');
+      const hasBorder = (parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderBottomWidth) > 0 ||
+                         parseFloat(cs.borderLeftWidth) > 0 || parseFloat(cs.borderRightWidth) > 0);
+      if ((hasBg || hasBorder) && w > 0 && h > 0 && cs.display !== 'none' && cs.visibility !== 'hidden' && parseFloat(cs.opacity) > 0) {
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function canUnifyTextContainer(el) {
     if (!el || el.childNodes.length === 0) return false;
     const tag = el.tagName.toUpperCase();
@@ -5807,7 +5857,7 @@
     const isTextClass = typeof el.className === 'string' && /split-text|text-reveal|splitting|word-wrap|char-wrap/i.test(el.className);
 
     if (!isSemanticText && !isTextClass) {
-      if (['BODY', 'HTML', 'MAIN', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'NAV', 'ASIDE', 'FORM', 'TABLE', 'TBODY', 'TR', 'TD', 'TH', 'UL', 'OL', 'BUTTON', 'A'].includes(tag)) {
+      if (['BODY', 'HTML', 'MAIN', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'NAV', 'ASIDE', 'FORM', 'TABLE', 'TBODY', 'TR', 'TD', 'TH', 'UL', 'OL'].includes(tag)) {
         return false;
       }
     }
@@ -5967,9 +6017,7 @@
         if (!t) return;
         const parentCs = window.getComputedStyle(node.parentElement);
         const ws = parentCs.whiteSpace || 'normal';
-        if (ws === 'normal' || ws === 'nowrap') {
-          t = t.replace(/[\r\n\t]+/g, ' ');
-        }
+        if (ws === 'normal' || ws === 'nowrap') { t = t.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' '); if (fullText.length === 0 || fullText.endsWith(' ')) { t = t.trimStart(); } }
         const start = fullText.length;
         fullText += t;
         const end = fullText.length;
@@ -5987,7 +6035,10 @@
           color: convertColors(parentCs.color),
           lineHeight: parentCs.lineHeight,
           letterSpacing: parentCs.letterSpacing,
-          textDecoration: parentCs.textDecorationLine || parentCs.textDecoration
+          textDecoration: (() => {
+          const d = parentCs.textDecorationLine || parentCs.textDecoration || '';
+          return (!d || d.includes('none')) ? getEffectiveTextDecoration(node.parentElement) : d;
+        })()
         });
       } else if (node.nodeType === Node.ELEMENT_NODE) {
         if (node.tagName === 'BR') {
@@ -6070,7 +6121,259 @@
     };
   }
 
-  const sectionActiveHover = new Map();
+      function getSqueezyCards(canvas) {
+    if (!canvas) return null;
+    const carouselEl = canvas.closest ? (canvas.closest('.squeezy-carousel') || canvas.parentElement) : canvas.parentElement;
+    if (!carouselEl) return null;
+
+    function findFiber(el) {
+      const key = Object.keys(el || {}).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
+      return key ? el[key] : null;
+    }
+
+    let cur = findFiber(canvas) || findFiber(carouselEl);
+    let foundCards = null;
+    let foundItems = null;
+
+    for (let i = 0; i < 40 && cur; i++) {
+      let s = cur.memoizedState;
+      while (s) {
+        if (s.memoizedState && typeof s.memoizedState === 'object') {
+          if (s.memoizedState.cards && Array.isArray(s.memoizedState.cards)) {
+            foundCards = s.memoizedState.cards;
+          } else if (s.memoizedState.current?.cards && Array.isArray(s.memoizedState.current.cards)) {
+            foundCards = s.memoizedState.current.cards;
+          }
+        }
+        s = s.next;
+      }
+      if (cur.memoizedProps?.items && Array.isArray(cur.memoizedProps.items)) {
+        foundItems = cur.memoizedProps.items;
+      }
+      cur = cur.return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const canvasW = rect.width || 1232;
+    const canvasH = rect.height || 460;
+
+    if (foundCards && foundCards.length > 0) {
+      return foundCards.map(c => ({
+        x: Math.round(c.x),
+        y: 0,
+        width: Math.round(c.width),
+        height: Math.round(canvasH),
+        borderRadius: 6,
+        src: c.img?.src || (c.itemIndex !== undefined && (foundItems?.[c.itemIndex]?.imgSrc || foundItems?.[c.itemIndex]?.mobileImgSrc)) || ''
+      })).filter(c => c.src && c.width > 0);
+    }
+
+    if (foundItems && foundItems.length > 0) {
+      const o = {
+        smallCardGap: 8,
+        largeCardGap: 16,
+        smallCardWidth: 8,
+        columnOneFlexFraction: -0.06,
+        columnTwoFlexFraction: 0.61,
+        columnThreeFlexFraction: 0.3,
+        columnFourFlexFraction: 0.15,
+        borderRadius: 6
+      };
+      const numSmall = Math.max(1, Math.min(3, foundItems.length - 4));
+      const totalGap = o.smallCardGap * numSmall + 3 * o.largeCardGap;
+      const colOneBaseWidth = canvasH * (16 / 9);
+      const totalMedCardW = canvasW - colOneBaseWidth - totalGap - o.smallCardWidth * numSmall;
+      const flexFractions = [o.columnOneFlexFraction, o.columnTwoFlexFraction, o.columnThreeFlexFraction, o.columnFourFlexFraction];
+
+      const cards = [];
+      let curX = 0;
+      for (let i = 0; i < foundItems.length; i++) {
+        let w = o.smallCardWidth;
+        if (i === 0) {
+          w = colOneBaseWidth + totalMedCardW * flexFractions[0];
+        } else if (i < 4) {
+          w = totalMedCardW * flexFractions[i];
+        }
+        const leftGap = i < 4 ? o.largeCardGap : o.smallCardGap;
+        if (i > 0) curX += leftGap;
+
+        if (curX + w <= canvasW + 20) {
+          cards.push({
+            x: Math.round(curX),
+            y: 0,
+            width: Math.round(w),
+            height: Math.round(canvasH),
+            borderRadius: o.borderRadius,
+            src: foundItems[i].imgSrc || foundItems[i].mobileImgSrc || ''
+          });
+        }
+        curX += w;
+      }
+      return cards;
+    }
+
+    return null;
+  }
+
+  
+  function isPureInlineTextChild(node) {
+    if (!node) return false;
+    if (node.nodeType === 3) return true;
+    if (node.nodeType === 1) {
+      const tag = node.tagName.toUpperCase();
+      if (tag === 'BR') return true;
+      if (['IMG', 'SVG', 'CANVAS', 'VIDEO', 'IFRAME', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'HR'].includes(tag)) {
+        return false;
+      }
+      if (typeof node.className === 'string' && /\b(?:fa[srbld]?|fa-|glyphicon|material-icons|icon|glyph)\b/i.test(node.className)) {
+        return false;
+      }
+      if (typeof node.className === 'string' && /(?:^|\b)(?:[a-z0-9_-]*(?:visually[-_]?hidden|sr[-_]?only|screen[-_]?reader)|invisible)(?:$|\b)/i.test(node.className)) {
+        return false;
+      }
+      const cs = window.getComputedStyle(node);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false;
+      const isClipHidden = (
+        (cs.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(cs.clip)) ||
+        (cs.clip && /rect\(\s*1px[,\s]+1px[,\s]+1px[,\s]+1px\s*\)/.test(cs.clip)) ||
+        (cs.clip && /rect\(\s*0[,\s]+0[,\s]+0[,\s]+0\s*\)/.test(cs.clip)) ||
+        (cs.clipPath && /inset\([^)]*100%[^)]*\)/.test(cs.clipPath)) ||
+        (cs.clipPath && /inset\(\s*(?:50%|100%)/.test(cs.clipPath))
+      );
+      if (isClipHidden) return false;
+      const isZeroOrTinyBox = (cs.overflow === 'hidden' || cs.overflowX === 'hidden' || cs.overflowY === 'hidden' || cs.overflow === 'clip') &&
+        ((parseFloat(cs.width) <= 1 && parseFloat(cs.height) <= 1) || parseFloat(cs.width) <= 0.5 || parseFloat(cs.height) <= 0.5);
+      if (isZeroOrTinyBox) return false;
+      const r = node.getBoundingClientRect();
+      if (r && (r.width <= 0.5 || r.height <= 0.5)) return false;
+      const isInlineSemanticTag = ['SPAN', 'B', 'STRONG', 'EM', 'I', 'SMALL', 'SUB', 'SUP', 'A', 'LABEL', 'CODE', 'TIME', 'ABBR', 'MARK'].includes(tag);
+      if (!isInlineSemanticTag && !cs.display.startsWith('inline') && cs.display !== 'contents') return false;
+      if (hasVisualPseudoContent(node, '::before') || hasVisualPseudoContent(node, '::after')) {
+        return false;
+      }
+      if ((cs.backgroundImage && cs.backgroundImage !== 'none') ||
+          (parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderBottomWidth) > 0 || parseFloat(cs.borderLeftWidth) > 0 || parseFloat(cs.borderRightWidth) > 0) ||
+          (cs.boxShadow && cs.boxShadow !== 'none')) {
+        return false;
+      }
+      if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent') {
+        const isWhite = cs.backgroundColor === 'rgb(255, 255, 255)' || cs.backgroundColor === 'rgba(255, 255, 255, 1)';
+        if (!isWhite) return false;
+      }
+      for (const ch of node.childNodes) {
+        if (!isPureInlineTextChild(ch)) return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function buildUnifiedTextFromRun(runNodes, containerStyles, fonts) {
+    let fullText = "";
+    const rawSegments = [];
+
+    function walk(node) {
+      if (node.nodeType === 3) {
+        let t = node.textContent;
+        if (!t) return;
+        const parentCs = window.getComputedStyle(node.parentElement);
+        const ws = parentCs.whiteSpace || 'normal';
+        if (ws === 'normal' || ws === 'nowrap') {
+          t = t.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ');
+          if (fullText.length === 0 || fullText.endsWith(' ')) {
+            t = t.trimStart();
+          }
+        }
+        if (!t) return;
+        const start = fullText.length;
+        fullText += t;
+        const end = fullText.length;
+        if (fonts && typeof fonts.addFont === 'function') {
+          fonts.addFont(parentCs.fontFamily, parentCs.fontWeight, parentCs.fontStyle);
+        }
+        rawSegments.push({
+          start,
+          end,
+          fontFamily: parentCs.fontFamily,
+          fontWeight: parentCs.fontWeight,
+          fontStyle: parentCs.fontStyle,
+          fontStretch: parentCs.fontStretch,
+          fontSize: parseFloat(parentCs.fontSize) || 16,
+          color: convertColors(parentCs.color),
+          lineHeight: parentCs.lineHeight,
+          letterSpacing: parentCs.letterSpacing,
+          textDecoration: parentCs.textDecorationLine || parentCs.textDecoration
+        });
+      } else if (node.nodeType === 1) {
+        if (node.tagName === 'BR') {
+          fullText += "\n";
+          return;
+        }
+        for (const child of node.childNodes) {
+          walk(child);
+        }
+      }
+    }
+
+    for (const n of runNodes) {
+      walk(n);
+    }
+
+    if (!fullText.trim()) return null;
+
+    const diffSegments = compressStyledSegments(rawSegments, containerStyles);
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of runNodes) {
+      let r = null;
+      if (n.nodeType === 3) {
+        const rng = document.createRange();
+        rng.selectNodeContents(n);
+        r = rng.getBoundingClientRect();
+        rng.detach();
+      } else if (n.nodeType === 1) {
+        r = n.getBoundingClientRect();
+      }
+      if (r && (r.width > 0 || r.height > 0)) {
+        minX = Math.min(minX, r.x);
+        minY = Math.min(minY, r.y);
+        maxX = Math.max(maxX, r.right);
+        maxY = Math.max(maxY, r.bottom);
+      }
+    }
+
+    const firstNode = runNodes[0];
+    const firstEl = firstNode.nodeType === 1 ? firstNode : firstNode.parentElement;
+    const isFixed = isElementOrAncestorFixed(firstEl, containerStyles);
+    const fixedShiftY = isFixed ? getFixedShiftY(firstEl, containerStyles) : 0;
+    const scrollY = (isFixed ? 0 : window.scrollY) + fixedShiftY;
+    const scrollX = isFixed ? 0 : window.scrollX;
+
+    const runW = isFinite(minX) && isFinite(maxX) ? Math.ceil(maxX - minX) : 100;
+    const runH = isFinite(minY) && isFinite(maxY) ? Math.ceil(maxY - minY) : 20;
+    const runX = isFinite(minX) ? minX + scrollX : scrollX;
+    const runY = isFinite(minY) ? minY + scrollY : scrollY;
+
+    if (fonts && typeof fonts.addFont === 'function') {
+      fonts.addFont(containerStyles.fontFamily, containerStyles.fontWeight, containerStyles.fontStyle);
+    }
+
+    return {
+      nodeType: TEXT_NODE,
+      id: getNodeId('unified-text-run'),
+      text: fullText,
+      rect: {
+        x: runX,
+        y: runY,
+        width: runW,
+        height: runH
+      },
+      styles: getTextNodeStyles(containerStyles),
+      lineCount: Math.max(1, Math.round(runH / (parseFloat(containerStyles.lineHeight) || (parseFloat(containerStyles.fontSize) || 16) * 1.4))),
+      styledSegments: diffSegments.length > 0 ? diffSegments : undefined
+    };
+  }
+
   async function serializeNode(node, assets, fonts, parentStyles) {
     if (captureTimedOut) return null;
     if (node.nodeType === TEXT_NODE) {
@@ -6476,6 +6779,30 @@
       if (clientRects.length <= 1 || isRotated || !parentHasMultipleChildren || lastTextNode !== node) {
         let text = formatInlineText(rawText);
         let textX = rect.x + scrollX;
+        if (node.previousSibling && node.previousSibling.nodeType === 1) {
+          try {
+            const prevEl = node.previousSibling;
+            const prevDisp = window.getComputedStyle(prevEl).display;
+            if (prevDisp && (prevDisp.startsWith('inline') || prevDisp.includes('flex'))) {
+              const prevR = prevEl.getBoundingClientRect();
+              if (prevR && prevR.width > 0 && textX < (prevR.right + scrollX)) {
+                textX = prevR.right + scrollX;
+              }
+            }
+          } catch (_) {}
+        }
+        if (node.previousSibling && node.previousSibling.nodeType === 1) {
+          try {
+            const prevEl = node.previousSibling;
+            const prevDisp = window.getComputedStyle(prevEl).display;
+            if (prevDisp && (prevDisp.startsWith('inline') || prevDisp.includes('flex'))) {
+              const prevR = prevEl.getBoundingClientRect();
+              if (prevR && prevR.width > 0 && textX < (prevR.right + scrollX)) {
+                textX = prevR.right + scrollX;
+              }
+            }
+          } catch (_) {}
+        }
         let textW = Math.ceil(rect.width);
         let textH = Math.ceil(rect.height);
         let unrotW = undefined;
@@ -6822,34 +7149,87 @@
     const cls = (el.className && typeof el.className === 'string') ? el.className : '';
     const isCarouselOrTab = !!(el.closest && el.closest('.swiper-slide, .slick-slide, .owl-item, .carousel-item, .splide__slide, .tab-pane'));
 
-    // Section-based hover state management:
-    // If there are more than one hover state in a particular section, only one will be shown, others will be non-hover states
-    const isHoverOrOverlay = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay|show-on-hover|hover-img|portfolio-hover|overlay-hover|hover-item|hover-box-content|on-hover/i.test(cls) ||
-                             !!(el.closest && el.closest('.hover-box, [class*="hover-"], .feature-box') && /overlay|mask|reveal|box-overlay|hover-content/i.test(cls));
+    // Strictly disable hover states and hover icons for all elements across the website.
+    const isPureHoverOverlay = /feature-box-overlay|feature-box-bg-overlay|hover-mask/i.test(cls) ||
+                               !!(el.closest && el.closest('.feature-box') && /feature-box-overlay|feature-box-bg-overlay/i.test(cls));
+    if (isPureHoverOverlay) {
+      styles.opacity = '0';
+      styles.visibility = 'hidden';
+      return null;
+    }
+    // 1. Any element with hover classes that is hidden at rest stays hidden
+    const isHoverClassOrAttr = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay|show-on-hover|hover-img|portfolio-hover|overlay-hover|hover-item|hover-box-content|on-hover|\bhover\b|hover-|\bhover_|_hover\b|-hover\b|icon-hover|arrow-hover|btn-hover|hover-icon|hover-arrow|group-hover/i.test(cls) ||
+                               !!(el.closest && el.closest('.hover-box, [class*="hover-"], .feature-box') && /overlay|mask|reveal|box-overlay|hover-content|hover|icon|arrow/i.test(cls));
 
-    if (isHoverOrOverlay) {
-      const sec = (el.closest && el.closest('section, article, header, footer, [class*="section"], [id*="section"], .elementor-section, .vc_row, main')) || document.body || document.documentElement;
-      const hoverUnit = (el.closest && el.closest('.feature-box, .hover-box, .menu-item, .card, [class*="card"], [class*="item"], .hover-reveal, .feature-box-overlay, .hover-overlay, .hover-content, .show-on-hover, .hover-show, .hover-item')) || el;
+    const isEffectivelyHiddenAtRest = isHidden || parseFloat(styles.opacity) < 0.15 || styles.visibility === 'hidden' || styles.display === 'none';
 
-      if (!sectionActiveHover.has(sec)) {
-        sectionActiveHover.set(sec, hoverUnit);
-      }
-      const activeUnit = sectionActiveHover.get(sec);
-      const isFirstHoverUnit = (activeUnit === hoverUnit || (hoverUnit && hoverUnit.contains && hoverUnit.contains(activeUnit)) || (activeUnit && activeUnit.contains && activeUnit.contains(hoverUnit)));
+    if (isHoverClassOrAttr && isEffectivelyHiddenAtRest) {
+      styles.opacity = '0';
+      styles.visibility = 'hidden';
+      return null;
+    }
 
-      if (!isFirstHoverUnit) {
-        // Subsequent hover states in this section remain in default non-hover state
-        styles.opacity = '0';
-        styles.visibility = 'hidden';
-        return null;
-      } else {
-        // Reveal the single active hover state for this section
-        styles.visibility = 'visible';
-        styles.opacity = '1';
-        if (styles.display === 'none') styles.display = 'block';
-        isHidden = false;
+    // 2. Hidden or offscreen icons, arrows, or secondary content inside buttons, links, or interactive controls:
+    // When a button/link is visible, any resting-hidden or off-screen inner element is a hover-state icon/variant
+    // (e.g. animated hover chevron, swap icon). It must NEVER be captured or revealed.
+    const interactiveHost = el.closest && el.closest('button, a, [role="button"], .btn, [class*="btn"], [class*="button"], .theme-btn');
+    if (interactiveHost) {
+      try {
+        const hostCs = window.getComputedStyle(interactiveHost);
+        if (parseFloat(hostCs.opacity) > 0.5 && hostCs.display !== 'none' && hostCs.visibility !== 'hidden') {
+          if (isEffectivelyHiddenAtRest) {
+            styles.opacity = '0';
+            styles.visibility = 'hidden';
+            return null;
+          }
+          // Check if pushed off-screen / clipped by an overflow:hidden ancestor inside the button
+          let parent = el.parentElement;
+          while (parent && parent !== interactiveHost.parentElement) {
+            const pcs = window.getComputedStyle(parent);
+            if (pcs.overflow === 'hidden' || pcs.overflowX === 'hidden' || pcs.overflowY === 'hidden') {
+              const pr = parent.getBoundingClientRect();
+              const er = el.getBoundingClientRect();
+              if (er.width > 0 && er.height > 0) {
+                if (er.right <= pr.left || er.left >= pr.right || er.bottom <= pr.top || er.top >= pr.bottom) {
+                  styles.opacity = '0';
+                  styles.visibility = 'hidden';
+                  return null;
+                }
+              }
+            }
+            if (parent === interactiveHost) break;
+            parent = parent.parentElement;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Sibling icon check: if this element is an icon/SVG and a sibling icon is already visible,
+    // this hidden one is a hover-state alternate icon
+    const isIconOrMedia = tag === 'SVG' || tag === 'IMG' || tag === 'I' || tag === 'PICTURE' ||
+                          (el.querySelector && el.querySelector('svg, img, i'));
+    if (isIconOrMedia && isEffectivelyHiddenAtRest && el.parentElement) {
+      const sibs = Array.from(el.parentElement.children);
+      const otherMedia = sibs.filter(s => s !== el && (
+        s.tagName === 'SVG' || s.tagName === 'IMG' || s.tagName === 'I' || s.tagName === 'PICTURE' ||
+        (s.querySelector && s.querySelector('svg, img, i'))
+      ));
+      if (otherMedia.length > 0) {
+        const hasVisibleSibling = otherMedia.some(s => {
+          try {
+            const scs = window.getComputedStyle(s);
+            return parseFloat(scs.opacity) > 0.6 && scs.visibility !== 'hidden' && scs.display !== 'none';
+          } catch (_) { return false; }
+        });
+        if (hasVisibleSibling) {
+          styles.opacity = '0';
+          styles.visibility = 'hidden';
+          return null;
+        }
       }
     }
+
+    const isHoverOrOverlay = isHoverClassOrAttr;
 
     // Detect UI elements that are intentionally hidden via CSS interaction patterns
     // (opacity:0 + transform, visibility:hidden + transform) and must NOT be treated as
@@ -7119,15 +7499,14 @@
       (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
       (styles.clip && /rect\(\s*1px[,\s]+1px[,\s]+1px[,\s]+1px\s*\)/.test(styles.clip)) ||
       (styles.clipPath && /inset\([^)]*100%[^)]*\)/.test(styles.clipPath)) ||
-      (styles.clipPath && /inset\(\s*(?:50%|100%)\s*\)/.test(styles.clipPath))
+      (styles.clipPath && /inset\(\s*(?:50%|100%)/.test(styles.clipPath))
     );
     const isZeroClipped = !hasAnimClass &&
                           (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') &&
                           (parseFloat(styles.height) <= 0.5 || parseFloat(styles.width) <= 0.5);
-    const isTinyHidden = (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden') &&
-                         (parseFloat(styles.width) <= 1 || parseFloat(styles.height) <= 1) &&
-                         (styles.position === 'absolute' || styles.position === 'fixed');
-    const isSrOnlyClass = typeof el.className === 'string' && /\b(?:sr-only|visually-hidden|screen-reader-text|screen-reader-only)\b/i.test(el.className);
+    const isTinyHidden = (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') &&
+                         ((parseFloat(styles.width) <= 1 && parseFloat(styles.height) <= 1) || parseFloat(styles.width) <= 0.5 || parseFloat(styles.height) <= 0.5);
+    const isSrOnlyClass = typeof el.className === 'string' && /(?:^|\b)(?:[a-z0-9_-]*(?:visually[-_]?hidden|sr[-_]?only|screen[-_]?reader)|invisible)(?:$|\b)/i.test(el.className);
 
     if (isClipHidden || isTinyHidden || isZeroClipped || isSrOnlyClass) return null;
 
@@ -7236,6 +7615,7 @@
     }
 
     let placeholderUrl = null;
+    let squeezyCards = null;
     const STRIPE_DEV_WAVE_URL = 'https://images.stripeassets.com/fzn2n1nzq965/1lk5Hfstc9dnE8xVFz1HeC/0dec8f2dde7f904eade36d8390d81c69/developer-wave-wide_2x.png';
     const isDevWaveEl = (el.className && typeof el.className === 'string' && el.className.includes('developers-wave')) ||
                         (el.closest && (el.closest('.developers-wave-animation') || el.closest('.developers-scale-subsection')));
@@ -7243,9 +7623,19 @@
       assets.addFadedImage(STRIPE_DEV_WAVE_URL, 0.18, 0.18);
     }
     if (el instanceof HTMLCanvasElement) {
+      const isSqueezy = (el.className && typeof el.className === 'string' && el.className.includes('squeezy-carousel__canvas')) ||
+                        !!(el.closest && el.closest('.squeezy-carousel'));
+      if (isSqueezy) {
+        squeezyCards = getSqueezyCards(el);
+        if (squeezyCards && squeezyCards.length > 0) {
+          for (const card of squeezyCards) {
+            if (card.src) assets.addImage(card.src);
+          }
+        }
+      }
       if (isDevWaveEl) {
         placeholderUrl = STRIPE_DEV_WAVE_URL;
-      } else {
+      } else if (!squeezyCards || squeezyCards.length === 0) {
         placeholderUrl = assets.addCanvas(el);
       }
     } else if (el instanceof HTMLVideoElement) {
@@ -7772,6 +8162,36 @@
     }
 
     const childNodes = [];
+    if (squeezyCards && squeezyCards.length > 0) {
+      for (const card of squeezyCards) {
+        childNodes.push({
+          nodeType: ELEMENT_NODE,
+          id: getNodeId('squeezy-card'),
+          tag: 'DIV',
+          attributes: { class: 'squeezy-card' },
+          rect: {
+            x: docRect.x + card.x,
+            y: docRect.y + card.y,
+            width: card.width,
+            height: card.height
+          },
+          styles: {
+            ...styles,
+            borderRadius: '6px',
+            borderTopLeftRadius: '6px',
+            borderTopRightRadius: '6px',
+            borderBottomLeftRadius: '6px',
+            borderBottomRightRadius: '6px',
+            overflow: 'hidden',
+            backgroundColor: 'transparent',
+            backgroundImage: `url("${card.src}")`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center'
+          },
+          placeholderUrl: card.src
+        });
+      }
+    }
     if (svgContent && pseudoElementNodes) {
       // If an element has both SVG content (e.g. converted repeating ticks background) AND pseudo-elements (e.g. ::after indicator needle),
       // preserve the SVG as an inner background node so pseudoElementNodes can still be rendered on the parent frame!
@@ -7792,7 +8212,42 @@
         if (uNode) childNodes.push(uNode);
       } else {
         const sourceNodes = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
-        for (const child of sourceNodes) {
+        let idx = 0;
+        while (idx < sourceNodes.length) {
+          const child = sourceNodes[idx];
+          if (isPureInlineTextChild(child)) {
+            const run = [child];
+            let nextIdx = idx + 1;
+            while (nextIdx < sourceNodes.length && isPureInlineTextChild(sourceNodes[nextIdx])) {
+              run.push(sourceNodes[nextIdx]);
+              nextIdx++;
+            }
+            if (run.length >= 2) {
+              const uRun = buildUnifiedTextFromRun(run, styles, fonts);
+              if (uRun) {
+                childNodes.push(uRun);
+                idx = nextIdx;
+                continue;
+              }
+            }
+          }
+          if (child.nodeType === 3 && !child.textContent.trim() && child.textContent.length > 0) {
+            if (childNodes.length > 0) {
+              const lastItem = childNodes[childNodes.length - 1];
+              const appendTrailSpace = (item) => {
+                if (item.text !== undefined && !item.text.endsWith(' ') && !item.text.endsWith('\u00a0')) {
+                  item.text += ' ';
+                  if (item._origText) item._origText += ' ';
+                  return true;
+                }
+                if (item.childNodes && item.childNodes.length > 0) {
+                  return appendTrailSpace(item.childNodes[item.childNodes.length - 1]);
+                }
+                return false;
+              };
+              appendTrailSpace(lastItem);
+            }
+          }
           const sChild = await serializeNode(child, assets, fonts, styles);
           if (sChild) {
             const itemsToAdd = Array.isArray(sChild) ? sChild : [sChild];
@@ -7800,6 +8255,7 @@
               childNodes.push(item);
             }
           }
+          idx++;
         }
       }
 
@@ -8004,14 +8460,14 @@
     return {
       nodeType: ELEMENT_NODE,
       id: getNodeId(svgContent ? 'svg' : 'el'),
-      tag: svgContent ? 'SVG' : tag,
+      tag: svgContent ? 'SVG' : (squeezyCards && squeezyCards.length > 0 ? 'DIV' : tag),
       attributes: getAttributes(el),
       styles,
       rect: docRect,
       childNodes,
       content: svgContent || undefined,
       svgTexts: svgTexts || undefined,
-      placeholderUrl: placeholderUrl || undefined,
+      placeholderUrl: (squeezyCards && squeezyCards.length > 0 ? undefined : (placeholderUrl || undefined)),
       pseudoElementNodes
     };
   }
