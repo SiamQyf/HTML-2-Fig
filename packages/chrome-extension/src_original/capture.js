@@ -6341,7 +6341,24 @@
 
     if (!fullText.trim()) return null;
 
-    const diffSegments = compressStyledSegments(rawSegments, containerStyles);
+    // Adopt properties shared by all child segments (e.g. text wrapped in <span class="button-text"> with white text)
+    const effectiveStyles = { ...containerStyles };
+    if (rawSegments.length > 0) {
+      const first = rawSegments[0];
+      const allSameColor = rawSegments.every(s => s.color === first.color);
+      if (allSameColor && first.color) {
+        effectiveStyles.color = first.color;
+        effectiveStyles.webkitTextFillColor = first.color;
+      }
+      const allSameWeight = rawSegments.every(s => s.fontWeight === first.fontWeight);
+      if (allSameWeight && first.fontWeight) effectiveStyles.fontWeight = first.fontWeight;
+      const allSameStyle = rawSegments.every(s => s.fontStyle === first.fontStyle);
+      if (allSameStyle && first.fontStyle) effectiveStyles.fontStyle = first.fontStyle;
+      const allSameSize = rawSegments.every(s => Math.abs(s.fontSize - first.fontSize) < 0.1);
+      if (allSameSize && first.fontSize) effectiveStyles.fontSize = `${first.fontSize}px`;
+    }
+
+    const diffSegments = compressStyledSegments(rawSegments, effectiveStyles);
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const n of runNodes) {
@@ -6375,7 +6392,7 @@
     const runY = isFinite(minY) ? minY + scrollY : scrollY;
 
     if (fonts && typeof fonts.addFont === 'function') {
-      fonts.addFont(containerStyles.fontFamily, containerStyles.fontWeight, containerStyles.fontStyle);
+      fonts.addFont(effectiveStyles.fontFamily, effectiveStyles.fontWeight, effectiveStyles.fontStyle);
     }
 
     return {
@@ -6388,8 +6405,8 @@
         width: runW,
         height: runH
       },
-      styles: getTextNodeStyles(containerStyles),
-      lineCount: Math.max(1, Math.round(runH / (parseFloat(containerStyles.lineHeight) || (parseFloat(containerStyles.fontSize) || 16) * 1.4))),
+      styles: getTextNodeStyles(effectiveStyles),
+      lineCount: Math.max(1, Math.round(runH / (parseFloat(effectiveStyles.lineHeight) || (parseFloat(effectiveStyles.fontSize) || 16) * 1.4))),
       styledSegments: diffSegments.length > 0 ? diffSegments : undefined
     };
   }
