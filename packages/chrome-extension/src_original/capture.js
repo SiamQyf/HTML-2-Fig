@@ -6017,6 +6017,15 @@
       if (node.nodeType === Node.TEXT_NODE) {
         let t = node.textContent;
         if (!t) return;
+        if (!t.trim()) {
+          try {
+            const rng = document.createRange();
+            rng.selectNodeContents(node);
+            const r = rng.getBoundingClientRect();
+            rng.detach();
+            if (r.width <= 0) return;
+          } catch (_) { return; }
+        }
         const parentCs = window.getComputedStyle(node.parentElement);
         const ws = parentCs.whiteSpace || 'normal';
         if (ws === 'normal' || ws === 'nowrap') { t = t.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' '); if (fullText.length === 0 || fullText.endsWith(' ')) { t = t.trimStart(); } }
@@ -6278,6 +6287,15 @@
       if (node.nodeType === 3) {
         let t = node.textContent;
         if (!t) return;
+        if (!t.trim()) {
+          try {
+            const rng = document.createRange();
+            rng.selectNodeContents(node);
+            const r = rng.getBoundingClientRect();
+            rng.detach();
+            if (r.width <= 0) return;
+          } catch (_) { return; }
+        }
         const parentCs = window.getComputedStyle(node.parentElement);
         const ws = parentCs.whiteSpace || 'normal';
         if (ws === 'normal' || ws === 'nowrap') {
@@ -8262,7 +8280,14 @@
             }
           }
           if (child.nodeType === 3 && !child.textContent.trim() && child.textContent.length > 0) {
-            if (childNodes.length > 0) {
+            let wsWidth = 0;
+            try {
+              const wsRng = document.createRange();
+              wsRng.selectNodeContents(child);
+              wsWidth = wsRng.getBoundingClientRect().width;
+              wsRng.detach();
+            } catch (_) {}
+            if (wsWidth > 0 && childNodes.length > 0) {
               const lastItem = childNodes[childNodes.length - 1];
               const appendTrailSpace = (item) => {
                 if (item.text !== undefined && !item.text.endsWith(' ') && !item.text.endsWith('\u00a0')) {
@@ -8311,7 +8336,7 @@
           childNodes.unshift({
             nodeType: TEXT_NODE,
             id: getNodeId('counter-text'),
-            text: counterVal + ' ',
+            text: counterVal,
             rect: {
               x: docRect.x,
               y: docRect.y,
