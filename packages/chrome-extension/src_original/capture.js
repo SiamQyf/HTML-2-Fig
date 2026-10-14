@@ -871,7 +871,8 @@
       window.dispatchEvent(new Event('resize'));
 
       // Pause for intersection observers to register the section in-view and load lazy components
-      await new Promise(r => setTimeout(r, 120));
+      try { window.dispatchEvent(new WheelEvent('wheel', { deltaY: stepSize, bubbles: true })); } catch (_) {}
+      await new Promise(r => setTimeout(r, 140));
 
       // Fast-forward & settle all active animations for this section:
       // a) Web Animations API (CSS transitions, keyframes, WAAPI)
@@ -998,12 +999,13 @@
               '.split-text .word, .split-text .char, [class*="word"], [class*="char"], .text-anim, .title-anim, ' +
               '.hero-text-anim, .wow, [data-wow-delay], [data-aos], [data-sal], [data-scroll], .animated, ' +
               '.fadeInUp, .fadeIn, .fadeInLeft, .fadeInRight, .fadeInDown, .bounceIn, .zoomIn, ' +
-              '[class*="wow"], [class*="fadeIn"], [class*="-anim"], [class*="has-animation"], [class*="scroll-reveal"]'
+              '[class*="wow"], [class*="fadeIn"], [class*="-anim"], [class*="has-animation"], [class*="scroll-reveal"], ' +
+              '[data-framer-appear-id], [class*="motion"], [class*="framer-motion"]'
             );
             for (const el of scrubEls) {
               try {
                 if (el.style) {
-                  if (el.style.opacity && parseFloat(el.style.opacity) < 0.98) {
+                  if (el.style.opacity && parseFloat(el.style.opacity) <= 0.02) {
                     el.style.opacity = '1';
                   }
                   if (el.style.visibility === 'hidden') {
@@ -7206,13 +7208,14 @@
 
     // 3. Sibling icon check: if this element is an icon/SVG and a sibling icon is already visible,
     // this hidden one is a hover-state alternate icon
-    const isIconOrMedia = tag === 'SVG' || tag === 'IMG' || tag === 'I' || tag === 'PICTURE' ||
-                          (el.querySelector && el.querySelector('svg, img, i'));
-    if (isIconOrMedia && isEffectivelyHiddenAtRest && el.parentElement) {
+    const clientR = el.getBoundingClientRect();
+    const isSmallIcon = (tag === 'SVG' || tag === 'I' || tag === 'IMG' || tag === 'PICTURE') &&
+                        clientR.width <= 64 && clientR.height <= 64;
+    if (interactiveHost && isSmallIcon && isEffectivelyHiddenAtRest && el.parentElement) {
       const sibs = Array.from(el.parentElement.children);
       const otherMedia = sibs.filter(s => s !== el && (
-        s.tagName === 'SVG' || s.tagName === 'IMG' || s.tagName === 'I' || s.tagName === 'PICTURE' ||
-        (s.querySelector && s.querySelector('svg, img, i'))
+        (s.tagName === 'SVG' || s.tagName === 'IMG' || s.tagName === 'I' || s.tagName === 'PICTURE') &&
+        s.getBoundingClientRect().width <= 64 && s.getBoundingClientRect().height <= 64
       ));
       if (otherMedia.length > 0) {
         const hasVisibleSibling = otherMedia.some(s => {
@@ -7307,21 +7310,14 @@
         if (!collapsedRoot.closest('[aria-expanded="true"], [data-state="open"]')) return true;
       }
       if (el.closest('.accordion-collapse:not(.show), .collapse:not(.show), [aria-hidden="true"]')) return true;
-      if (el.parentElement && el.parentElement.children.length === 2) {
-        const other = el.parentElement.children[0] === el ? el.parentElement.children[1] : el.parentElement.children[0];
-        try {
-          if (parseFloat(window.getComputedStyle(other).opacity) > 0.8 && parseFloat(styles.opacity) < 0.1) {
-            return true;
-          }
-        } catch (_) {}
-      }
+      /* 2-children is not an accordion */
       return false;
     })();
 
     const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && (
-      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos|sal|scroll-reveal|invert|fade_anim|has-animation|appear|in-view|inview|is-visible|fadeIn|fade-in|fadeUp|fade-up|fadeDown|fade-down|fadeLeft|fade-left|fadeRight|fade-right|animate|animated|animation|zoomIn|bounceIn|reveal/i.test(cls) ||
-      el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-scroll') || el.hasAttribute('data-animation') || el.hasAttribute('data-animate') ||
-      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [data-sal], [data-scroll], [class*="invert"], [class*="fade_anim"], [class*="has-animation"], [class*="fadeIn"], [class*="fade-"], [class*="animate"]'))
+      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos|sal|scroll-reveal|invert|fade_anim|has-animation|appear|in-view|inview|is-visible|fadeIn|fade-in|fadeUp|fade-up|fadeDown|fade-down|fadeLeft|fade-left|fadeRight|fade-right|animate|animated|animation|zoomIn|bounceIn|reveal|motion|framer-motion|while-in-view|scroll-anim|scroll-fade/i.test(cls) ||
+      el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-scroll') || el.hasAttribute('data-animation') || el.hasAttribute('data-animate') || el.hasAttribute('data-motion') ||
+      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [data-sal], [data-scroll], [class*="motion"], [class*="framer-motion"], [class*="invert"], [class*="fade_anim"], [class*="has-animation"], [class*="fadeIn"], [class*="fade-"], [class*="animate"]'))
     );
 
     // Strategy 2: behavioural heuristics — detect ANY element with a scroll/entrance animation
@@ -7334,7 +7330,7 @@
         const inlineOp = el.style && el.style.opacity !== '' ? parseFloat(el.style.opacity) : null;
         const animName = cs.animationName || '';
         const transProp = cs.transitionProperty || '';
-        const hasOpacityAnim = transProp.includes('opacity') || transProp.includes('all') || animName !== 'none';
+        const hasOpacityAnim = (transProp.includes('opacity') && !transProp.includes('all')) || (animName !== 'none' && animName !== '');
 
         // Check WAAPI/CSS Animation API: if there are running/pending animations on this element
         let hasActiveAnim = false;
@@ -7395,7 +7391,7 @@
 
         if (isContentElement && (
           (inlineOp !== null && inlineOp < 0.98) ||
-          (hasOpacityAnim && inlineOp !== null && inlineOp < 0.98) ||
+          (hasOpacityAnim && (curOpacity < 0.98 || (inlineOp !== null && inlineOp < 0.98))) ||
           (hasActiveAnim && (isNaN(curOpacity) || curOpacity < 0.99)) ||
           hasClipEntrance ||
           hasEntranceTranslate ||
@@ -7418,7 +7414,7 @@
 
     const isAnimHiddenContent = (
       styles.display !== 'none' &&
-      (styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.05) &&
+      (styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.15) &&
       hasVisibleContent &&
       !isNavDropdown && !isHoverOrOverlay && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState &&
       !el.closest('.vertical-counter, .odometer, .swiper-slide:not(.swiper-slide-active)')
@@ -7431,9 +7427,18 @@
       styles.visibility = 'visible';
       isHidden = false;
 
-      // Opacity → 1 (fully revealed)
+      // Check if this element or its child is a pattern / grid / decorative background
+      const isPatternOrTexture = (
+        (styles.backgroundImage && styles.backgroundImage !== 'none' && !styles.backgroundImage.includes('gradient')) ||
+        (styles.backgroundRepeat && styles.backgroundRepeat.includes('repeat')) ||
+        /pattern|grid|dot|dots|texture|mesh/i.test(cls + ' ' + (el.getAttribute('data-framer-name') || '') + ' ' + (el.id || '')) ||
+        (el.firstElementChild && (el.firstElementChild.getAttribute('data-framer-background-image-wrapper') === 'true' || /pattern|grid|dot/i.test(el.firstElementChild.className || ''))) ||
+        el.getAttribute('data-framer-background-image-wrapper') === 'true'
+      );
+
+      // Opacity → 1 (fully revealed): only if genuinely hidden (<= 0.02) or scroll-reveal, preserving intentional subtle opacities
       const curOp = parseFloat(styles.opacity);
-      if (isNaN(curOp) || curOp < 0.98) {
+      if (!isPatternOrTexture && (isNaN(curOp) || curOp <= 0.02 || (hasScrollRevealBehavior && curOp < 0.05))) {
         styles.opacity = '1';
       }
 
@@ -7495,13 +7500,13 @@
 
     if (isHidden) return null;
 
-    const isClipHidden = !hasAnimClass && (
+    const isClipHidden = !isAnimTarget && (
       (styles.clip && /rect\(\s*0px[,\s]+0px[,\s]+0px[,\s]+0px\s*\)/.test(styles.clip)) ||
       (styles.clip && /rect\(\s*1px[,\s]+1px[,\s]+1px[,\s]+1px\s*\)/.test(styles.clip)) ||
       (styles.clipPath && /inset\([^)]*100%[^)]*\)/.test(styles.clipPath)) ||
       (styles.clipPath && /inset\(\s*(?:50%|100%)/.test(styles.clipPath))
     );
-    const isZeroClipped = !hasAnimClass &&
+    const isZeroClipped = !isAnimTarget &&
                           (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') &&
                           (parseFloat(styles.height) <= 0.5 || parseFloat(styles.width) <= 0.5);
     const isTinyHidden = (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') &&
@@ -7511,7 +7516,7 @@
     if (isClipHidden || isTinyHidden || isZeroClipped || isSrOnlyClass) return null;
 
     const clientRect = el.getBoundingClientRect();
-    if (!hasAnimClass && (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') && (clientRect.height <= 0.5 || clientRect.width <= 0.5)) {
+    if (!isAnimTarget && (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') && (clientRect.height <= 0.5 || clientRect.width <= 0.5)) {
       return null;
     }
 
