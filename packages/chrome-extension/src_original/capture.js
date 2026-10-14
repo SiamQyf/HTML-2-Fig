@@ -7296,7 +7296,30 @@
         (/\b(?:active|is-active|selected)\b|--active\b/i.test(sibling.className))
       )
     );
-    const isModalOrOffcanvas = !!(el.closest && el.closest('.modal:not(.show):not(.in), .offcanvas:not(.show), [aria-modal="true"][style*="display: none"]'));
+    const isModalOrOffcanvas = !!(
+      el.closest && el.closest(
+        '.modal:not(.show):not(.in):not(.active):not(.open), ' +
+        '[class*="modal"]:not(.show):not(.in):not(.active):not(.open), ' +
+        '.offcanvas:not(.show):not(.open):not(.active), ' +
+        '[class*="offcanvas"]:not(.show):not(.open):not(.active), ' +
+        '[class*="drawer"]:not(.show):not(.open):not(.active), ' +
+        '[class*="popup"]:not(.show):not(.open):not(.active), ' +
+        '[class*="mini-cart"]:not(.show):not(.open):not(.active), ' +
+        '[class*="cart-canvas"]:not(.show):not(.open):not(.active), ' +
+        '[class*="cart-right"]:not(.show):not(.open):not(.active), ' +
+        '[class*="quickview"]:not(.show):not(.open):not(.active), ' +
+        '[class*="quick-view"]:not(.show):not(.open):not(.active), ' +
+        '[role="dialog"]:not(.show):not(.open):not(.active), ' +
+        '[aria-modal="true"]:not(.show):not(.open):not(.active), ' +
+        '[class*="lightbox"]:not(.show):not(.open):not(.active)'
+      )
+    );
+
+    if (isModalOrOffcanvas && (styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
+      styles.opacity = '0';
+      styles.visibility = 'hidden';
+      return null;
+    }
     const isAccordionOrToggleState = (() => {
       if (!el.closest) return false;
       if (el.closest('.customer-story-button:not(.customer-story-button--open)') && (el.classList?.contains('customer-story-button__text') || el.closest('.customer-story-button__text'))) return true;
@@ -7412,8 +7435,10 @@
       (styles.backgroundImage && styles.backgroundImage !== 'none')
     );
 
+    const isFixedOrHighZOverlay = (styles.position === 'fixed' || (styles.position === 'absolute' && parseFloat(styles.zIndex) >= 100));
     const isAnimHiddenContent = (
       styles.display !== 'none' &&
+      !isFixedOrHighZOverlay &&
       (styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.15) &&
       hasVisibleContent &&
       !isNavDropdown && !isHoverOrOverlay && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState &&
