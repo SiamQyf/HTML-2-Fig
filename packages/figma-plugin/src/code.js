@@ -229,7 +229,15 @@ function parseGradientColorStops(stopsStr, totalLength = 100, fontSize = 16) {
   }
 
   let colorAt0 = null;
-  if (preparedStops[0].position >= 0) {
+  let lastZeroIdx = -1;
+  for (let i = 0; i < preparedStops.length; i++) {
+    if (preparedStops[i].position <= 0.0001) {
+      lastZeroIdx = i;
+    }
+  }
+  if (lastZeroIdx >= 0) {
+    colorAt0 = { ...preparedStops[lastZeroIdx].color, a: clamp01(preparedStops[lastZeroIdx].color.a ?? 1) };
+  } else if (preparedStops[0].position >= 0) {
     colorAt0 = { ...preparedStops[0].color, a: clamp01(preparedStops[0].color.a ?? 1) };
   } else {
     for (let i = 0; i < preparedStops.length - 1; i++) {
@@ -242,17 +250,28 @@ function parseGradientColorStops(stopsStr, totalLength = 100, fontSize = 16) {
   }
 
   let colorAt1 = null;
-  const last = preparedStops[preparedStops.length - 1];
-  if (last.position <= 1) {
-    colorAt1 = { ...last.color, a: clamp01(last.color.a ?? 1) };
-  } else {
-    for (let i = 0; i < preparedStops.length - 1; i++) {
-      if (preparedStops[i].position <= 1 && preparedStops[i + 1].position >= 1) {
-        colorAt1 = interpolateAt(preparedStops[i], preparedStops[i + 1], 1);
-        break;
-      }
+  let firstOneIdx = -1;
+  for (let i = 0; i < preparedStops.length; i++) {
+    if (preparedStops[i].position >= 0.9999) {
+      firstOneIdx = i;
+      break;
     }
-    if (!colorAt1) colorAt1 = { ...preparedStops[0].color, a: clamp01(preparedStops[0].color.a ?? 1) };
+  }
+  if (firstOneIdx >= 0) {
+    colorAt1 = { ...preparedStops[firstOneIdx].color, a: clamp01(preparedStops[firstOneIdx].color.a ?? 1) };
+  } else {
+    const last = preparedStops[preparedStops.length - 1];
+    if (last.position <= 1) {
+      colorAt1 = { ...last.color, a: clamp01(last.color.a ?? 1) };
+    } else {
+      for (let i = 0; i < preparedStops.length - 1; i++) {
+        if (preparedStops[i].position <= 1 && preparedStops[i + 1].position >= 1) {
+          colorAt1 = interpolateAt(preparedStops[i], preparedStops[i + 1], 1);
+          break;
+        }
+      }
+      if (!colorAt1) colorAt1 = { ...preparedStops[0].color, a: clamp01(preparedStops[0].color.a ?? 1) };
+    }
   }
 
   const insideStops = [];
