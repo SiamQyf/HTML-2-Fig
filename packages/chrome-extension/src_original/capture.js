@@ -7468,9 +7468,12 @@
     const isHoverClassOrAttr = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay|show-on-hover|hover-img|portfolio-hover|overlay-hover|hover-item|hover-box-content|on-hover|\bhover\b|hover-|\bhover_|_hover\b|-hover\b|icon-hover|arrow-hover|btn-hover|hover-icon|hover-arrow|group-hover/i.test(cleanClsForHover) ||
                                !!(el.closest && el.closest('.hover-box, [class*="hover-"], .feature-box') && /overlay|mask|reveal|box-overlay|hover-content|hover|icon|arrow/i.test(cleanClsForHover));
 
-    const isEffectivelyHiddenAtRest = isHidden || parseFloat(styles.opacity) < 0.15 || styles.visibility === 'hidden' || styles.display === 'none';
+    const hasVisualMedia = (styles.backgroundImage && styles.backgroundImage !== 'none') ||
+                           tag === 'IMG' || tag === 'PICTURE' || tag === 'CANVAS' || tag === 'VIDEO';
 
-    if (isHoverClassOrAttr && isEffectivelyHiddenAtRest) {
+    const isEffectivelyHiddenAtRest = isHidden || (!hasVisualMedia && parseFloat(styles.opacity) <= 0.04) || styles.visibility === 'hidden' || styles.display === 'none';
+
+    if (isHoverClassOrAttr && isEffectivelyHiddenAtRest && !hasVisualMedia) {
       styles.opacity = '0';
       styles.visibility = 'hidden';
       return null;
@@ -7484,7 +7487,7 @@
       try {
         const hostCs = window.getComputedStyle(interactiveHost);
         if (parseFloat(hostCs.opacity) > 0.5 && hostCs.display !== 'none' && hostCs.visibility !== 'hidden') {
-          if (isEffectivelyHiddenAtRest) {
+          if (isEffectivelyHiddenAtRest && !hasVisualMedia) {
             styles.opacity = '0';
             styles.visibility = 'hidden';
             return null;
