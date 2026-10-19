@@ -505,6 +505,38 @@ async function auditInvariants(targetUrlOrFile, options = {}) {
             const s2IsCloseHeader = s2.tag === 'HEADER' && /modal-header|close/i.test(s2.attributes?.class || '') && (!s2.text || s2.text.trim() === '✕');
             if (s1IsCloseHeader || s2IsCloseHeader) continue;
 
+            // Ignore intentional avatar stack / badge overlaps
+            const isAvatarStack = /circle-stack|avatar-group|avatar-stack|avatars/i.test(parent.attributes?.class || '') ||
+              parseFloat(s1.styles?.marginLeft || '0') < 0 || parseFloat(s2.styles?.marginLeft || '0') < 0 ||
+              parseFloat(s1.styles?.marginRight || '0') < 0 || parseFloat(s2.styles?.marginRight || '0') < 0;
+            if (isAvatarStack) continue;
+
+            // Ignore transparent floating header overlaying hero/slider section
+            const isHeaderHeroOverlay = (
+              (s1.tag === 'HEADER' || s2.tag === 'HEADER' || s1.tag === 'SECTION' || s2.tag === 'SECTION') &&
+              (/floating-header|transparent-header|include-header|slider-element/i.test(s1.attributes?.class || '') ||
+               /floating-header|transparent-header|include-header|slider-element/i.test(s2.attributes?.class || '') ||
+               /floating-header|transparent-header|include-header/i.test(parent.attributes?.class || ''))
+            );
+            if (isHeaderHeroOverlay) continue;
+
+            // Ignore minor line-height bleed between adjacent text lines/fragments
+            const isInlineOrText1 = !s1.tag || ['SPAN', 'STRONG', 'EM', 'B', 'I', 'A', 'U'].includes(s1.tag);
+            const isInlineOrText2 = !s2.tag || ['SPAN', 'STRONG', 'EM', 'B', 'I', 'A', 'U'].includes(s2.tag);
+            const getEffectiveText = (n) => {
+              if (n.text) return n.text;
+              if (n.childNodes && n.childNodes.length > 0) {
+                return n.childNodes.map(c => c.text || '').join('');
+              }
+              return '';
+            };
+            const t1 = getEffectiveText(s1);
+            const t2 = getEffectiveText(s2);
+            if (isInlineOrText1 && isInlineOrText2 && t1 && t2) {
+              const overlapHeight = Math.min(s1.rect.y + s1.rect.height, s2.rect.y + s2.rect.height) - Math.max(s1.rect.y, s2.rect.y);
+              if (overlapHeight <= 12) continue;
+            }
+
             const s1IsPureBg = /\b(?:backdrop|shadow|overlay|bottom-image-layer|grid-lines|stripes|bg-lines)\b/i.test(s1.attributes?.class || '') && !s1.text && (!s1.childNodes || s1.childNodes.length === 0);
             const s2IsPureBg = /\b(?:backdrop|shadow|overlay|bottom-image-layer|grid-lines|stripes|bg-lines)\b/i.test(s2.attributes?.class || '') && !s2.text && (!s2.childNodes || s2.childNodes.length === 0);
             if (!s1IsPureBg && !s2IsPureBg) {

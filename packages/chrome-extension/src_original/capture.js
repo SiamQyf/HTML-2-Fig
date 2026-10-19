@@ -6378,7 +6378,7 @@
     if (node.nodeType === 3) return true;
     if (node.nodeType === 1) {
       const tag = node.tagName.toUpperCase();
-      if (tag === 'BR') return true;
+      if (tag === 'BR') return false; // Do not glue text across explicit <br> breaks into unified text runs
       if (['IMG', 'SVG', 'CANVAS', 'VIDEO', 'IFRAME', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'HR'].includes(tag)) {
         return false;
       }
@@ -7288,38 +7288,7 @@
 
       if (segments.length === 1) return segments[0];
       if (segments.length > 1) {
-        // Return a group array as pseudo element or return segments
-        // We can return a flat virtual group node or element node
-        return {
-          nodeType: ELEMENT_NODE,
-          id: getNodeId('text-wrap'),
-          tag: 'SPAN',
-          styles: {
-            ...parentStyles,
-            backgroundColor: 'rgba(0, 0, 0, 0)',
-            backgroundImage: 'none',
-            borderTopWidth: '0px',
-            borderRightWidth: '0px',
-            borderBottomWidth: '0px',
-            borderLeftWidth: '0px',
-            borderTopStyle: 'none',
-            borderRightStyle: 'none',
-            borderBottomStyle: 'none',
-            borderLeftStyle: 'none',
-            boxShadow: 'none',
-            outlineWidth: '0px',
-            outlineStyle: 'none',
-            textDecoration: 'none',
-            textDecorationLine: 'none'
-          },
-          rect: {
-            x: rect.x + scrollX,
-            y: rect.y + scrollY,
-            width: Math.ceil(rect.width),
-            height: Math.ceil(rect.height)
-          },
-          childNodes: segments
-        };
+        return segments;
       }
 
       return {
@@ -7341,7 +7310,7 @@
     const el = node;
     if (el.hasAttribute && (el.hasAttribute('data-h2f-ignore') || el.id === 'h2f-edge-lighting-host')) return null;
     let tag = el.tagName.toUpperCase();
-    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE'].includes(tag)) return null;
+    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE', 'BR'].includes(tag)) return null;
 
     // Skip custom mouse cursor followers (track mouse position and float over page causing artificial overlaps)
     if (tag !== 'BODY' && tag !== 'HTML') {
