@@ -12,6 +12,8 @@
     "test": "npm run test --workspaces --if-present",
     "protect:ext": "node scripts/protect_extension.js",
     "build:webstore": "node scripts/package_webstore.js",
+    "audit:invariants": "node scripts/audit_invariants.js",
+    "audit:visual": "node scripts/audit_visual_diff.js",
     "postinstall": "npx puppeteer browsers install chrome",
     "start": "node server/index.js"
   },
@@ -34,10 +36,12 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "image-size": "^2.0.4",
-    "puppeteer": "^22.12.0"
+    "puppeteer": "^25.14.0"
   },
   "devDependencies": {
     "javascript-obfuscator": "^5.8.0",
+    "pixelmatch": "^8.0.0",
+    "pngjs": "^7.0.0",
     "terser": "^5.51.2"
   }
 }

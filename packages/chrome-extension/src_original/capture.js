@@ -491,6 +491,14 @@
       }
     } catch (_) {}
 
+    // 2b. Wait for entrance slider animations (e.g. Revolution Slider, initial hero banners)
+    try {
+      const hasEntranceSlider = document.querySelector('.rev_slider, [class*="rev_slider"], .tp-caption, [data-frames]');
+      if (hasEntranceSlider) {
+        await new Promise(r => setTimeout(r, 2600));
+      }
+    } catch (_) {}
+
     const style = document.createElement('style');
     style.id = 'h2f-scroll-fix';
     style.innerHTML = 'html, body { scroll-behavior: auto !important; }';
@@ -510,6 +518,9 @@
                 try {
                   if (s.autoplay && s.autoplay.stop) s.autoplay.stop();
                   if (s.params && s.params.autoplay) s.params.autoplay = false;
+                  if (s.params) {
+                    s.params.watchSlidesProgress = true;
+                  }
                   const isContinuousTicker = /marquee|ticker/i.test(el.className) || (s.params && s.params.autoplay && s.params.autoplay.delay === 0);
                   if (isContinuousTicker) {
                     if (typeof s.slideToLoop === 'function' && s.params && s.params.loop) {
@@ -993,17 +1004,66 @@
                 } catch {}
               });
             }
-            // Fast-forward any scroll reveal opacity and visibility on animated elements in the DOM:
+            // Fast-forward Anime.js (both v4 engine and v3 running timelines)
+            if (window.anime) {
+              try {
+                if (window.anime.engine) {
+                  let cur = window.anime.engine._head;
+                  while (cur) {
+                    try {
+                      if (typeof cur.complete === 'function') cur.complete();
+                      else if (typeof cur.seek === 'function') cur.seek(cur.duration || 10000);
+                      if (typeof cur.pause === 'function') cur.pause();
+                    } catch(e) {}
+                    cur = cur._next;
+                  }
+                }
+                if (Array.isArray(window.anime.running)) {
+                  window.anime.running.forEach(a => {
+                    try {
+                      if (typeof a.complete === 'function') a.complete();
+                      else if (typeof a.seek === 'function') a.seek(a.duration || 10000);
+                      if (typeof a.pause === 'function') a.pause();
+                    } catch(e) {}
+                  });
+                }
+              } catch(e) {}
+            }
+            // Fast-forward any ThemeZaa / anime.js and scroll reveal opacity, transforms and visibility in the DOM:
+            const animeEls = document.querySelectorAll('[data-anime], [data-fancy-text], .appear, .animating');
+            for (const el of animeEls) {
+              try {
+                el.classList.add('appear', 'anime-complete');
+                el.classList.remove('animating');
+                if (el.style) {
+                  if (el.style.opacity && parseFloat(el.style.opacity) <= 0.05) el.style.removeProperty('opacity');
+                  if (el.style.transform && el.style.transform !== 'none') el.style.removeProperty('transform');
+                  if (el.style.transition) el.style.removeProperty('transition');
+                }
+                for (const ch of el.children) {
+                  if (ch.style) {
+                    if (ch.style.opacity && parseFloat(ch.style.opacity) <= 0.05) ch.style.removeProperty('opacity');
+                    if (ch.style.transform && ch.style.transform !== 'none') ch.style.removeProperty('transform');
+                    if (ch.style.transition) ch.style.removeProperty('transition');
+                  }
+                }
+              } catch (e) {}
+            }
             const scrubEls = document.querySelectorAll(
               '[data-splitting] .word, [data-splitting] .char, .splitting .word, .splitting .char, ' +
               '.split-text .word, .split-text .char, [class*="word"], [class*="char"], .text-anim, .title-anim, ' +
               '.hero-text-anim, .wow, [data-wow-delay], [data-aos], [data-sal], [data-scroll], .animated, ' +
               '.fadeInUp, .fadeIn, .fadeInLeft, .fadeInRight, .fadeInDown, .bounceIn, .zoomIn, ' +
               '[class*="wow"], [class*="fadeIn"], [class*="-anim"], [class*="has-animation"], [class*="scroll-reveal"], ' +
-              '[data-framer-appear-id], [class*="motion"], [class*="framer-motion"]'
+              '[data-framer-appear-id], [class*="motion"], [class*="framer-motion"], .elementor-invisible, [class*="elementor-invisible"]'
             );
             for (const el of scrubEls) {
               try {
+                if (el.classList && el.classList.contains('elementor-invisible')) {
+                  el.classList.remove('elementor-invisible');
+                  el.classList.add('animated');
+                  if (el.style) el.style.visibility = 'visible';
+                }
                 if (el.style) {
                   if (el.style.opacity && parseFloat(el.style.opacity) <= 0.02) {
                     el.style.opacity = '1';
@@ -1440,9 +1500,10 @@
                 const isContentGrid = isSideBySide || isMultiColumn || (stepContainer.className && typeof stepContainer.className === 'string' && /counter|card|feature|pricing|service|team|blog|portfolio|grid/i.test(stepContainer.className));
 
                 if (!isContentGrid) {
-                  const hasExplicitStepClass = sibChildren.some(c => c.className && typeof c.className === 'string' && /step|scrolly|story|chapter|timeline/i.test(c.className));
-                  const isViewportScaleSteps = sibChildren.every(c => c.getBoundingClientRect().height >= 400) ||
-                                              sibChildren.some(c => (c.className && typeof c.className === 'string' && /h-100vh|100vh|screen/i.test(c.className)) || (c.style.height && c.style.height.includes('vh')));
+                  const hasExplicitStepClass = sibChildren.some(c => c.className && typeof c.className === 'string' && /\b(?:step|scrolly|story|chapter|timeline)\b/i.test(c.className));
+                  const isViewportScaleSteps = sibChildren.length >= 2 &&
+                                              sibChildren.every(c => c.getBoundingClientRect().height >= (window.innerHeight || 800) * 0.85) &&
+                                              sibChildren.some(c => (c.className && typeof c.className === 'string' && /\b(?:h-100vh|100vh|screen)\b/i.test(c.className)) || (c.style.height && c.style.height.includes('vh')));
 
                   if (hasExplicitStepClass || isViewportScaleSteps) {
                     processedSplitContainers.add(layoutContainer);
@@ -3016,9 +3077,13 @@
     const isIconFont = /(?:icon|awesome|feather|tabler|boxicon|remix|glyph|phosphor)/i.test(fontName) && !fontName.includes('system-ui');
     if (chars.length <= 2) {
       if (isIconFont) return true;
-      // Specific icon, glyph, or flag library classes
-      if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|mdi-[a-z0-9-]+|glyph|flag|ph|ph-[a-z0-9-]+|icon-[a-z0-9-]+|[a-z0-9-]+-icon-[a-z0-9-]+)\b/i.test(cls) ||
-          cls.includes('__glyph') || cls.includes('__flag') || cls.includes('-glyph') || cls.includes('-flag') || cls.includes('icon')) {
+      // Normal alphanumeric text (e.g. "01", "1", "A", "99") rendered in a standard non-icon font is ALWAYS regular text!
+      if (/^[a-zA-Z0-9]+$/.test(trimmed)) {
+        return false;
+      }
+      // Specific icon, glyph, or flag library classes (only for non-alphanumeric icon glyphs)
+      if (/\b(?:fa|fa-[a-z0-9-]+|bi|bi-[a-z0-9-]+|bx|bxs|bxl|ri-[a-z0-9-]+|feather|mdi-[a-z0-9-]+|glyph|flag|ph|ph-[a-z0-9-]+)\b/i.test(cls) ||
+          cls.includes('__glyph') || cls.includes('__flag') || cls.includes('-glyph') || cls.includes('-flag')) {
         return true;
       }
     }
@@ -4731,19 +4796,45 @@
               pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
             }
           } else if (pseudo === '::before') {
-            if (isCenteredText || (isIconContainer && !el.childNodes?.length)) {
-              pseudoRect.x = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
-            } else {
-              pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+            let placedBeforeFirstChild = false;
+            if (el.firstChild) {
+              try {
+                const r = document.createRange();
+                r.selectNodeContents(el.firstChild);
+                const firstR = r.getBoundingClientRect();
+                r.detach();
+                if (firstR.width > 0 || firstR.height > 0) {
+                  pseudoRect.x = firstR.left + scrollX - (parseFloat(cs.marginRight) || 0) - pseudoRect.width;
+                  pseudoRect.y = firstR.top + scrollY + (firstR.height - pseudoRect.height) / 2;
+                  placedBeforeFirstChild = true;
+                }
+              } catch (_) {}
             }
+            if (!placedBeforeFirstChild && el.firstElementChild) {
+              try {
+                const firstR = el.firstElementChild.getBoundingClientRect();
+                if (firstR.width > 0 || firstR.height > 0) {
+                  pseudoRect.x = firstR.left + scrollX - (parseFloat(cs.marginRight) || 0) - pseudoRect.width;
+                  pseudoRect.y = firstR.top + scrollY + (firstR.height - pseudoRect.height) / 2;
+                  placedBeforeFirstChild = true;
+                }
+              } catch (_) {}
+            }
+            if (!placedBeforeFirstChild) {
+              if (isCenteredText || (isIconContainer && !el.childNodes?.length)) {
+                pseudoRect.x = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
+              } else {
+                pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+              }
 
-            const parentLineH = parseFloat(parentCs.lineHeight);
-            const isMiddleAlign = parentCs.verticalAlign === 'middle' || cs.verticalAlign === 'middle' ||
-                                  (!isNaN(parentLineH) && parentLineH >= parentRect.height * 0.8 && parentRect.height > 0);
-            if (isMiddleAlign || (isIconContainer && !el.childNodes?.length)) {
-              pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
-            } else {
-              pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+              const parentLineH = parseFloat(parentCs.lineHeight);
+              const isMiddleAlign = parentCs.verticalAlign === 'middle' || cs.verticalAlign === 'middle' ||
+                                    (!isNaN(parentLineH) && parentLineH >= parentRect.height * 0.8 && parentRect.height > 0);
+              if (isMiddleAlign || (isIconContainer && !el.childNodes?.length)) {
+                pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
+              } else {
+                pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
+              }
             }
           } else if (pseudo === '::after') {
             const isWideOverlay = (pseudoRect.width >= parentRect.width * 0.4) || (cs.display === 'block' && !isIconPseudo && (!text || text.length === 0));
@@ -5195,7 +5286,7 @@
 
       for (const c of all) {
         const cLevel = getRawStackingLevel(c.styles);
-        if (cLevel >= 100000 && cLevel > maxZ) {
+        if (cLevel > maxZ) {
           maxZ = cLevel;
         }
         if (!createsStackingContext(c)) {
@@ -5208,13 +5299,28 @@
     return maxZ;
   }
 
-  function isBackgroundOverlay(node) {
+  function hasTextOrContent(node) {
     if (!node) return false;
+    if (node.text && node.text.trim().length > 0) return true;
+    if (['BUTTON', 'A', 'INPUT', 'TEXTAREA', 'SELECT', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'LI', 'LABEL'].includes(node.tag)) return true;
+    if (node.childNodes) {
+      for (let i = 0; i < node.childNodes.length; i++) {
+        if (hasTextOrContent(node.childNodes[i])) return true;
+      }
+    }
+    return false;
+  }
+
+  function isBackgroundOverlay(node) {
+    if (!node || hasTextOrContent(node)) return false;
     const cls = (node.attributes?.class || '').toLowerCase();
     const id = (node.attributes?.id || node.id || '').toLowerCase();
     const tag = (node.tag || '').toLowerCase();
 
+    if (/\b(?:card|slide|swiper|carousel|testimonial|item|col|row|container|dialog|modal)\b/.test(cls)) return false;
+
     if (/\b(?:lines|grid-lines|bg-lines|background-lines|stripes|bg-stripes|pattern-bg|bg-pattern|section-lines|banner-lines|bg-shape|shape-bg|bg-overlay|overlay-bg|bottom-image-layer|particles|particles-style|particle-bg|bg-particles|particles-js)\b/.test(cls) ||
+        /(?:__background|--background|-background|_background|__bg|--bg|-bg|_bg|\b(?:bg-overlay|overlay-bg|bg-pattern|pattern-bg|bg-shape|shape-bg|bg-lines|bg-stripes|bg-particles|bg-image|bg-img|background-overlay|overlay-background)\b)/.test(cls) ||
         /\b(?:lines|grid-lines|bg-lines|stripes|bg-stripes|pattern-bg|particles|particles-style|particle)\b/.test(id) ||
         node.attributes?.['data-particle']) {
       return true;
@@ -5262,14 +5368,15 @@
     // Background overlay / stripes protection:
     // If an element is a background grid/stripes/lines overlay without explicit positive z-index,
     // ensure it never floats above foreground content.
-    if (isBackgroundOverlay(node) && z <= 100000) {
+    if (isBackgroundOverlay(node) && (!s.zIndex || s.zIndex === 'auto' || parseInt(s.zIndex, 10) <= 0)) {
       return -500;
     }
 
-    // Top-level page sections (direct children of body/page-wrapper) with default or auto z-index
-    // maintain natural DOM order to prevent later sections from jumping over earlier ones
-    const isSectionTag = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(node.tag);
-    if (isPageRoot && isSectionTag && (s.zIndex === 'auto' || !s.zIndex) && z < 1000000000) {
+    // Top-level page sections and in-flow sections maintain natural DOM order
+    // to prevent later sections from jumping over earlier ones or scrambling layouts
+    const isSectionTag = ['SECTION', 'FOOTER', 'MAIN', 'ARTICLE'].includes(node.tag) || (node.attributes?.class && /elementor-section/i.test(node.attributes.class));
+    const isPositionedFlow = s.position === 'absolute' || s.position === 'fixed';
+    if (isPageRoot && isSectionTag && !isPositionedFlow && z < 1000000000) {
       return 0;
     }
 
@@ -5292,6 +5399,13 @@
     if (!parentStyles) return {};
     const s = { ...parentStyles };
     s.fontWeight = parentStyles.fontWeight || s.fontWeight || '400';
+    // Text nodes are in-flow inline content, not positioned layout boxes
+    delete s.position;
+    delete s.top;
+    delete s.left;
+    delete s.right;
+    delete s.bottom;
+    delete s.zIndex;
     // Opacity in CSS belongs to element boxes (stacking contexts). In Figma, container frames
     // already have frame.opacity applied. Inheriting opacity onto child text nodes causes Figma
     // to square the opacity (e.g. 0.3 * 0.3 = 0.09).
@@ -5854,11 +5968,16 @@
 
   function canUnifyTextContainer(el) {
     if (!el || el.childNodes.length === 0) return false;
+    const isAnimSplit = !!(typeof el.className === 'string' && /split-text|text-reveal|splitting|fancy-text|anime-text/i.test(el.className)) ||
+                        el.hasAttribute?.('data-splitting') || el.hasAttribute?.('data-fancy-text');
+    if (!isAnimSplit && (hasVisualPseudoContent(el, '::before') || hasVisualPseudoContent(el, '::after'))) return false;
+    const elCs = window.getComputedStyle(el);
+    if (elCs.display.includes('flex') || elCs.display.includes('grid')) return false;
     const tag = el.tagName.toUpperCase();
     const isSemanticText = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'FIGCAPTION', 'LABEL'].includes(tag);
-    const isTextClass = typeof el.className === 'string' && /split-text|text-reveal|splitting|word-wrap|char-wrap/i.test(el.className);
+    const isTextClass = typeof el.className === 'string' && /split-text|text-reveal|splitting|word-wrap|char-wrap|fancy-text|anime-text/i.test(el.className);
 
-    if (!isSemanticText && !isTextClass) {
+    if (!isSemanticText && !isTextClass && !isAnimSplit) {
       if (['BODY', 'HTML', 'MAIN', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'NAV', 'ASIDE', 'FORM', 'TABLE', 'TBODY', 'TR', 'TD', 'TH', 'UL', 'OL'].includes(tag)) {
         return false;
       }
@@ -5889,28 +6008,33 @@
           }
           const cs = window.getComputedStyle(child);
           if (cs.display === 'none') continue;
+          const isChildAnimSplit = !!(child.closest && child.closest('.splitting, [data-splitting], [data-fancy-text], .anime-text, .words, .word, .chars, .char'));
           const bContent = window.getComputedStyle(child, '::before').content;
           const aContent = window.getComputedStyle(child, '::after').content;
-          if ((bContent && bContent !== 'none' && bContent !== 'normal') || (aContent && aContent !== 'none' && aContent !== 'normal')) {
+          if (!isChildAnimSplit && ((bContent && bContent !== 'none' && bContent !== 'normal') || (aContent && aContent !== 'none' && aContent !== 'normal'))) {
             hasIncompatibleChild = true;
             return;
           }
           if ((cs.backgroundImage && cs.backgroundImage !== 'none') ||
               (parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderBottomWidth) > 0 || parseFloat(cs.borderLeftWidth) > 0 || parseFloat(cs.borderRightWidth) > 0) ||
               (cs.boxShadow && cs.boxShadow !== 'none')) {
-            hasIncompatibleChild = true;
-            return;
+            if (!isChildAnimSplit) {
+              hasIncompatibleChild = true;
+              return;
+            }
           }
           if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent') {
             const isWhiteOrSame = cs.backgroundColor === 'rgb(255, 255, 255)' || cs.backgroundColor === 'rgba(255, 255, 255, 1)' || cs.backgroundColor === '#fff' || cs.backgroundColor === '#ffffff';
-            if (!isWhiteOrSame) {
+            if (!isWhiteOrSame && !isChildAnimSplit) {
               hasIncompatibleChild = true;
               return;
             }
           }
           if (!cs.display.startsWith('inline') && cs.display !== 'contents') {
-            hasIncompatibleChild = true;
-            return;
+            if (!isChildAnimSplit) {
+              hasIncompatibleChild = true;
+              return;
+            }
           }
           inspect(child);
         }
@@ -5920,7 +6044,7 @@
     inspect(el);
 
     if (hasIncompatibleChild || totalTextLength === 0) return false;
-    return isSemanticText || (elementCount >= 1 && (textNodeCount + elementCount) >= 2);
+    return isSemanticText || isTextClass || isAnimSplit || (elementCount >= 1 && (textNodeCount + elementCount) >= 2);
   }
 
   function compressStyledSegments(rawSegments, containerStyles) {
@@ -6013,6 +6137,7 @@
       }
     }
 
+    let lastTextElement = null;
     function walk(node) {
       if (node.nodeType === Node.TEXT_NODE) {
         let t = node.textContent;
@@ -6029,6 +6154,21 @@
         const parentCs = window.getComputedStyle(node.parentElement);
         const ws = parentCs.whiteSpace || 'normal';
         if (ws === 'normal' || ws === 'nowrap') { t = t.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' '); if (fullText.length === 0 || fullText.endsWith(' ')) { t = t.trimStart(); } }
+        if (!t) return;
+        if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ')) {
+          if (lastTextElement && lastTextElement !== node.parentElement) {
+            const word1 = lastTextElement.closest?.('.word');
+            const word2 = node.parentElement?.closest?.('.word');
+            const inSameWord = word1 && word2 && word1 === word2;
+            const isChar1 = lastTextElement.classList?.contains('char') || lastTextElement.hasAttribute?.('data-char');
+            const isChar2 = node.parentElement?.classList?.contains('char') || node.parentElement?.hasAttribute?.('data-char');
+            const isCharInsideWord = inSameWord || (!word1 && !word2 && isChar1 && isChar2);
+            if (!isCharInsideWord) {
+              fullText += ' ';
+            }
+          }
+        }
+        lastTextElement = node.parentElement;
         const start = fullText.length;
         fullText += t;
         const end = fullText.length;
@@ -6090,6 +6230,12 @@
       if (allSameStyle && first.fontStyle) effectiveStyles.fontStyle = first.fontStyle;
       const allSameSize = rawSegments.every(s => Math.abs(s.fontSize - first.fontSize) < 0.1);
       if (allSameSize && first.fontSize) effectiveStyles.fontSize = `${first.fontSize}px`;
+      const allSameLineHeight = rawSegments.every(s => s.lineHeight === first.lineHeight);
+      if (allSameLineHeight && first.lineHeight && first.lineHeight !== 'normal') effectiveStyles.lineHeight = first.lineHeight;
+      const allSameLetterSpacing = rawSegments.every(s => s.letterSpacing === first.letterSpacing);
+      if (allSameLetterSpacing && first.letterSpacing && first.letterSpacing !== 'normal') effectiveStyles.letterSpacing = first.letterSpacing;
+      const allSameFamily = rawSegments.every(s => s.fontFamily === first.fontFamily);
+      if (allSameFamily && first.fontFamily) effectiveStyles.fontFamily = first.fontFamily;
     }
 
     const diffSegments = compressStyledSegments(rawSegments, effectiveStyles);
@@ -6127,7 +6273,7 @@
         height: contentHeight > 0 ? contentHeight : Math.ceil(rect.height)
       },
       styles: getTextNodeStyles(effectiveStyles),
-      lineCount: Math.max(1, Math.round((contentHeight || rect.height) / (parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 16) * 1.4))),
+      lineCount: Math.max(1, Math.round((contentHeight || rect.height) / (parseFloat(effectiveStyles.lineHeight) || (parseFloat(effectiveStyles.fontSize) || 16) * 1.4))),
       styledSegments: diffSegments.length > 0 ? diffSegments : undefined
     };
   }
@@ -6257,8 +6403,13 @@
       if (isZeroOrTinyBox) return false;
       const r = node.getBoundingClientRect();
       if (r && (r.width <= 0.5 || r.height <= 0.5)) return false;
-      const isInlineSemanticTag = ['SPAN', 'B', 'STRONG', 'EM', 'I', 'SMALL', 'SUB', 'SUP', 'A', 'LABEL', 'CODE', 'TIME', 'ABBR', 'MARK'].includes(tag);
-      if (!isInlineSemanticTag && !cs.display.startsWith('inline') && cs.display !== 'contents') return false;
+      if (!cs.display.startsWith('inline') && cs.display !== 'contents') return false;
+      if (tag === 'A') {
+        const pTag = (node.parentElement?.tagName || '').toUpperCase();
+        if (!['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'FIGCAPTION'].includes(pTag)) {
+          return false;
+        }
+      }
       if (hasVisualPseudoContent(node, '::before') || hasVisualPseudoContent(node, '::after')) {
         return false;
       }
@@ -6283,6 +6434,7 @@
     let fullText = "";
     const rawSegments = [];
 
+    let lastTextElement = null;
     function walk(node) {
       if (node.nodeType === 3) {
         let t = node.textContent;
@@ -6305,6 +6457,12 @@
           }
         }
         if (!t) return;
+        if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ')) {
+          if (lastTextElement && lastTextElement !== node.parentElement) {
+            fullText += ' ';
+          }
+        }
+        lastTextElement = node.parentElement;
         const start = fullText.length;
         fullText += t;
         const end = fullText.length;
@@ -6356,6 +6514,12 @@
       if (allSameStyle && first.fontStyle) effectiveStyles.fontStyle = first.fontStyle;
       const allSameSize = rawSegments.every(s => Math.abs(s.fontSize - first.fontSize) < 0.1);
       if (allSameSize && first.fontSize) effectiveStyles.fontSize = `${first.fontSize}px`;
+      const allSameLineHeight = rawSegments.every(s => s.lineHeight === first.lineHeight);
+      if (allSameLineHeight && first.lineHeight && first.lineHeight !== 'normal') effectiveStyles.lineHeight = first.lineHeight;
+      const allSameLetterSpacing = rawSegments.every(s => s.letterSpacing === first.letterSpacing);
+      if (allSameLetterSpacing && first.letterSpacing && first.letterSpacing !== 'normal') effectiveStyles.letterSpacing = first.letterSpacing;
+      const allSameFamily = rawSegments.every(s => s.fontFamily === first.fontFamily);
+      if (allSameFamily && first.fontFamily) effectiveStyles.fontFamily = first.fontFamily;
     }
 
     const diffSegments = compressStyledSegments(rawSegments, effectiveStyles);
@@ -6414,7 +6578,11 @@
   async function serializeNode(node, assets, fonts, parentStyles) {
     if (captureTimedOut) return null;
     if (node.nodeType === TEXT_NODE) {
-      if (node.previousSibling && node.previousSibling.nodeType === TEXT_NODE) {
+      let prevTextSib = node.previousSibling;
+      while (prevTextSib && prevTextSib.nodeType === 8) {
+        prevTextSib = prevTextSib.previousSibling;
+      }
+      if (prevTextSib && prevTextSib.nodeType === TEXT_NODE) {
         return null;
       }
       if (node.parentElement) {
@@ -6424,9 +6592,11 @@
       let rawText = node.textContent || '';
       let lastTextNode = node;
       let nextSib = node.nextSibling;
-      while (nextSib && nextSib.nodeType === TEXT_NODE) {
-        rawText += nextSib.textContent || '';
-        lastTextNode = nextSib;
+      while (nextSib && (nextSib.nodeType === TEXT_NODE || nextSib.nodeType === 8)) {
+        if (nextSib.nodeType === TEXT_NODE) {
+          rawText += nextSib.textContent || '';
+          lastTextNode = nextSib;
+        }
         nextSib = nextSib.nextSibling;
       }
       if (!rawText.trim()) return null;
@@ -6845,6 +7015,47 @@
         let unrotW = undefined;
         let unrotH = undefined;
 
+        let lineClamp = 0;
+        let isClamped = false;
+        if (node.parentElement) {
+          try {
+            const pCs = window.getComputedStyle(node.parentElement);
+            const lc = parseInt(pCs.webkitLineClamp || pCs.lineClamp, 10);
+            const pOverflow = pCs.overflow || pCs.overflowY;
+            const pClientH = node.parentElement.clientHeight;
+            if (lc > 0 && pOverflow !== 'visible' && pClientH > 0 && pClientH < textH - 4) {
+              lineClamp = lc;
+              isClamped = true;
+              textH = Math.ceil(pClientH);
+            } else if (pOverflow === 'hidden' && pClientH > 0 && pClientH < textH - 10) {
+              isClamped = true;
+              textH = Math.ceil(pClientH);
+            }
+          } catch (_) {}
+        }
+        if (isClamped && node.parentElement) {
+          try {
+            const pRect = node.parentElement.getBoundingClientRect();
+            let lastVisibleIdx = -1;
+            const rChar = document.createRange();
+            for (let i = 0; i < node.length; i++) {
+              rChar.setStart(node, i);
+              rChar.setEnd(node, i + 1);
+              const cr = rChar.getBoundingClientRect();
+              if (cr.width === 0 && cr.height === 0) continue;
+              if (cr.bottom <= pRect.bottom + 2) {
+                lastVisibleIdx = i + 1;
+              }
+            }
+            rChar.detach();
+            if (lastVisibleIdx > 0 && lastVisibleIdx < rawText.length) {
+              let clampedSlice = rawText.slice(0, lastVisibleIdx).trim();
+              clampedSlice = clampedSlice.replace(/[\s,.;:!?-]+$/, '') + '...';
+              text = formatInlineText(clampedSlice);
+            }
+          } catch (_) {}
+        }
+
         if (isRotated && node.parentElement) {
           const isVertWriting = parentStyles?.writingMode && parentStyles.writingMode.includes('vertical');
           let isNear90 = false;
@@ -6942,7 +7153,9 @@
             height: textH
           },
           styles: getTextNodeStyles(parentStyles),
-          lineCount: clientRects.length || 1
+          lineCount: lineClamp > 0 ? lineClamp : (clientRects.length || 1),
+          lineClamp: lineClamp > 0 ? lineClamp : undefined,
+          isClamped: isClamped || undefined
         };
         if (unrotW > 0) {
           textNodeObj.rect.offsetWidth = unrotW;
@@ -7130,6 +7343,24 @@
     let tag = el.tagName.toUpperCase();
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'LINK', 'TEMPLATE'].includes(tag)) return null;
 
+    // Skip custom mouse cursor followers (track mouse position and float over page causing artificial overlaps)
+    if (tag !== 'BODY' && tag !== 'HTML') {
+      const isCursorFollower = (typeof el.className === 'string' && (
+        /\b(?:cursor-page-inner|circle-cursor|circle-cursor-inner|circle-cursor-outer|cursor-inner|cursor-outer|mf-cursor)\b/i.test(el.className)
+      )) || (el.closest && (() => {
+        const c = el.closest('.cursor-page-inner, .circle-cursor, .cursor-inner, .cursor-outer, .mf-cursor');
+        return c && c.tagName !== 'BODY' && c.tagName !== 'HTML';
+      })());
+      if (isCursorFollower) {
+        return null;
+      }
+    }
+
+    // Skip internal digit ribbons inside animated odometers so only the resolved counter text is captured
+    if (el.closest && el.closest('.odometer') && !(el.classList && el.classList.contains('odometer'))) {
+      return null;
+    }
+
     const styles = getElementStyles(el);
     let activeTextDecoration = parentStyles?._activeTextDecoration || null;
     const elDec = (styles.textDecorationLine || styles.textDecoration || '').toLowerCase();
@@ -7176,10 +7407,48 @@
         const imgChild = el.querySelector('img');
         if (imgChild) hasImgUrl = !!getBestImageUrl(imgChild);
       }
-      if (hasImgUrl && styles.display !== 'none') {
+      const isZoomOrHoverImg = /\bzoomImg\b|zoom-img|hover-img|secondary-image|opacity-0/i.test(el.className || '') || (el.style && el.style.opacity === '0');
+      const isInactiveSlide = !!(el.closest && el.closest('.swiper-slide:not(.swiper-slide-active):not(.swiper-slide-visible), .slick-slide:not(.slick-active), .slick-cloned:not(.slick-active), .owl-item:not(.active), .carousel-item:not(.active)'));
+      const isInactiveTab = !!(el.closest && el.closest('.tab-pane:not(.active):not(.show), [role="tabpanel"][aria-hidden="true"], [class*="-pane"]:not([class*="active"])'));
+      const isLazyCandidate = (
+        el.hasAttribute?.('data-src') ||
+        el.hasAttribute?.('data-lazy-src') ||
+        el.hasAttribute?.('data-original') ||
+        el.getAttribute?.('loading') === 'lazy' ||
+        /\b(?:lazy|lazyload|lazyloaded|lazy-image|lozad)\b/i.test(el.className || '')
+      );
+      if (hasImgUrl && styles.display !== 'none' && !isInactiveSlide && !isInactiveTab && !isZoomOrHoverImg && isLazyCandidate) {
         styles.visibility = 'visible';
         styles.opacity = '1';
         isHidden = false;
+      }
+    }
+
+    // Immediately drop any zoom overlay or hover overlay image or inactive tab/slide image that is hidden at rest
+    if (tag === 'IMG' || el instanceof HTMLImageElement) {
+      const isZoomOrHover = /\bzoomImg\b|zoom-img|hover-img|secondary-image/i.test(el.className || '') || (el.className && el.className.includes('opacity-0'));
+      const isInactiveContainer = !!(el.closest && (() => {
+        const slide = el.closest('.tab-pane:not(.active):not(.show), .swiper-slide, .slick-slide');
+        if (!slide) return false;
+        if (slide.classList.contains('tab-pane')) return true;
+        if (slide.classList.contains('swiper-slide-active') || slide.classList.contains('swiper-slide-visible') || slide.classList.contains('swiper-slide-fully-visible')) return false;
+        if (slide.classList.contains('slick-active') || slide.classList.contains('slick-current')) return false;
+        const swiperContainer = slide.closest('.swiper, [class*="swiper-container"], .slick-slider');
+        if (swiperContainer) {
+          const swR = swiperContainer.getBoundingClientRect();
+          const slR = slide.getBoundingClientRect();
+          if (slR.width > 10 && slR.right > swR.left + 5 && slR.left < swR.right - 5) {
+            slide.classList.add('swiper-slide-visible');
+            return false;
+          }
+        }
+        return true;
+      })());
+      const isHiddenAtRest = styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || (el.style && el.style.opacity === '0');
+      if (isInactiveContainer || (isHiddenAtRest && isZoomOrHover)) {
+        styles.opacity = '0';
+        styles.visibility = 'hidden';
+        return null;
       }
     }
 
@@ -7195,8 +7464,9 @@
       return null;
     }
     // 1. Any element with hover classes that is hidden at rest stays hidden
-    const isHoverClassOrAttr = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay|show-on-hover|hover-img|portfolio-hover|overlay-hover|hover-item|hover-box-content|on-hover|\bhover\b|hover-|\bhover_|_hover\b|-hover\b|icon-hover|arrow-hover|btn-hover|hover-icon|hover-arrow|group-hover/i.test(cls) ||
-                               !!(el.closest && el.closest('.hover-box, [class*="hover-"], .feature-box') && /overlay|mask|reveal|box-overlay|hover-content|hover|icon|arrow/i.test(cls));
+    const cleanClsForHover = cls.replace(/\brs-hover-ready\b/g, '');
+    const isHoverClassOrAttr = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay|show-on-hover|hover-img|portfolio-hover|overlay-hover|hover-item|hover-box-content|on-hover|\bhover\b|hover-|\bhover_|_hover\b|-hover\b|icon-hover|arrow-hover|btn-hover|hover-icon|hover-arrow|group-hover/i.test(cleanClsForHover) ||
+                               !!(el.closest && el.closest('.hover-box, [class*="hover-"], .feature-box') && /overlay|mask|reveal|box-overlay|hover-content|hover|icon|arrow/i.test(cleanClsForHover));
 
     const isEffectivelyHiddenAtRest = isHidden || parseFloat(styles.opacity) < 0.15 || styles.visibility === 'hidden' || styles.display === 'none';
 
@@ -7331,26 +7601,63 @@
         (/\b(?:active|is-active|selected)\b|--active\b/i.test(sibling.className))
       )
     );
-    const isModalOrOffcanvas = !!(
-      el.closest && el.closest(
-        '.modal:not(.show):not(.in):not(.active):not(.open), ' +
-        '[class*="modal"]:not(.show):not(.in):not(.active):not(.open), ' +
-        '.offcanvas:not(.show):not(.open):not(.active), ' +
-        '[class*="offcanvas"]:not(.show):not(.open):not(.active), ' +
-        '[class*="drawer"]:not(.show):not(.open):not(.active), ' +
-        '[class*="popup"]:not(.show):not(.open):not(.active), ' +
-        '[class*="mini-cart"]:not(.show):not(.open):not(.active), ' +
-        '[class*="cart-canvas"]:not(.show):not(.open):not(.active), ' +
-        '[class*="cart-right"]:not(.show):not(.open):not(.active), ' +
-        '[class*="quickview"]:not(.show):not(.open):not(.active), ' +
-        '[class*="quick-view"]:not(.show):not(.open):not(.active), ' +
-        '[role="dialog"]:not(.show):not(.open):not(.active), ' +
-        '[aria-modal="true"]:not(.show):not(.open):not(.active), ' +
-        '[class*="lightbox"]:not(.show):not(.open):not(.active)'
-      )
-    );
+    const modalRoot = el.closest ? el.closest(
+      '.modal:not(.show):not(.in):not(.active):not(.open), ' +
+      '[class*="modal"]:not(.show):not(.in):not(.active):not(.open), ' +
+      '.offcanvas:not(.show):not(.open):not(.active), ' +
+      '[class*="offcanvas"]:not(.show):not(.open):not(.active), ' +
+      '[class*="drawer"]:not(.show):not(.open):not(.active), ' +
+      '[class*="popup"]:not(.show):not(.open):not(.active), ' +
+      '[class*="mini-cart"]:not(.show):not(.open):not(.active), ' +
+      '[class*="cart-canvas"]:not(.show):not(.open):not(.active), ' +
+      '[class*="cart-right"]:not(.show):not(.open):not(.active), ' +
+      '[class*="quickview"]:not(.show):not(.open):not(.active), ' +
+      '[class*="quick-view"]:not(.show):not(.open):not(.active), ' +
+      '[role="dialog"]:not(.show):not(.open):not(.active), ' +
+      '[aria-modal="true"]:not(.show):not(.open):not(.active), ' +
+      '[class*="lightbox"]:not(.show):not(.open):not(.active)'
+    ) : null;
+    const isModalOrOffcanvas = !!modalRoot;
 
-    if (isModalOrOffcanvas && (styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
+    if (modalRoot) {
+      const mStyle = window.getComputedStyle(modalRoot);
+      const isModalHidden = mStyle.display === 'none' || mStyle.visibility === 'hidden' || parseFloat(mStyle.opacity) <= 0.05;
+      if (isModalHidden || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden) {
+        styles.opacity = '0';
+        styles.visibility = 'hidden';
+        return null;
+      }
+    }
+
+    if (isInactiveTab && (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
+      styles.opacity = '0';
+      styles.visibility = 'hidden';
+      return null;
+    }
+
+    const isInactiveSlideContainer = !!(el.closest && (() => {
+      const slide = el.closest('.swiper-slide, .slick-slide, .owl-item, .carousel-item');
+      if (!slide) return false;
+      if (slide.classList.contains('swiper-slide-active') || slide.classList.contains('swiper-slide-visible') || slide.classList.contains('swiper-slide-fully-visible')) return false;
+      if (slide.classList.contains('slick-active') || slide.classList.contains('slick-current') || slide.classList.contains('active')) return false;
+      const swiperContainer = slide.closest('.swiper, [class*="swiper-container"], .slick-slider, .owl-carousel');
+      if (swiperContainer) {
+        const swR = swiperContainer.getBoundingClientRect();
+        const slR = slide.getBoundingClientRect();
+        if (slR.width > 10 && slR.right > swR.left + 5 && slR.left < swR.right - 5) {
+          slide.classList.add('swiper-slide-visible');
+          return false;
+        }
+      }
+      return true;
+    })());
+    if (isInactiveSlideContainer) {
+      styles.opacity = '0';
+      styles.visibility = 'hidden';
+      return null;
+    }
+
+    if (isInactiveVariant && (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
       styles.opacity = '0';
       styles.visibility = 'hidden';
       return null;
@@ -7373,9 +7680,9 @@
     })();
 
     const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && (
-      /title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos|sal|scroll-reveal|invert|fade_anim|has-animation|appear|in-view|inview|is-visible|fadeIn|fade-in|fadeUp|fade-up|fadeDown|fade-down|fadeLeft|fade-left|fadeRight|fade-right|animate|animated|animation|zoomIn|bounceIn|reveal|motion|framer-motion|while-in-view|scroll-anim|scroll-fade/i.test(cls) ||
-      el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-scroll') || el.hasAttribute('data-animation') || el.hasAttribute('data-animate') || el.hasAttribute('data-motion') ||
-      !!(el.closest && el.closest('.title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [data-sal], [data-scroll], [class*="motion"], [class*="framer-motion"], [class*="invert"], [class*="fade_anim"], [class*="has-animation"], [class*="fadeIn"], [class*="fade-"], [class*="animate"]'))
+      /elementor-invisible|title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos|sal|scroll-reveal|invert|fade_anim|has-animation|appear|in-view|inview|is-visible|fadeIn|fade-in|fadeUp|fade-up|fadeDown|fade-down|fadeLeft|fade-left|fadeRight|fade-right|animate|animated|animation|zoomIn|bounceIn|reveal|motion|framer-motion|while-in-view|scroll-anim|scroll-fade/i.test(cls) ||
+      el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-scroll') || el.hasAttribute('data-animation') || el.hasAttribute('data-animate') || el.hasAttribute('data-motion') ||
+      !!(el.closest && el.closest('.elementor-invisible, .title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [data-sal], [data-scroll], [data-anime], [data-fancy-text], [class*="motion"], [class*="framer-motion"], [class*="invert"], [class*="fade_anim"], [class*="has-animation"], [class*="fadeIn"], [class*="fade-"], [class*="animate"]'))
     );
 
     // Strategy 2: behavioural heuristics — detect ANY element with a scroll/entrance animation
@@ -7571,7 +7878,9 @@
                           (parseFloat(styles.height) <= 0.5 || parseFloat(styles.width) <= 0.5);
     const isTinyHidden = (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') &&
                          ((parseFloat(styles.width) <= 1 && parseFloat(styles.height) <= 1) || parseFloat(styles.width) <= 0.5 || parseFloat(styles.height) <= 0.5);
-    const isSrOnlyClass = typeof el.className === 'string' && /(?:^|\b)(?:[a-z0-9_-]*(?:visually[-_]?hidden|sr[-_]?only|screen[-_]?reader)|invisible)(?:$|\b)/i.test(el.className);
+    const isSrOnlyClass = typeof el.className === 'string' &&
+      !el.className.includes('elementor-invisible') &&
+      /(?:^|\s)(?:[a-z0-9_-]*(?:visually[-_]?hidden|sr[-_]?only|screen[-_]?reader)|invisible)(?:$|\s)/i.test(el.className);
 
     if (isClipHidden || isTinyHidden || isZeroClipped || isSrOnlyClass) return null;
 
@@ -8331,26 +8640,58 @@
         }
       }
 
-      // Animated counters: If element is an odometer, vertical-counter, or data-to container,
-      // resolve its final number cleanly so ribbons don't create duplicate overlapping digits
-      const isCounterContainer = (typeof el.className === 'string' && (el.className.includes('odometer') || el.className.includes('vertical-counter') || el.className.includes('counter'))) ||
-                                 el.hasAttribute('data-to') || el.hasAttribute('data-count');
+      // Animated counters: If element is an odometer, vertical-counter, elementor-counter-number, or data-to container,
+      // resolve its final number cleanly so ribbons/animations don't create intermediate states
+      const isCounterContainer = (typeof el.className === 'string' && (el.className.includes('odometer') || el.className.includes('vertical-counter') || el.className.includes('elementor-counter-number') || el.className.includes('counter-number') || el.className.includes('counter'))) ||
+                                 el.hasAttribute('data-to') || el.hasAttribute('data-to-value') || el.hasAttribute('data-count');
       if (isCounterContainer) {
-        const counterVal = el.getAttribute('data-to') || el.getAttribute('data-count') || el.getAttribute('data-val') ||
-                           ((typeof el.className === 'string' && el.className.includes('odometer')) ? el.innerText.replace(/\s+/g, '') : '');
-        if (counterVal && !childNodes.some(c => c.text && c.text.trim() === counterVal)) {
-          // Remove internal digit ribbons (.vertical-counter-number, .odometer-digit) to prevent ribbons + static number both rendering
-          const filteredChildren = childNodes.filter(c => {
-            const cls = (c.attributes && c.attributes.class) || '';
-            return !cls.includes('vertical-counter-number') && !cls.includes('odometer-digit');
-          });
-          childNodes.length = 0;
-          childNodes.push(...filteredChildren);
+        let counterVal = el.getAttribute('data-to-value') || el.getAttribute('data-to') || el.getAttribute('data-count') || el.getAttribute('data-val') || '';
+        const delimiter = el.getAttribute('data-delimiter') || ',';
+        if (counterVal && delimiter && !counterVal.includes(delimiter)) {
+          const num = parseFloat(counterVal);
+          if (!isNaN(num) && num >= 1000) {
+            counterVal = num.toLocaleString('en-US');
+          }
+        }
+        if (!counterVal && typeof el.className === 'string' && el.className.includes('odometer')) {
+          const spacers = el.querySelectorAll('.odometer-digit-spacer, .odometer-formatting-mark');
+          if (spacers.length > 0) {
+            counterVal = Array.from(spacers).map(s => s.textContent || '').join('').trim();
+          }
+          if (!counterVal) {
+            const counterParent = el.closest('.elementor-counter-number-wrapper, .elementor-counter');
+            if (counterParent) {
+              const numEl = counterParent.querySelector('.elementor-counter-number');
+              if (numEl) {
+                counterVal = numEl.getAttribute('data-to-value') || numEl.getAttribute('data-value') || '';
+              }
+            }
+          }
+          if (!counterVal) {
+            const match = (el.textContent || '').match(/[\d.,]+/);
+            if (match) counterVal = match[0];
+          }
+        }
+        if (counterVal) {
+          const styledParent = el.closest('.elementor-counter-number, .elementor-counter-number-wrapper, .elementor-counter') || el;
+          const pCs = window.getComputedStyle(styledParent);
+          const effectiveFontSize = parseFloat(pCs.fontSize) || parseFloat(styles.fontSize) || 40;
+          const effectiveFontWeight = pCs.fontWeight || styles.fontWeight || '700';
+          const effectiveColor = (pCs.color && pCs.color !== 'rgba(0, 0, 0, 0)' && pCs.color !== 'rgb(255, 255, 255)') ? pCs.color : (styles.color && styles.color !== 'rgb(255, 255, 255)' ? styles.color : 'rgb(50, 53, 93)');
+          const effectiveLineHeight = pCs.lineHeight || styles.lineHeight || `${Math.round(effectiveFontSize * 1.25)}px`;
 
-          // Add clean counter text node
+          const resolvedStyles = {
+            ...styles,
+            fontSize: `${effectiveFontSize}px`,
+            fontWeight: effectiveFontWeight,
+            color: effectiveColor,
+            lineHeight: effectiveLineHeight
+          };
+
+          childNodes.length = 0;
           const textW = Math.round(docRect.width) || 100;
           const textH = Math.round(docRect.height) || 40;
-          childNodes.unshift({
+          childNodes.push({
             nodeType: TEXT_NODE,
             id: getNodeId('counter-text'),
             text: counterVal,
@@ -8360,7 +8701,7 @@
               width: textW,
               height: textH
             },
-            styles: { ...styles }
+            styles: resolvedStyles
           });
         }
       }
@@ -8370,7 +8711,7 @@
 
       // Sort child nodes according to CSS stacking order rules while strictly preserving DOM order
       if (childNodes.length > 1) {
-        const isPageLayoutOrBody = ['BODY', 'HTML'].includes(tag) || (el.className && typeof el.className === 'string' && /page-layout|page-wrapper|main-wrapper|site-wrapper/i.test(el.className));
+        const isPageLayoutOrBody = ['BODY', 'HTML'].includes(tag) || (el.className && typeof el.className === 'string' && /page-layout|page-wrapper|main-wrapper|site-wrapper|elementor|site-content|site-main|site-footer|footer/i.test(el.className));
 
         childNodes.forEach((child, idx) => {
           if (child._domIndex === undefined) {
