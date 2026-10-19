@@ -2328,26 +2328,6 @@
       <span>Text Detach</span>
     </button>
   </div>
-  </div>
-  <!-- Visual Audit & Difference Card -->
-  <div class="visual-audit-card" style="margin-top: 10px; padding: 12px; background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-md);">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-      <span style="font-size: 11px; font-weight: 700; color: #a5b4fc; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px;">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        Audit & Difference
-      </span>
-    </div>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-      <button id="btnAuditDiff" type="button" style="height: 32px; padding: 0 8px; background: rgba(99, 102, 241, 0.16); border: 1px solid rgba(99, 102, 241, 0.35); border-radius: 6px; color: #f8fafc; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
-        <span>Diff Mode</span>
-      </button>
-      <button id="btnAuditGhost" type="button" style="height: 32px; padding: 0 8px; background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; color: #f8fafc; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
-        <span>Ghost (50%)</span>
-      </button>
-    </div>
-    <button id="btnAuditExport" type="button" style="width: 100%; height: 30px; margin-top: 6px; padding: 0 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #cbd5e1; font-size: 11px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
-      <span>Export PNG for Pixel Diff</span>
-    </button>
   </div> <!-- /#mainCapturePage -->
 
   <!-- PAGE 2: DEDICATED REDESIGNED & BEAUTIFIED LIFETIME PRO PAGE -->
@@ -2704,41 +2684,7 @@
     });
   }
 
-  const btnAuditDiff = document.getElementById('btnAuditDiff');
-  if (btnAuditDiff) {
-    btnAuditDiff.addEventListener('click', () => {
-      parent.postMessage({ pluginMessage: { type: 'toggle_difference_mode' } }, '*');
-    });
-  }
-  const btnAuditGhost = document.getElementById('btnAuditGhost');
-  if (btnAuditGhost) {
-    btnAuditGhost.addEventListener('click', () => {
-      parent.postMessage({ pluginMessage: { type: 'toggle_onion_skin' } }, '*');
-    });
-  }
-  const btnAuditExport = document.getElementById('btnAuditExport');
-  if (btnAuditExport) {
-    btnAuditExport.addEventListener('click', () => {
-      parent.postMessage({ pluginMessage: { type: 'export_selection_png' } }, '*');
-    });
-  }
 
-  // Handle downloaded exported png
-  window.addEventListener('message', (event) => {
-    const msg = event.data?.pluginMessage;
-    if (msg && msg.type === 'exported_png' && msg.bytes) {
-      const u8 = new Uint8Array(msg.bytes);
-      const blob = new Blob([u8], { type: 'image/png' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = (msg.name || 'figma_export').replace(/[^a-zA-Z0-9_-]/g, '_') + '.png';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-  });
 
   function triggerEmptyPasteHighlight() {
     const extBtn = document.getElementById('btnChromeExtensionLink');
