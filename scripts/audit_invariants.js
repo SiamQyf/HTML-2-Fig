@@ -128,9 +128,18 @@ async function auditInvariants(targetUrlOrFile, options = {}) {
         if (style.display === 'none' || parseFloat(style.opacity) < 0.05 || (!isEntranceAnim && style.visibility === 'hidden')) {
           return false;
         }
-        // Inactive tabs, closed modals, hidden carousel slides, or screen-reader text
+        // Inactive tabs, closed modals, hidden carousel slides, demo switchers, or screen-reader text
         if (curr.classList) {
-          if (curr.classList.contains('screen-reader-text') || curr.classList.contains('sr-only') || curr.classList.contains('skip-link')) {
+          if (
+            curr.classList.contains('screen-reader-text') ||
+            curr.classList.contains('sr-only') ||
+            curr.classList.contains('visually-hidden') ||
+            curr.classList.contains('visually-hidden-focusable') ||
+            curr.classList.contains('skip-link') ||
+            curr.classList.contains('cnvs-switcher-container') ||
+            curr.classList.contains('style-switcher') ||
+            curr.classList.contains('theme-switcher')
+          ) {
             return false;
           }
           if (curr.classList.contains('swiper-slide') && !curr.classList.contains('swiper-slide-active') && !curr.classList.contains('swiper-slide-visible')) {

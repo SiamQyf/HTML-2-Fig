@@ -7882,7 +7882,10 @@
       !el.className.includes('elementor-invisible') &&
       /(?:^|\s)(?:[a-z0-9_-]*(?:visually[-_]?hidden|sr[-_]?only|screen[-_]?reader)|invisible)(?:$|\s)/i.test(el.className);
 
-    if (isClipHidden || isTinyHidden || isZeroClipped || isSrOnlyClass) return null;
+    const isDemoSwitcher = (typeof el.id === 'string' && /(?:^|_|-)(?:style-switcher|theme-switcher|demo-switcher|switcher-container)(?:$|_|-)/i.test(el.id)) ||
+                           (typeof el.className === 'string' && /(?:^|\s)(?:[a-z0-9_-]*(?:style-switcher|theme-switcher|demo-switcher|switcher-container)|cnvs-switcher-container)(?:$|\s)/i.test(el.className));
+
+    if (isClipHidden || isTinyHidden || isZeroClipped || isSrOnlyClass || isDemoSwitcher) return null;
 
     const clientRect = el.getBoundingClientRect();
     if (!isAnimTarget && (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') && (clientRect.height <= 0.5 || clientRect.width <= 0.5)) {
@@ -8828,7 +8831,10 @@
       let minX = Infinity, minY = Infinity;
       let maxX = -Infinity, maxY = -Infinity;
       let hasValidChild = false;
+      const isParentInFlow = styles.position !== 'absolute' && styles.position !== 'fixed';
       for (const c of childNodes) {
+        const isChildOutOfFlow = c.styles?.position === 'absolute' || c.styles?.position === 'fixed';
+        if (isParentInFlow && isChildOutOfFlow) continue;
         if (c.rect && (c.rect.width > 0 || c.rect.height > 0)) {
           minX = Math.min(minX, c.rect.x);
           minY = Math.min(minY, c.rect.y);
