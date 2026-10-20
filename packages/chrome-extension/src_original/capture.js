@@ -6124,6 +6124,138 @@
     return diffSegments;
   }
 
+
+  function isElementOnNewLine(currNode, prevEl) {
+    if (!currNode || !prevEl) return false;
+    try {
+      let currTop = 0;
+      let currH = 0;
+      if (currNode.nodeType === 3) {
+        const rng = document.createRange();
+        rng.selectNodeContents(currNode);
+        const cr = rng.getBoundingClientRect();
+        rng.detach();
+        currTop = cr.top;
+        currH = cr.height;
+      } else if (currNode.nodeType === 1) {
+        const cr = currNode.getBoundingClientRect();
+        currTop = cr.top;
+        currH = cr.height;
+      }
+      const prevRect = prevEl.getBoundingClientRect();
+      if (currH <= 0 || prevRect.height <= 0) return false;
+      return currTop > prevRect.top + prevRect.height * 0.45;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function insertRenderedLineBreaks(textNode, formattedText) {
+    if (!textNode || textNode.nodeType !== 3 || !formattedText || formattedText.length < 4) {
+      return formattedText;
+    }
+    if (formattedText.includes('\n')) {
+      return formattedText;
+    }
+    try {
+      const rng = document.createRange();
+      rng.selectNodeContents(textNode);
+      const clientRects = rng.getClientRects();
+      if (clientRects.length <= 1) {
+        rng.detach();
+        return formattedText;
+      }
+
+      const lines = [];
+      for (let i = 0; i < clientRects.length; i++) {
+        const cr = clientRects[i];
+        if (cr.width <= 0 || cr.height <= 0) continue;
+        const existing = lines.find(l => Math.abs(l.top - cr.top) < Math.max(4, cr.height * 0.35));
+        if (!existing) {
+          lines.push({ top: cr.top, bottom: cr.bottom });
+        } else {
+          existing.top = Math.min(existing.top, cr.top);
+          existing.bottom = Math.max(existing.bottom, cr.bottom);
+        }
+      }
+
+      if (lines.length <= 1) {
+        rng.detach();
+        return formattedText;
+      }
+      lines.sort((a, b) => a.top - b.top);
+
+      const raw = textNode.textContent;
+      if (!raw) {
+        rng.detach();
+        return formattedText;
+      }
+
+      const spaceRegex = /\s+/g;
+      let m;
+      let currentLineIdx = 0;
+      const breakIndicesInRaw = new Set();
+
+      while ((m = spaceRegex.exec(raw)) !== null) {
+        const nextCharIdx = m.index + m[0].length;
+        if (nextCharIdx >= raw.length) break;
+
+        rng.setStart(textNode, nextCharIdx);
+        rng.setEnd(textNode, nextCharIdx + 1);
+        const charRect = rng.getBoundingClientRect();
+        if (charRect.width > 0 && charRect.height > 0) {
+          const midY = charRect.top + charRect.height / 2;
+          if (midY > lines[currentLineIdx].bottom - 3) {
+            breakIndicesInRaw.add(m.index);
+            for (let li = currentLineIdx + 1; li < lines.length; li++) {
+              if (midY >= lines[li].top - 4 && midY <= lines[li].bottom + 4) {
+                currentLineIdx = li;
+                break;
+              }
+            }
+          }
+        }
+      }
+      rng.detach();
+
+      if (breakIndicesInRaw.size === 0) {
+        return formattedText;
+      }
+
+      const words = formattedText.split(' ');
+      if (words.length <= 1) return formattedText;
+
+      const newWords = [];
+      let cumRaw = 0;
+
+      for (let w = 0; w < words.length; w++) {
+        newWords.push(words[w]);
+        if (w < words.length - 1) {
+          const wordInRaw = raw.indexOf(words[w], cumRaw);
+          if (wordInRaw !== -1) {
+            cumRaw = wordInRaw + words[w].length;
+            let hasBreak = false;
+            for (const bp of breakIndicesInRaw) {
+              if (bp >= cumRaw - 1 && bp <= cumRaw + 4) {
+                hasBreak = true;
+                break;
+              }
+            }
+            if (hasBreak) {
+              newWords.push('\n');
+              continue;
+            }
+          }
+          newWords.push(' ');
+        }
+      }
+
+      return newWords.join('');
+    } catch (_) {
+      return formattedText;
+    }
+  }
+
   function buildUnifiedTextNode(el, containerStyles, fonts) {
     let fullText = "";
     const rawSegments = [];
@@ -6167,7 +6299,7 @@
         const ws = parentCs.whiteSpace || 'normal';
         if (ws === 'normal' || ws === 'nowrap') { t = t.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' '); if (fullText.length === 0 || fullText.endsWith(' ')) { t = t.trimStart(); } }
         if (!t) return;
-        if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ')) {
+        if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ') && !t.startsWith('\n')) {
           if (lastTextElement && lastTextElement !== node.parentElement) {
             const word1 = lastTextElement.closest?.('.word');
             const word2 = node.parentElement?.closest?.('.word');
@@ -6176,11 +6308,13 @@
             const isChar2 = node.parentElement?.classList?.contains('char') || node.parentElement?.hasAttribute?.('data-char');
             const isCharInsideWord = inSameWord || (!word1 && !word2 && isChar1 && isChar2);
             if (!isCharInsideWord) {
-              fullText += ' ';
+              const isNewLine = isElementOnNewLine(node, lastTextElement);
+              fullText += isNewLine ? '\n' : ' ';
             }
           }
         }
         lastTextElement = node.parentElement;
+        t = insertRenderedLineBreaks(node, t);
         const start = fullText.length;
         fullText += t;
         const end = fullText.length;
@@ -6285,7 +6419,7 @@
         height: contentHeight > 0 ? contentHeight : Math.ceil(rect.height)
       },
       styles: getTextNodeStyles(effectiveStyles),
-      lineCount: Math.max(1, Math.round((contentHeight || rect.height) / (parseFloat(effectiveStyles.lineHeight) || (parseFloat(effectiveStyles.fontSize) || 16) * 1.4))),
+      lineCount: Math.max(1, fullText.split('\n').length),
       styledSegments: diffSegments.length > 0 ? diffSegments : undefined
     };
   }
@@ -6469,12 +6603,14 @@
           }
         }
         if (!t) return;
-        if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ')) {
+        if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ') && !t.startsWith('\n')) {
           if (lastTextElement && lastTextElement !== node.parentElement) {
-            fullText += ' ';
+            const isNewLine = isElementOnNewLine(node, lastTextElement);
+            fullText += isNewLine ? '\n' : ' ';
           }
         }
         lastTextElement = node.parentElement;
+        t = insertRenderedLineBreaks(node, t);
         const start = fullText.length;
         fullText += t;
         const end = fullText.length;
@@ -6582,7 +6718,7 @@
         height: runH
       },
       styles: getTextNodeStyles(effectiveStyles),
-      lineCount: Math.max(1, Math.round(runH / (parseFloat(effectiveStyles.lineHeight) || (parseFloat(effectiveStyles.fontSize) || 16) * 1.4))),
+      lineCount: Math.max(1, fullText.split('\n').length),
       styledSegments: diffSegments.length > 0 ? diffSegments : undefined
     };
   }
@@ -6997,6 +7133,9 @@
       // 3. The parent element does not have multiple inline child nodes (no inline spans/links to interleave with)
       if (clientRects.length <= 1 || isRotated || !parentHasMultipleChildren || lastTextNode !== node) {
         let text = formatInlineText(rawText);
+        if (clientRects.length > 1 && !isRotated) {
+          text = insertRenderedLineBreaks(node, text);
+        }
         let textX = rect.x + scrollX;
         if (node.previousSibling && node.previousSibling.nodeType === 1) {
           try {
