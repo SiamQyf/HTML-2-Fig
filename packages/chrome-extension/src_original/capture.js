@@ -98,6 +98,24 @@
     width: 'auto', writingMode: 'horizontal-tb', textOrientation: 'mixed', zIndex: 'auto', clipPath: 'none'
   };
 
+  /* Helper: Enforces that fonts never render as light, thin, or extra light. Regular (400) is the lowest. */
+  function normalizeFontWeightMinRegular(w) {
+    if (!w) return '400';
+    const s = String(w).toLowerCase().trim();
+    if (s === 'normal' || s === '400') return '400';
+    if (s === 'bold' || s === '700') return '700';
+    if (s === 'bolder' || s === '800') return '800';
+    if (s === '900') return '900';
+    if (s === '500') return '500';
+    if (s === '600') return '600';
+    if (s === 'lighter' || s === 'light' || s === '300' || s === 'thin' || s === 'hairline' || s === '100' || s === '200' || s === 'extra-light' || s === 'extralight' || s === 'ultralight' || s === 'ultra-light') {
+      return '400';
+    }
+    const num = parseInt(s, 10);
+    if (!isNaN(num) && num < 400) return '400';
+    return String(w);
+  }
+
   /* ======================================================================
    *  2.  IN-PAGE ACTIVE HALO EDGE LIGHTING & NOTIFICATION OVERLAY
    *      (Smartphone-style 4-side radiating halo & corner illumination)
@@ -2554,7 +2572,7 @@
     styles.fontFamily = cs.fontFamily;
     styles.fontSize = cs.fontSize;
     styles.fontStyle = cs.fontStyle;
-    styles.fontWeight = cs.fontWeight || '400';
+    styles.fontWeight = normalizeFontWeightMinRegular(cs.fontWeight);
     styles.fontStretch = cs.fontStretch;
     
     // Dynamically analyze font visual thickness and stretch using Canvas
@@ -2778,13 +2796,7 @@
   const fontParseCache = new Map();
 
   function normalizeWeight(w) {
-    if (!w) return '400';
-    const s = String(w).toLowerCase().trim();
-    if (s === 'bold' || s === 'bolder' || s === '900') return '900';
-    if (s === 'normal' || s === '400') return '400';
-    if (s === 'light' || s === 'lighter' || s === '300') return '300';
-    if (s === 'thin' || s === '100') return '100';
-    return s;
+    return normalizeFontWeightMinRegular(w);
   }
 
   function parseFontFaceRule(rawFamily, rawSrc, baseUrl, rawWeight, rawStyle) {
@@ -3696,7 +3708,7 @@
 
         const cs = window.getComputedStyle(textEl);
         const textFamily = cs.fontFamily;
-        const textWeight = cs.fontWeight || '400';
+        const textWeight = normalizeFontWeightMinRegular(cs.fontWeight);
         const textStyle = cs.fontStyle || 'normal';
         const parsedFontSize = parseFloat(cs.fontSize) || 16;
         let textFill = cs.fill && cs.fill !== 'none' ? cs.fill : (cs.color || '#000000');
@@ -4477,7 +4489,7 @@
       styles.fontFamily = cs.fontFamily;
       styles.fontSize = cs.fontSize;
       styles.fontStyle = cs.fontStyle;
-      styles.fontWeight = cs.fontWeight || '400';
+      styles.fontWeight = normalizeFontWeightMinRegular(cs.fontWeight);
       styles.fontStretch = cs.fontStretch;
       if (cs.backgroundImage && cs.backgroundImage !== 'none') {
         styles.backgroundImage = cs.backgroundImage;
@@ -5398,7 +5410,7 @@
   function getTextNodeStyles(parentStyles) {
     if (!parentStyles) return {};
     const s = { ...parentStyles };
-    s.fontWeight = parentStyles.fontWeight || s.fontWeight || '400';
+    s.fontWeight = normalizeFontWeightMinRegular(parentStyles.fontWeight || s.fontWeight);
     // Text nodes are in-flow inline content, not positioned layout boxes
     delete s.position;
     delete s.top;
@@ -6179,7 +6191,7 @@
           start,
           end,
           fontFamily: parentCs.fontFamily,
-          fontWeight: parentCs.fontWeight,
+          fontWeight: normalizeFontWeightMinRegular(parentCs.fontWeight),
           fontStyle: parentCs.fontStyle,
           fontStretch: parentCs.fontStretch,
           fontSize: parseFloat(parentCs.fontSize) || 16,
@@ -8651,7 +8663,7 @@
           const styledParent = el.closest('.elementor-counter-number, .elementor-counter-number-wrapper, .elementor-counter') || el;
           const pCs = window.getComputedStyle(styledParent);
           const effectiveFontSize = parseFloat(pCs.fontSize) || parseFloat(styles.fontSize) || 40;
-          const effectiveFontWeight = pCs.fontWeight || styles.fontWeight || '700';
+          const effectiveFontWeight = normalizeFontWeightMinRegular(pCs.fontWeight || styles.fontWeight || '700');
           const effectiveColor = (pCs.color && pCs.color !== 'rgba(0, 0, 0, 0)' && pCs.color !== 'rgb(255, 255, 255)') ? pCs.color : (styles.color && styles.color !== 'rgb(255, 255, 255)' ? styles.color : 'rgb(50, 53, 93)');
           const effectiveLineHeight = pCs.lineHeight || styles.lineHeight || `${Math.round(effectiveFontSize * 1.25)}px`;
 
