@@ -6233,10 +6233,13 @@
         if (w < words.length - 1) {
           const wordInRaw = raw.indexOf(words[w], cumRaw);
           if (wordInRaw !== -1) {
-            cumRaw = wordInRaw + words[w].length;
+            const wordEndInRaw = wordInRaw + words[w].length;
+            cumRaw = wordEndInRaw;
+            const nextWordInRaw = raw.indexOf(words[w + 1], wordEndInRaw);
+            const limit = nextWordInRaw !== -1 ? nextWordInRaw : wordEndInRaw + 1;
             let hasBreak = false;
             for (const bp of breakIndicesInRaw) {
-              if (bp >= cumRaw - 1 && bp <= cumRaw + 4) {
+              if (bp >= wordEndInRaw && bp < limit) {
                 hasBreak = true;
                 break;
               }
