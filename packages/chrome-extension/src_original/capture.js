@@ -2590,7 +2590,7 @@
           const ctx = canvas.getContext('2d', { willReadFrequently: true });
           const testString = 'Hox@gA08W';
           const testSize = 60;
-          const fWeight = cs.fontWeight || 'normal';
+          const fWeight = styles.fontWeight || '400';
           ctx.font = `${cs.fontStyle || 'normal'} ${fWeight} ${testSize}px ${cs.fontFamily}, sans-serif`;
           const metrics = ctx.measureText(testString);
           const w = metrics.width;
@@ -2857,7 +2857,7 @@
           if (sheet.cssRules) {
             for (const rule of Array.from(sheet.cssRules)) {
               if (rule.type === CSSRule.FONT_FACE_RULE) {
-                parseFontFaceRule(rule.style.fontFamily, rule.style.src, sheet.href || window.location.href, rule.style.fontWeight, rule.style.fontStyle);
+                parseFontFaceRule(rule.style.fontFamily, rule.style.src, sheet.href || window.location.href, normalizeFontWeightMinRegular(rule.style.fontWeight), rule.style.fontStyle);
               }
             }
           }
@@ -6093,7 +6093,7 @@
       let hasDiff = false;
 
       if (seg.fontWeight && seg.fontWeight !== (containerStyles.fontWeight || '400')) {
-        diff.fontWeight = seg.fontWeight;
+        diff.fontWeight = normalizeFontWeightMinRegular(seg.fontWeight);
         hasDiff = true;
       }
       if (seg.fontFamily && seg.fontFamily !== containerStyles.fontFamily) {
@@ -6185,7 +6185,7 @@
         fullText += t;
         const end = fullText.length;
         if (fonts && typeof fonts.addFont === 'function') {
-          fonts.addFont(parentCs.fontFamily, parentCs.fontWeight, parentCs.fontStyle);
+          fonts.addFont(parentCs.fontFamily, normalizeFontWeightMinRegular(parentCs.fontWeight), parentCs.fontStyle);
         }
         rawSegments.push({
           start,
@@ -6271,7 +6271,7 @@
     const contentHeight = Math.max(0, Math.ceil(rect.height - padTop - padBottom - borderTop - borderBottom));
 
     if (fonts && typeof fonts.addFont === 'function') {
-      fonts.addFont(effectiveStyles.fontFamily, effectiveStyles.fontWeight, effectiveStyles.fontStyle);
+      fonts.addFont(effectiveStyles.fontFamily, normalizeFontWeightMinRegular(effectiveStyles.fontWeight), effectiveStyles.fontStyle);
     }
 
     return {
@@ -6479,13 +6479,13 @@
         fullText += t;
         const end = fullText.length;
         if (fonts && typeof fonts.addFont === 'function') {
-          fonts.addFont(parentCs.fontFamily, parentCs.fontWeight, parentCs.fontStyle);
+          fonts.addFont(parentCs.fontFamily, normalizeFontWeightMinRegular(parentCs.fontWeight), parentCs.fontStyle);
         }
         rawSegments.push({
           start,
           end,
           fontFamily: parentCs.fontFamily,
-          fontWeight: parentCs.fontWeight,
+          fontWeight: normalizeFontWeightMinRegular(parentCs.fontWeight),
           fontStyle: parentCs.fontStyle,
           fontStretch: parentCs.fontStretch,
           fontSize: parseFloat(parentCs.fontSize) || 16,
@@ -6568,7 +6568,7 @@
     const runY = isFinite(minY) ? minY + scrollY : scrollY;
 
     if (fonts && typeof fonts.addFont === 'function') {
-      fonts.addFont(effectiveStyles.fontFamily, effectiveStyles.fontWeight, effectiveStyles.fontStyle);
+      fonts.addFont(effectiveStyles.fontFamily, normalizeFontWeightMinRegular(effectiveStyles.fontWeight), effectiveStyles.fontStyle);
     }
 
     return {
