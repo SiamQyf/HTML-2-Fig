@@ -1691,13 +1691,11 @@
     gap: 10px;
     backdrop-filter: blur(16px);
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
-    opacity: 0.6;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
   .assets-diary-unit-card:hover {
     border-color: rgba(168, 85, 247, 0.35);
     box-shadow: 0 6px 22px rgba(124, 58, 237, 0.12);
-    opacity: 1;
   }
 
   .assets-diary-intro-text {
@@ -1783,13 +1781,11 @@
     gap: 10px;
     backdrop-filter: blur(16px);
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
-    opacity: 0.6;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
   .text-ipsum-card:hover {
     border-color: rgba(16, 185, 129, 0.35);
     box-shadow: 0 6px 22px rgba(16, 185, 129, 0.10);
-    opacity: 1;
   }
 
   .text-ipsum-intro-text {
@@ -1875,13 +1871,11 @@
     gap: 10px;
     backdrop-filter: blur(16px);
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
-    opacity: 0.6;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
   .text-detach-card:hover {
     border-color: rgba(16, 185, 129, 0.35);
     box-shadow: 0 6px 22px rgba(16, 185, 129, 0.10);
-    opacity: 1;
   }
 
   .btn-text-detach {
@@ -2685,6 +2679,7 @@
   }
 
 
+
   function triggerEmptyPasteHighlight() {
     const extBtn = document.getElementById('btnChromeExtensionLink');
     if (extBtn) {
@@ -2967,8 +2962,6 @@
       }, 150);
     }
   });
-
-
 
   // Button click (explicit import/paste attempt)
   btnImport.addEventListener('click', () => {
