@@ -137,21 +137,40 @@ async function protect() {
     fs.writeFileSync(srcPath, minified, 'utf8');
     console.log(`   ✓ Saved in ${duration}s — ${(minified.length / 1024).toFixed(1)} KB (${ratio}% smaller)`);
 
-    // Mirror to HTML To Figma Perfect
-    if (fs.existsSync(mirrorDir)) {
-      const mirrorPath = path.join(mirrorDir, filename);
-      fs.writeFileSync(mirrorPath, minified, 'utf8');
-      console.log(`   ✓ Mirrored to HTML To Figma Perfect/packages/chrome-extension/${filename}`);
+    // Mirror to HTML To Figma Perfect and other extension directories
+    const otherDirs = [
+      mirrorDir,
+      path.join(rootDir, 'packages/chrome-extension-webstore'),
+      path.join(rootDir, 'dist/html-to-figma-chrome-extension'),
+      path.join(rootDir, 'dist/chrome-extension-webstore')
+    ];
+    for (const d of otherDirs) {
+      if (fs.existsSync(d)) {
+        const destPath = path.join(d, filename);
+        fs.writeFileSync(destPath, minified, 'utf8');
+        console.log(`   ✓ Mirrored to ${path.relative(rootDir, destPath)}`);
+      }
     }
   }
 
   // Sync non-JS files
-  const syncFiles = ['background.js', 'popup.js', 'manifest.json', '.ai-rules', 'AI_RULES.md'];
+  const syncFiles = ['background.js', 'popup.js', 'manifest.json', '.ai-rules', 'AI_RULES.md', 'opentype.min.js', 'potrace.min.js', 'woff2.min.js'];
+  const allDestDirs = [
+    mirrorDir,
+    path.join(rootDir, 'packages/chrome-extension-webstore'),
+    path.join(rootDir, 'dist/html-to-figma-chrome-extension'),
+    path.join(rootDir, 'dist/chrome-extension-webstore')
+  ];
   for (const f of syncFiles) {
     const srcF = path.join(extDir, f);
-    const mirrorF = path.join(mirrorDir, f);
-    if (fs.existsSync(srcF) && fs.existsSync(mirrorDir)) {
-      fs.copyFileSync(srcF, mirrorF);
+    if (!fs.existsSync(srcF)) continue;
+    for (const d of allDestDirs) {
+      if (fs.existsSync(d)) {
+        const destF = path.join(d, f);
+        try {
+          fs.copyFileSync(srcF, destF);
+        } catch (_) {}
+      }
     }
   }
 

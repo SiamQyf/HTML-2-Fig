@@ -8,7 +8,26 @@
     "scripting",
     "tabs",
     "clipboardWrite",
-    "storage"
+    "storage",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*",
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "inject_preserve_buffer.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
   ],
   "action": {
     "default_icon": {

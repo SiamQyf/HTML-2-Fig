@@ -3570,7 +3570,10 @@
           const tagName = orig.tagName.toUpperCase();
           const isDefTag = ['DEFS', 'CLIPPATH', 'LINEARGRADIENT', 'RADIALGRADIENT', 'MASK', 'PATTERN', 'SYMBOL', 'STOP', 'USE', 'G'].includes(tagName);
           
-          if (!isDefTag && (origCs.display === 'none' || origCs.visibility === 'hidden' || parseFloat(origCs.opacity) === 0)) {
+          const isZeroDash = origCs.strokeDasharray && /^0(?:px|%|\b)/.test(origCs.strokeDasharray.trim()) && origCs.strokeLinecap !== 'round';
+          const isNoFill = !origCs.fill || origCs.fill === 'none' || origCs.fill === 'rgba(0, 0, 0, 0)' || origCs.fill === 'transparent';
+
+          if (!isDefTag && ((origCs.display === 'none' || origCs.visibility === 'hidden' || parseFloat(origCs.opacity) === 0) || (isZeroDash && isNoFill))) {
             cloned.remove();
             continue;
           }
@@ -6311,8 +6314,11 @@
             const isChar2 = node.parentElement?.classList?.contains('char') || node.parentElement?.hasAttribute?.('data-char');
             const isCharInsideWord = inSameWord || (!word1 && !word2 && isChar1 && isChar2);
             if (!isCharInsideWord) {
-              const isNewLine = isElementOnNewLine(node, lastTextElement);
-              fullText += isNewLine ? '\n' : ' ';
+              const isPunctuation = /^[.,;:!?\)\]’”%—]/.test(t);
+              if (!isPunctuation) {
+                const isNewLine = isElementOnNewLine(node, lastTextElement);
+                fullText += isNewLine ? '\n' : ' ';
+              }
             }
           }
         }
@@ -6555,7 +6561,7 @@
       if (!cs.display.startsWith('inline') && cs.display !== 'contents') return false;
       if (tag === 'A') {
         const pTag = (node.parentElement?.tagName || '').toUpperCase();
-        if (!['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'FIGCAPTION'].includes(pTag)) {
+        if (!['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'FIGCAPTION', 'SPAN', 'LABEL', 'SMALL'].includes(pTag)) {
           return false;
         }
       }
@@ -6608,8 +6614,11 @@
         if (!t) return;
         if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ') && !t.startsWith('\n')) {
           if (lastTextElement && lastTextElement !== node.parentElement) {
-            const isNewLine = isElementOnNewLine(node, lastTextElement);
-            fullText += isNewLine ? '\n' : ' ';
+            const isPunctuation = /^[.,;:!?\)\]’”%—]/.test(t);
+            if (!isPunctuation) {
+              const isNewLine = isElementOnNewLine(node, lastTextElement);
+              fullText += isNewLine ? '\n' : ' ';
+            }
           }
         }
         lastTextElement = node.parentElement;
@@ -8904,8 +8913,34 @@
         // Placeholder text style (slightly lighter if it's placeholder)
         const textStyles = { ...styles };
         if (isPlaceholder) {
-          textStyles.color = textStyles.color ? textStyles.color : 'rgba(0, 0, 0, 0.4)';
-          textStyles.opacity = '0.55';
+          let placeholderColor = null;
+          try {
+            const psCs = window.getComputedStyle(el, '::placeholder');
+            if (psCs && psCs.color && psCs.color !== 'rgba(0, 0, 0, 0)' && psCs.color !== 'transparent') {
+              placeholderColor = convertColors(psCs.color);
+              const op = parseFloat(psCs.opacity);
+              if (!isNaN(op) && op < 1) {
+                const pc = parseColor(placeholderColor);
+                if (pc) {
+                  placeholderColor = `rgba(${Math.round(pc.r * 255)}, ${Math.round(pc.g * 255)}, ${Math.round(pc.b * 255)}, ${(pc.a * op).toFixed(3)})`;
+                }
+              }
+            }
+          } catch (_) {}
+          if (!placeholderColor || placeholderColor === styles.color) {
+            try {
+              const pc = parseColor(styles.color || '#000000');
+              if (pc) {
+                placeholderColor = `rgba(${Math.round(pc.r * 255)}, ${Math.round(pc.g * 255)}, ${Math.round(pc.b * 255)}, 0.45)`;
+              } else {
+                placeholderColor = 'rgba(125, 139, 164, 1)';
+              }
+            } catch (_) {
+              placeholderColor = 'rgba(125, 139, 164, 1)';
+            }
+          }
+          textStyles.color = placeholderColor;
+          textStyles.opacity = '1';
         }
 
         childNodes.push({
