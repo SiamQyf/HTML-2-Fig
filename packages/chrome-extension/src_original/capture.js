@@ -5871,11 +5871,22 @@
   function getBestImageUrl(imgEl) {
     if (!imgEl) return null;
     let url = null;
-    // 1. Check parent <picture> <source> tags for best srcset URL (highest resolution candidate)
+    // 1. Check parent <picture> <source> tags for best matching srcset URL (highest resolution candidate for current viewport)
     if (imgEl.parentElement instanceof HTMLPictureElement) {
       const sources = Array.from(imgEl.parentElement.querySelectorAll('source'));
-      for (const s of sources) {
-        const srcset = s.getAttribute('srcset') || s.getAttribute('data-srcset');
+      const matchingSource = sources.find(s => {
+        const media = s.getAttribute('media');
+        if (media && typeof window.matchMedia === 'function') {
+          try {
+            return window.matchMedia(media).matches;
+          } catch (_) {
+            return false;
+          }
+        }
+        return true;
+      });
+      if (matchingSource) {
+        const srcset = matchingSource.getAttribute('srcset') || matchingSource.getAttribute('data-srcset');
         if (srcset) {
           const parts = srcset.split(',');
           for (let k = parts.length - 1; k >= 0; k--) {
@@ -5886,7 +5897,6 @@
               break;
             }
           }
-          if (url) break;
         }
       }
     }
