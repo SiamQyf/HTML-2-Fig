@@ -3610,8 +3610,8 @@
           }
           
           if (cloned.getAttribute('stroke') && cloned.getAttribute('stroke') !== 'none') {
-            const sw = origCs.strokeWidth;
-            if (sw && parseFloat(sw) >= 0) cloned.setAttribute('stroke-width', sw);
+            const numSw = parseFloat(origCs.strokeWidth);
+            if (!isNaN(numSw) && numSw >= 0) cloned.setAttribute('stroke-width', String(Math.round(numSw * 100) / 100));
             
             const lc = origCs.strokeLinecap;
             if (lc && lc !== 'butt') cloned.setAttribute('stroke-linecap', lc);
@@ -3620,7 +3620,7 @@
             if (lj && lj !== 'miter') cloned.setAttribute('stroke-linejoin', lj);
             
             const da = origCs.strokeDasharray;
-            if (da && da !== 'none') cloned.setAttribute('stroke-dasharray', da);
+            if (da && da !== 'none') cloned.setAttribute('stroke-dasharray', da.replace(/px/g, ''));
           }
           
           const op = parseFloat(origCs.opacity);
@@ -5314,7 +5314,8 @@
   function hasTextOrContent(node) {
     if (!node) return false;
     if (node.text && node.text.trim().length > 0) return true;
-    if (['BUTTON', 'A', 'INPUT', 'TEXTAREA', 'SELECT', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'LI', 'LABEL'].includes(node.tag)) return true;
+    if (['BUTTON', 'A', 'INPUT', 'TEXTAREA', 'SELECT', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'LI', 'LABEL', 'SVG', 'IMG'].includes(node.tag)) return true;
+    if (node.content && (node.tag === 'SVG' || node.content.includes('<svg'))) return true;
     if (node.childNodes) {
       for (let i = 0; i < node.childNodes.length; i++) {
         if (hasTextOrContent(node.childNodes[i])) return true;
@@ -5331,8 +5332,8 @@
 
     if (/\b(?:card|slide|swiper|carousel|testimonial|item|col|row|container|dialog|modal)\b/.test(cls)) return false;
 
-    if (/\b(?:lines|grid-lines|bg-lines|background-lines|stripes|bg-stripes|pattern-bg|bg-pattern|section-lines|banner-lines|bg-shape|shape-bg|bg-overlay|overlay-bg|bottom-image-layer|particles|particles-style|particle-bg|bg-particles|particles-js)\b/.test(cls) ||
-        /(?:__background|--background|-background|_background|__bg|--bg|-bg|_bg|\b(?:bg-overlay|overlay-bg|bg-pattern|pattern-bg|bg-shape|shape-bg|bg-lines|bg-stripes|bg-particles|bg-image|bg-img|background-overlay|overlay-background)\b)/.test(cls) ||
+    if (/\b(?:lines|grid-lines|bg-lines|background-lines|stripes|bg-stripes|pattern-bg|bg-pattern|section-lines|banner-lines|bg-shape|shape-bg|bg-overlay|overlay-bg|bottom-image-layer|particles|particles-style|particle-bg|bg-particles|particles-js|dot-grid)\b/.test(cls) ||
+        /(?:__background|--background|-background|_background|__bg|--bg|-bg|_bg|\b(?:bg-overlay|overlay-bg|bg-pattern|pattern-bg|bg-shape|shape-bg|bg-lines|bg-stripes|bg-particles|bg-image|bg-img|background-overlay|overlay-background|dot-grid)\b)/.test(cls) ||
         /\b(?:lines|grid-lines|bg-lines|stripes|bg-stripes|pattern-bg|particles|particles-style|particle)\b/.test(id) ||
         node.attributes?.['data-particle']) {
       return true;
