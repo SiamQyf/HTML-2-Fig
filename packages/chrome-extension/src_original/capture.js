@@ -5313,9 +5313,20 @@
 
   function hasTextOrContent(node) {
     if (!node) return false;
+    const cls = (node.attributes?.class || '').toLowerCase();
+    const id = (node.attributes?.id || node.id || '').toLowerCase();
+    if (/\b(?:dot-grid|grid-pattern|bg-pattern|bg-lines|stripes|bg-stripes|pattern-bg|lines|particles)\b/.test(cls) ||
+        /\b(?:dot-grid|grid-pattern|bg-pattern|bg-lines|stripes|bg-stripes|pattern-bg|lines|particles)\b/.test(id)) {
+      return false;
+    }
     if (node.text && node.text.trim().length > 0) return true;
-    if (['BUTTON', 'A', 'INPUT', 'TEXTAREA', 'SELECT', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'LI', 'LABEL', 'SVG', 'IMG'].includes(node.tag)) return true;
-    if (node.content && (node.tag === 'SVG' || node.content.includes('<svg'))) return true;
+    if (['BUTTON', 'A', 'INPUT', 'TEXTAREA', 'SELECT', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'LI', 'LABEL', 'IMG'].includes(node.tag)) return true;
+    if (node.tag === 'SVG' || (node.content && node.content.includes('<svg'))) {
+      if (/\b(?:dot-grid|grid-pattern|bg-pattern|bg-lines|stripes|bg-stripes|pattern-bg|lines|particles)\b/.test(cls) || id.includes('svg-bg')) {
+        return false;
+      }
+      return true;
+    }
     if (node.childNodes) {
       for (let i = 0; i < node.childNodes.length; i++) {
         if (hasTextOrContent(node.childNodes[i])) return true;
@@ -5332,13 +5343,16 @@
 
     if (/\b(?:card|slide|swiper|carousel|testimonial|item|col|row|container|dialog|modal)\b/.test(cls)) return false;
 
-    if (/\b(?:lines|grid-lines|bg-lines|background-lines|stripes|bg-stripes|pattern-bg|bg-pattern|section-lines|banner-lines|bg-shape|shape-bg|bg-overlay|overlay-bg|bottom-image-layer|particles|particles-style|particle-bg|bg-particles|particles-js|dot-grid)\b/.test(cls) ||
-        /(?:__background|--background|-background|_background|__bg|--bg|-bg|_bg|\b(?:bg-overlay|overlay-bg|bg-pattern|pattern-bg|bg-shape|shape-bg|bg-lines|bg-stripes|bg-particles|bg-image|bg-img|background-overlay|overlay-background|dot-grid)\b)/.test(cls) ||
+    if (/\b(?:lines|grid-lines|bg-lines|background-lines|stripes|bg-stripes|pattern-bg|bg-pattern|section-lines|banner-lines|bg-shape|shape-bg|bg-overlay|overlay-bg|bottom-image-layer|particles|particles-style|particle-bg|bg-particles|particles-js|dot-grid|inset-0|bg-gradient)\b/.test(cls) ||
+        /(?:__background|--background|-background|_background|__bg|--bg|-bg|_bg|\b(?:bg-overlay|overlay-bg|bg-pattern|pattern-bg|bg-shape|shape-bg|bg-lines|bg-stripes|bg-particles|bg-image|bg-img|background-overlay|overlay-background|dot-grid|inset-0|bg-gradient)\b)/.test(cls) ||
         /\b(?:lines|grid-lines|bg-lines|stripes|bg-stripes|pattern-bg|particles|particles-style|particle)\b/.test(id) ||
         node.attributes?.['data-particle']) {
       return true;
     }
-    if (tag === 'svg' && (id.includes('svg-bg') || cls.includes('lines') || cls.includes('stripes'))) {
+    if (tag === 'svg' && (id.includes('svg-bg') || cls.includes('lines') || cls.includes('stripes') || cls.includes('dot-grid'))) {
+      return true;
+    }
+    if (!hasTextOrContent(node) && (cls.includes('inset-0') || (node.styles?.position === 'absolute' && (node.styles?.width === '100%' || (node.styles?.top === '0px' && node.styles?.bottom === '0px'))))) {
       return true;
     }
     const bgImg = (node.styles?.backgroundImage || '').toLowerCase();
@@ -8858,6 +8872,9 @@
         });
 
         childNodes.sort((a, b) => {
+          const aBg = isBackgroundOverlay(a), bBg = isBackgroundOverlay(b);
+          if (aBg && !bBg) return -1;
+          if (!aBg && bBg) return 1;
           const aPos = a.styles?.position || 'static';
           const bPos = b.styles?.position || 'static';
           const aOut = aPos === 'absolute' || aPos === 'fixed';
