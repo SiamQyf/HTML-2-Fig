@@ -5257,9 +5257,6 @@
 
     // Positioned elements with z-index: auto/0 stack above normal in-flow static elements (0)
     if (isPos) {
-      const isBackdrop = (s.backdropFilter && s.backdropFilter !== 'none' && s.backdropFilter.includes('blur')) ||
-                         (s.webkitBackdropFilter && s.webkitBackdropFilter !== 'none' && s.webkitBackdropFilter.includes('blur'));
-      if (isBackdrop) return 500;
       return 1000;
     }
 
@@ -8860,6 +8857,15 @@
         });
 
         childNodes.sort((a, b) => {
+          const aPos = a.styles?.position || 'static';
+          const bPos = b.styles?.position || 'static';
+          const aOut = aPos === 'absolute' || aPos === 'fixed';
+          const bOut = bPos === 'absolute' || bPos === 'fixed';
+          const aHasZ = a.styles?.zIndex && a.styles.zIndex !== 'auto';
+          const bHasZ = b.styles?.zIndex && b.styles.zIndex !== 'auto';
+          if (!aOut && !bOut && !aHasZ && !bHasZ) {
+            return a._domIndex - b._domIndex;
+          }
           const diff = a._effectiveZIndex - b._effectiveZIndex;
           return diff !== 0 ? diff : a._domIndex - b._domIndex;
         });
