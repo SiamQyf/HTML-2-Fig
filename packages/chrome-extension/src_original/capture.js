@@ -7617,6 +7617,19 @@
       styles.visibility = 'hidden';
       return null;
     }
+
+    // Drop resting-hidden backdrops, curtains, scrims, and modal backdrops
+    // (e.g. Apple #globalnav-curtain, .globalnav-curtain, .modal-backdrop, .curtain, .scrim, .drawer-backdrop)
+    const isBackdropOrCurtain = (
+      /curtain|scrim|backdrop|modal-backdrop|offcanvas-backdrop|nav-curtain|globalnav-curtain/i.test(cls + ' ' + (el.id || '')) ||
+      ((styles.position === 'fixed' || styles.position === 'absolute') && (styles.backdropFilter && styles.backdropFilter !== 'none') && (parseFloat(styles.opacity) <= 0.05 || styles.visibility === 'hidden'))
+    );
+    if (isBackdropOrCurtain && (styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
+      styles.opacity = '0';
+      styles.visibility = 'hidden';
+      return null;
+    }
+
     // 1. Any element with hover classes that is hidden at rest stays hidden
     const cleanClsForHover = cls.replace(/\brs-hover-ready\b/g, '');
     const isHoverClassOrAttr = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay|show-on-hover|hover-img|portfolio-hover|overlay-hover|hover-item|hover-box-content|on-hover|\bhover\b|hover-|\bhover_|_hover\b|-hover\b|icon-hover|arrow-hover|btn-hover|hover-icon|hover-arrow|group-hover/i.test(cleanClsForHover) ||
@@ -7871,16 +7884,21 @@
       return false;
     })();
 
-    const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && (
-      /elementor-invisible|title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos|sal|scroll-reveal|invert|fade_anim|has-animation|appear|in-view|inview|is-visible|fadeIn|fade-in|fadeUp|fade-up|fadeDown|fade-down|fadeLeft|fade-left|fadeRight|fade-right|animate|animated|animation|zoomIn|bounceIn|reveal|motion|framer-motion|while-in-view|scroll-anim|scroll-fade/i.test(cls) ||
+    const cleanAnimCls = cls.replace(/\b(?:no-reduced-motion|reduced-motion|motion-reduce|motion-safe)\b/gi, '');
+    const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && !isBackdropOrCurtain && (
+      /elementor-invisible|title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos|sal|scroll-reveal|invert|fade_anim|has-animation|appear|in-view|inview|is-visible|fadeIn|fade-in|fadeUp|fade-up|fadeDown|fade-down|fadeLeft|fade-left|fadeRight|fade-right|animate|animated|animation|zoomIn|bounceIn|reveal|\bframer-motion\b|\bmotion\b|\bmotion-|while-in-view|scroll-anim|scroll-fade/i.test(cleanAnimCls) ||
       el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-scroll') || el.hasAttribute('data-animation') || el.hasAttribute('data-animate') || el.hasAttribute('data-motion') ||
-      !!(el.closest && el.closest('.elementor-invisible, .title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [data-sal], [data-scroll], [data-anime], [data-fancy-text], [class*="motion"], [class*="framer-motion"], [class*="invert"], [class*="fade_anim"], [class*="has-animation"], [class*="fadeIn"], [class*="fade-"], [class*="animate"]'))
+      !!(el.closest && (() => {
+        const anc = el.closest('.elementor-invisible, .title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [data-sal], [data-scroll], [data-anime], [data-fancy-text], [class*="framer-motion"], [class*="invert"], [class*="fade_anim"], [class*="has-animation"], [class*="fadeIn"], [class*="fade-"], [class*="animate"]');
+        if (!anc || anc.tagName === 'HTML' || anc.tagName === 'BODY') return false;
+        return true;
+      })())
     );
 
     // Strategy 2: behavioural heuristics — detect ANY element with a scroll/entrance animation
     // that is currently stuck in a pre-reveal state, regardless of class names.
     let hasScrollRevealBehavior = false;
-    if (!isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && !hasAnimClass) {
+    if (!isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && !isBackdropOrCurtain && !hasAnimClass) {
       try {
         const cs = window.getComputedStyle(el);
         const curOpacity = parseFloat(styles.opacity);
@@ -7975,7 +7993,7 @@
       !isFixedOrHighZOverlay &&
       (styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.15) &&
       hasVisibleContent &&
-      !isNavDropdown && !isHoverOrOverlay && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState &&
+      !isNavDropdown && !isHoverOrOverlay && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && !isBackdropOrCurtain &&
       !el.closest('.vertical-counter, .odometer, .swiper-slide:not(.swiper-slide-active)')
     );
 
