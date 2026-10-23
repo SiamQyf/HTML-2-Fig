@@ -7741,6 +7741,35 @@
             if (pcs.position === 'absolute' || pcs.position === 'fixed') return true;
           }
         }
+
+        // --- Pattern D: Navigation flyouts, dropdowns, submenus hidden at rest ---
+        // (e.g. Apple .globalnav-flyout / .globalnav-submenu, Bootstrap .dropdown-menu, etc.)
+        const isFlyoutOrSubmenu = !!(
+          (el.classList && (
+            el.classList.contains('globalnav-flyout') ||
+            el.classList.contains('globalnav-submenu') ||
+            el.classList.contains('dropdown-menu') ||
+            el.classList.contains('flyout') ||
+            el.classList.contains('submenu') ||
+            el.classList.contains('nav-dropdown')
+          )) ||
+          el.hasAttribute?.('data-topnav-flyout') ||
+          el.hasAttribute?.('data-topnav-flyout-item') ||
+          (typeof el.className === 'string' && /\bflyout\b|\bsubmenu\b|\bdropdown-menu\b|\bnav-dropdown\b|\bmenu-dropdown\b/i.test(el.className)) ||
+          (el.id && /submenu|flyout|dropdown/i.test(el.id))
+        );
+        if (isFlyoutOrSubmenu && (pos === 'absolute' || pos === 'fixed')) {
+          if (vis === 'hidden' || op < 0.05 || cs.display === 'none') return true;
+        }
+        if (el.closest) {
+          const flyoutRoot = el.closest('.globalnav-flyout, .globalnav-submenu, [data-topnav-flyout], [class*="flyout"], [class*="submenu"], [class*="dropdown-menu"]');
+          if (flyoutRoot && flyoutRoot !== el) {
+            const fcs = window.getComputedStyle(flyoutRoot);
+            if ((fcs.position === 'absolute' || fcs.position === 'fixed') && (fcs.visibility === 'hidden' || parseFloat(fcs.opacity) < 0.05 || fcs.display === 'none')) {
+              return true;
+            }
+          }
+        }
       } catch (_) {}
       return false;
     })();
@@ -7815,6 +7844,12 @@
     }
 
     if (isInactiveVariant && (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
+      styles.opacity = '0';
+      styles.visibility = 'hidden';
+      return null;
+    }
+
+    if (isNavDropdown && (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
       styles.opacity = '0';
       styles.visibility = 'hidden';
       return null;
