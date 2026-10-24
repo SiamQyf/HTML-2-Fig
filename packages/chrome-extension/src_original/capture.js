@@ -6150,33 +6150,49 @@
   }
 
 
-  function isElementOnNewLine(currNode, prevEl) {
-    if (!currNode || !prevEl) return false;
+  function isElementOnNewLine(currNode, prevElOrRect) {
+    if (!currNode || !prevElOrRect) return false;
     try {
       let currTop = 0;
       let currH = 0;
       if (currNode.nodeType === 3) {
         const rng = document.createRange();
         rng.selectNodeContents(currNode);
-        const cr = rng.getBoundingClientRect();
+        const rects = Array.from(rng.getClientRects()).filter(cr => cr.width > 0 && cr.height > 0);
         rng.detach();
-        currTop = cr.top;
-        currH = cr.height;
+        if (rects.length > 0) {
+          currTop = rects[0].top;
+          currH = rects[0].height;
+        } else {
+          const cr = currNode.parentElement?.getBoundingClientRect();
+          if (!cr) return false;
+          currTop = cr.top;
+          currH = cr.height;
+        }
       } else if (currNode.nodeType === 1) {
         const cr = currNode.getBoundingClientRect();
         currTop = cr.top;
         currH = cr.height;
       }
-      const prevRect = prevEl.getBoundingClientRect();
-      if (currH <= 0 || prevRect.height <= 0) return false;
-      return currTop > prevRect.top + prevRect.height * 0.45;
+      let prevTop = 0;
+      let prevH = 0;
+      if (prevElOrRect.top !== undefined && prevElOrRect.height !== undefined) {
+        prevTop = prevElOrRect.top;
+        prevH = prevElOrRect.height;
+      } else if (prevElOrRect.getBoundingClientRect) {
+        const pr = prevElOrRect.getBoundingClientRect();
+        prevTop = pr.top;
+        prevH = pr.height;
+      }
+      if (currH <= 0 || prevH <= 0) return false;
+      return currTop >= prevTop + Math.max(3, prevH * 0.45);
     } catch (_) {
       return false;
     }
   }
 
   function insertRenderedLineBreaks(textNode, formattedText) {
-    if (!textNode || textNode.nodeType !== 3 || !formattedText || formattedText.length < 4) {
+    if (!textNode || textNode.nodeType !== 3 || !formattedText || formattedText.length < 2) {
       return formattedText;
     }
     if (formattedText.includes('\n')) {
@@ -6185,7 +6201,7 @@
     try {
       const rng = document.createRange();
       rng.selectNodeContents(textNode);
-      const clientRects = rng.getClientRects();
+      const clientRects = Array.from(rng.getClientRects()).filter(cr => cr.width > 0 && cr.height > 0);
       if (clientRects.length <= 1) {
         rng.detach();
         return formattedText;
@@ -6194,7 +6210,6 @@
       const lines = [];
       for (let i = 0; i < clientRects.length; i++) {
         const cr = clientRects[i];
-        if (cr.width <= 0 || cr.height <= 0) continue;
         const existing = lines.find(l => Math.abs(l.top - cr.top) < Math.max(4, cr.height * 0.35));
         if (!existing) {
           lines.push({ top: cr.top, bottom: cr.bottom });
@@ -6203,7 +6218,6 @@
           existing.bottom = Math.max(existing.bottom, cr.bottom);
         }
       }
-
       if (lines.length <= 1) {
         rng.detach();
         return formattedText;
@@ -6216,69 +6230,59 @@
         return formattedText;
       }
 
-      const spaceRegex = /\s+/g;
-      let m;
+      const hasLeadingSpace = formattedText.startsWith(' ');
+      const hasTrailingSpace = formattedText.endsWith(' ');
+
       let currentLineIdx = 0;
-      const breakIndicesInRaw = new Set();
+      let res = '';
+      let lastCharWasSpace = false;
 
-      while ((m = spaceRegex.exec(raw)) !== null) {
-        const nextCharIdx = m.index + m[0].length;
-        if (nextCharIdx >= raw.length) break;
-
-        rng.setStart(textNode, nextCharIdx);
-        rng.setEnd(textNode, nextCharIdx + 1);
+      for (let i = 0; i < raw.length; i++) {
+        rng.setStart(textNode, i);
+        rng.setEnd(textNode, i + 1);
         const charRect = rng.getBoundingClientRect();
+
         if (charRect.width > 0 && charRect.height > 0) {
-          const midY = charRect.top + charRect.height / 2;
-          if (midY > lines[currentLineIdx].bottom - 3) {
-            breakIndicesInRaw.add(m.index);
+          const lineH = lines[currentLineIdx].bottom - lines[currentLineIdx].top;
+          if (charRect.top >= lines[currentLineIdx].top + Math.max(3, lineH * 0.45)) {
             for (let li = currentLineIdx + 1; li < lines.length; li++) {
-              if (midY >= lines[li].top - 4 && midY <= lines[li].bottom + 4) {
+              if (charRect.top <= lines[li].bottom) {
                 currentLineIdx = li;
                 break;
               }
             }
-          }
-        }
-      }
-      rng.detach();
-
-      if (breakIndicesInRaw.size === 0) {
-        return formattedText;
-      }
-
-      const words = formattedText.split(' ');
-      if (words.length <= 1) return formattedText;
-
-      const newWords = [];
-      let cumRaw = 0;
-
-      for (let w = 0; w < words.length; w++) {
-        newWords.push(words[w]);
-        if (w < words.length - 1) {
-          const wordInRaw = raw.indexOf(words[w], cumRaw);
-          if (wordInRaw !== -1) {
-            const wordEndInRaw = wordInRaw + words[w].length;
-            cumRaw = wordEndInRaw;
-            const nextWordInRaw = raw.indexOf(words[w + 1], wordEndInRaw);
-            const limit = nextWordInRaw !== -1 ? nextWordInRaw : wordEndInRaw + 1;
-            let hasBreak = false;
-            for (const bp of breakIndicesInRaw) {
-              if (bp >= wordEndInRaw && bp < limit) {
-                hasBreak = true;
-                break;
-              }
+            if (res.endsWith(' ')) {
+              res = res.slice(0, -1) + '\n';
+            } else {
+              res += '\n';
             }
-            if (hasBreak) {
-              newWords.push('\n');
+            if (raw[i] === ' ') {
+              lastCharWasSpace = true;
               continue;
             }
           }
-          newWords.push(' ');
+          if (raw[i] === ' ') {
+            if (!lastCharWasSpace && !res.endsWith('\n') && res.length > 0) {
+              res += ' ';
+            }
+            lastCharWasSpace = true;
+          } else {
+            res += raw[i];
+            lastCharWasSpace = false;
+          }
         }
       }
 
-      return newWords.join('');
+      rng.detach();
+
+      if (hasLeadingSpace && !res.startsWith(' ') && !res.startsWith('\n')) {
+        res = ' ' + res;
+      }
+      if (hasTrailingSpace && !res.endsWith(' ') && !res.endsWith('\n')) {
+        res += ' ';
+      }
+
+      return res || formattedText;
     } catch (_) {
       return formattedText;
     }
@@ -6310,24 +6314,43 @@
     }
 
     let lastTextElement = null;
+    let lastTextRect = null;
     function walk(node) {
       if (node.nodeType === Node.TEXT_NODE) {
         let t = node.textContent;
         if (!t) return;
-        if (!t.trim()) {
-          try {
-            const rng = document.createRange();
-            rng.selectNodeContents(node);
-            const r = rng.getBoundingClientRect();
-            rng.detach();
-            if (r.width <= 0) return;
-          } catch (_) { return; }
+        let currRects = [];
+        try {
+          const rng = document.createRange();
+          rng.selectNodeContents(node);
+          const r = rng.getBoundingClientRect();
+          currRects = Array.from(rng.getClientRects()).filter(cr => cr.width > 0 && cr.height > 0);
+          rng.detach();
+          if (!t.trim() && r.width <= 0) return;
+        } catch (_) {
+          if (!t.trim()) return;
         }
+
         const parentCs = window.getComputedStyle(node.parentElement);
         const ws = parentCs.whiteSpace || 'normal';
-        if (ws === 'normal' || ws === 'nowrap') { t = t.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' '); if (fullText.length === 0 || fullText.endsWith(' ')) { t = t.trimStart(); } }
+        if (ws === 'normal' || ws === 'nowrap') {
+          t = t.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ');
+          if (fullText.length === 0 || fullText.endsWith(' ') || fullText.endsWith('\n')) {
+            t = t.trimStart();
+          }
+        }
         if (!t) return;
-        if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ') && !t.startsWith('\n')) {
+
+        const firstRect = currRects[0] || null;
+        const isNewLine = !!(lastTextRect && firstRect && (firstRect.top >= lastTextRect.top + Math.max(3, lastTextRect.height * 0.45)));
+
+        if (isNewLine) {
+          if (fullText.endsWith(' ')) fullText = fullText.slice(0, -1);
+          if (!fullText.endsWith('\n')) fullText += '\n';
+          if (ws === 'normal' || ws === 'nowrap') {
+            t = t.trimStart();
+          }
+        } else if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ') && !t.startsWith('\n')) {
           if (lastTextElement && lastTextElement !== node.parentElement) {
             const word1 = lastTextElement.closest?.('.word');
             const word2 = node.parentElement?.closest?.('.word');
@@ -6338,14 +6361,17 @@
             if (!isCharInsideWord) {
               const isPunctuation = /^[.,;:!?\)\]’”%—]/.test(t);
               if (!isPunctuation) {
-                const isNewLine = isElementOnNewLine(node, lastTextElement);
-                fullText += isNewLine ? '\n' : ' ';
+                fullText += ' ';
               }
             }
           }
         }
+        if (!t) return;
+
         lastTextElement = node.parentElement;
-        t = insertRenderedLineBreaks(node, t);
+        if (ws !== 'nowrap') {
+          t = insertRenderedLineBreaks(node, t);
+        }
         const start = fullText.length;
         fullText += t;
         const end = fullText.length;
@@ -6364,13 +6390,18 @@
           lineHeight: parentCs.lineHeight,
           letterSpacing: parentCs.letterSpacing,
           textDecoration: (() => {
-          const d = parentCs.textDecorationLine || parentCs.textDecoration || '';
-          return (!d || d.includes('none')) ? getEffectiveTextDecoration(node.parentElement) : d;
-        })()
+            const d = parentCs.textDecorationLine || parentCs.textDecoration || '';
+            return (!d || d.includes('none')) ? getEffectiveTextDecoration(node.parentElement) : d;
+          })()
         });
+        if (currRects.length > 0) {
+          lastTextRect = currRects[currRects.length - 1];
+        }
       } else if (node.nodeType === Node.ELEMENT_NODE) {
         if (node.tagName === 'BR') {
-          fullText += "\n";
+          if (fullText.endsWith(' ')) fullText = fullText.slice(0, -1);
+          if (!fullText.endsWith('\n')) fullText += "\n";
+          lastTextRect = null;
           return;
         }
         for (const child of node.childNodes) {
@@ -6612,39 +6643,64 @@
     const rawSegments = [];
 
     let lastTextElement = null;
+    let lastTextRect = null;
     function walk(node) {
       if (node.nodeType === 3) {
         let t = node.textContent;
         if (!t) return;
-        if (!t.trim()) {
-          try {
-            const rng = document.createRange();
-            rng.selectNodeContents(node);
-            const r = rng.getBoundingClientRect();
-            rng.detach();
-            if (r.width <= 0) return;
-          } catch (_) { return; }
+        let currRects = [];
+        try {
+          const rng = document.createRange();
+          rng.selectNodeContents(node);
+          const r = rng.getBoundingClientRect();
+          currRects = Array.from(rng.getClientRects()).filter(cr => cr.width > 0 && cr.height > 0);
+          rng.detach();
+          if (!t.trim() && r.width <= 0) return;
+        } catch (_) {
+          if (!t.trim()) return;
         }
+
         const parentCs = window.getComputedStyle(node.parentElement);
         const ws = parentCs.whiteSpace || 'normal';
         if (ws === 'normal' || ws === 'nowrap') {
           t = t.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ');
-          if (fullText.length === 0 || fullText.endsWith(' ')) {
+          if (fullText.length === 0 || fullText.endsWith(' ') || fullText.endsWith('\n')) {
             t = t.trimStart();
           }
         }
         if (!t) return;
-        if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ') && !t.startsWith('\n')) {
+
+        const firstRect = currRects[0] || null;
+        const isNewLine = !!(lastTextRect && firstRect && (firstRect.top >= lastTextRect.top + Math.max(3, lastTextRect.height * 0.45)));
+
+        if (isNewLine) {
+          if (fullText.endsWith(' ')) fullText = fullText.slice(0, -1);
+          if (!fullText.endsWith('\n')) fullText += '\n';
+          if (ws === 'normal' || ws === 'nowrap') {
+            t = t.trimStart();
+          }
+        } else if (fullText.length > 0 && !fullText.endsWith(' ') && !fullText.endsWith('\n') && !t.startsWith(' ') && !t.startsWith('\n')) {
           if (lastTextElement && lastTextElement !== node.parentElement) {
-            const isPunctuation = /^[.,;:!?\)\]’”%—]/.test(t);
-            if (!isPunctuation) {
-              const isNewLine = isElementOnNewLine(node, lastTextElement);
-              fullText += isNewLine ? '\n' : ' ';
+            const word1 = lastTextElement.closest?.('.word');
+            const word2 = node.parentElement?.closest?.('.word');
+            const inSameWord = word1 && word2 && word1 === word2;
+            const isChar1 = lastTextElement.classList?.contains('char') || lastTextElement.hasAttribute?.('data-char');
+            const isChar2 = node.parentElement?.classList?.contains('char') || node.parentElement?.hasAttribute?.('data-char');
+            const isCharInsideWord = inSameWord || (!word1 && !word2 && isChar1 && isChar2);
+            if (!isCharInsideWord) {
+              const isPunctuation = /^[.,;:!?\)\]’”%—]/.test(t);
+              if (!isPunctuation) {
+                fullText += ' ';
+              }
             }
           }
         }
+        if (!t) return;
+
         lastTextElement = node.parentElement;
-        t = insertRenderedLineBreaks(node, t);
+        if (ws !== 'nowrap') {
+          t = insertRenderedLineBreaks(node, t);
+        }
         const start = fullText.length;
         fullText += t;
         const end = fullText.length;
@@ -6664,9 +6720,14 @@
           letterSpacing: parentCs.letterSpacing,
           textDecoration: parentCs.textDecorationLine || parentCs.textDecoration
         });
+        if (currRects.length > 0) {
+          lastTextRect = currRects[currRects.length - 1];
+        }
       } else if (node.nodeType === 1) {
         if (node.tagName === 'BR') {
-          fullText += "\n";
+          if (fullText.endsWith(' ')) fullText = fullText.slice(0, -1);
+          if (!fullText.endsWith('\n')) fullText += "\n";
+          lastTextRect = null;
           return;
         }
         for (const child of node.childNodes) {
