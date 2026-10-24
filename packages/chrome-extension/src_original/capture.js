@@ -8916,10 +8916,17 @@
 
       // Animated counters: If element is an odometer, vertical-counter, elementor-counter-number, or data-to container,
       // resolve its final number cleanly so ribbons/animations don't create intermediate states
-      const isCounterContainer = (typeof el.className === 'string' && (el.className.includes('odometer') || el.className.includes('vertical-counter') || el.className.includes('elementor-counter-number') || el.className.includes('counter-number') || el.className.includes('counter'))) ||
-                                 el.hasAttribute('data-to') || el.hasAttribute('data-to-value') || el.hasAttribute('data-count');
+      const isStructuralForCounter = /^(NAV|HEADER|FOOTER|MAIN|SECTION|ARTICLE|ASIDE|UL|OL|LI|TABLE|TBODY|THEAD|TR|FORM|SELECT|BUTTON|A)$/i.test(el.tagName);
+      const hasComplexChildren = !isStructuralForCounter && el.querySelector('a, nav, ul, ol, li, p, form, table') !== null;
+      const isCounterClass = typeof el.className === 'string' && /\b(?:odometer|vertical-counter|elementor-counter-number|counter-number|counter)\b/i.test(el.className);
+      const isCounterContainer = !isStructuralForCounter && !hasComplexChildren && (
+        isCounterClass ||
+        el.hasAttribute('data-to') ||
+        el.hasAttribute('data-to-value') ||
+        (el.hasAttribute('data-count') && isCounterClass)
+      );
       if (isCounterContainer) {
-        let counterVal = el.getAttribute('data-to-value') || el.getAttribute('data-to') || el.getAttribute('data-count') || el.getAttribute('data-val') || '';
+        let counterVal = el.getAttribute('data-to-value') || el.getAttribute('data-to') || (isCounterClass ? el.getAttribute('data-count') : '') || el.getAttribute('data-val') || '';
         const delimiter = el.getAttribute('data-delimiter') || ',';
         if (counterVal && delimiter && !counterVal.includes(delimiter)) {
           const num = parseFloat(counterVal);
@@ -8947,36 +8954,39 @@
           }
         }
         if (counterVal) {
-          const styledParent = el.closest('.elementor-counter-number, .elementor-counter-number-wrapper, .elementor-counter') || el;
-          const pCs = window.getComputedStyle(styledParent);
-          const effectiveFontSize = parseFloat(pCs.fontSize) || parseFloat(styles.fontSize) || 40;
-          const effectiveFontWeight = normalizeFontWeightMinRegular(pCs.fontWeight || styles.fontWeight || '700');
-          const effectiveColor = (pCs.color && pCs.color !== 'rgba(0, 0, 0, 0)' && pCs.color !== 'rgb(255, 255, 255)') ? pCs.color : (styles.color && styles.color !== 'rgb(255, 255, 255)' ? styles.color : 'rgb(50, 53, 93)');
-          const effectiveLineHeight = pCs.lineHeight || styles.lineHeight || `${Math.round(effectiveFontSize * 1.25)}px`;
+          const hasTextContent = childNodes.some(c => c.text && /[a-zA-Z]{3,}/.test(c.text));
+          if (!hasTextContent) {
+            const styledParent = el.closest('.elementor-counter-number, .elementor-counter-number-wrapper, .elementor-counter') || el;
+            const pCs = window.getComputedStyle(styledParent);
+            const effectiveFontSize = parseFloat(pCs.fontSize) || parseFloat(styles.fontSize) || 40;
+            const effectiveFontWeight = normalizeFontWeightMinRegular(pCs.fontWeight || styles.fontWeight || '700');
+            const effectiveColor = (pCs.color && pCs.color !== 'rgba(0, 0, 0, 0)' && pCs.color !== 'rgb(255, 255, 255)') ? pCs.color : (styles.color && styles.color !== 'rgb(255, 255, 255)' ? styles.color : 'rgb(50, 53, 93)');
+            const effectiveLineHeight = pCs.lineHeight || styles.lineHeight || `${Math.round(effectiveFontSize * 1.25)}px`;
 
-          const resolvedStyles = {
-            ...styles,
-            fontSize: `${effectiveFontSize}px`,
-            fontWeight: effectiveFontWeight,
-            color: effectiveColor,
-            lineHeight: effectiveLineHeight
-          };
+            const resolvedStyles = {
+              ...styles,
+              fontSize: `${effectiveFontSize}px`,
+              fontWeight: effectiveFontWeight,
+              color: effectiveColor,
+              lineHeight: effectiveLineHeight
+            };
 
-          childNodes.length = 0;
-          const textW = Math.round(docRect.width) || 100;
-          const textH = Math.round(docRect.height) || 40;
-          childNodes.push({
-            nodeType: TEXT_NODE,
-            id: getNodeId('counter-text'),
-            text: counterVal,
-            rect: {
-              x: docRect.x,
-              y: docRect.y,
-              width: textW,
-              height: textH
-            },
-            styles: resolvedStyles
-          });
+            childNodes.length = 0;
+            const textW = Math.round(docRect.width) || 100;
+            const textH = Math.round(docRect.height) || 40;
+            childNodes.push({
+              nodeType: TEXT_NODE,
+              id: getNodeId('counter-text'),
+              text: counterVal,
+              rect: {
+                x: docRect.x,
+                y: docRect.y,
+                width: textW,
+                height: textH
+              },
+              styles: resolvedStyles
+            });
+          }
         }
       }
 
