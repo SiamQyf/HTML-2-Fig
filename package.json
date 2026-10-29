@@ -14,6 +14,7 @@
     "build:webstore": "node scripts/package_webstore.js",
     "audit:invariants": "node scripts/audit_invariants.js",
     "audit:visual": "node scripts/audit_visual_diff.js",
+    "studio": "node studio/server.js",
     "postinstall": "npx puppeteer browsers install chrome",
     "start": "node server/index.js"
   },

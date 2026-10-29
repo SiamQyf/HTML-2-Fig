@@ -293,68 +293,8 @@ function getColorDistance(c1, c2) {
   );
 }
 
-async function auditUrl(targetUrl, options = {}) {
-  console.log(`\n======================================================`);
-  console.log(`🔍 [HTML-2-Fig 360° Audit] Starting comprehensive check for:`);
-  console.log(`   ${targetUrl}`);
-  console.log(`======================================================\n`);
-
-  if (!fs.existsSync(REPORT_DIR)) {
-    fs.mkdirSync(REPORT_DIR, { recursive: true });
-  }
-
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-
-  const page = await browser.newPage();
-  await page.setViewport({ width: 1440, height: 900 });
-
-  console.log('⏳ Navigating to URL...');
-  try {
-    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-  } catch (e) {
-    console.warn('⚠️ Navigation timeout or warning, proceeding with loaded DOM...');
-  }
-
-  // Wait for entrance animations / Slider Revolution to reach resting state
-  try {
-    const hasSlider = await page.$('.rev_slider, [class*="rev_slider"], .tp-caption, [data-frames]');
-    if (hasSlider) {
-      console.log('⏳ Waiting 2.8s for hero slider entrance animations to settle...');
-      await new Promise(r => setTimeout(r, 2800));
-    }
-  } catch (_) {}
-
-  // Smooth scroll to trigger lazy loading / animations
-  console.log('📜 Scrolling page to trigger lazy loading & animations...');
-  await page.evaluate(async () => {
-    const totalHeight = document.body.scrollHeight;
-    for (let y = 0; y < Math.min(totalHeight, 10000); y += 600) {
-      window.scrollTo(0, y);
-      await new Promise(r => setTimeout(r, 80));
-    }
-    window.scrollTo(0, 0);
-    try {
-      const swipers = document.querySelectorAll('.swiper, [class*="swiper-container"], [class*="swiper"]');
-      for (const el of swipers) {
-        const s = el.swiper || (window.jQuery && window.jQuery(el).data('swiper'));
-        if (s) {
-          try {
-            if (s.autoplay && s.autoplay.stop) s.autoplay.stop();
-            if (typeof s.slideToLoop === 'function') s.slideToLoop(0, 0);
-            else if (typeof s.slideTo === 'function') s.slideTo(0, 0);
-          } catch(e) {}
-        }
-      }
-    } catch(e) {}
-    await new Promise(r => setTimeout(r, 800));
-  });
-
-  // 1. Extract Ground-Truth DOM Data (Text, Images, Interactive, Dimensions, Styles)
-  console.log('📐 Extracting 360° Ground-Truth DOM hierarchy & visual glyph metrics...');
-  const domTruth = await page.evaluate(() => {
+async function extractDomTruth(page) {
+  return await page.evaluate(() => {
     function parseRgb(colorStr) {
       const m = (colorStr || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
       if (!m) return null;
@@ -685,45 +625,23 @@ async function auditUrl(targetUrl, options = {}) {
 
     return { textElements, imageElements };
   });
+}
 
-  const screenshotName = `screenshot_${Date.now()}.png`;
-  const screenshotPath = path.join(REPORT_DIR, screenshotName);
-  console.log(`📸 Capturing live page viewport screenshot -> ${screenshotName}...`);
-  await page.screenshot({ path: screenshotPath, fullPage: false });
+function parseWeightFromStyleOrName(style) {
+  if (!style) return 400;
+  const s = String(style).toLowerCase();
+  if (s.includes('black') || s.includes('heavy') || s.includes('900')) return 900;
+  if (s.includes('extrabold') || s.includes('ultrabold') || s.includes('800')) return 800;
+  if (s.includes('semibold') || s.includes('demibold') || s.includes('600')) return 600;
+  if (s.includes('bold') || s.includes('700')) return 700;
+  if (s.includes('medium') || s.includes('500')) return 500;
+  if (s.includes('light') || s.includes('300')) return 300;
+  if (s.includes('extralight') || s.includes('ultralight') || s.includes('200')) return 200;
+  if (s.includes('thin') || s.includes('hairline') || s.includes('100')) return 100;
+  return 400;
+}
 
-  // 2. Run capture.js inside page
-  console.log('⚡ Running capture.js engine...');
-  const captureJs = fs.readFileSync(CAPTURE_JS_PATH, 'utf8');
-  await page.evaluate(captureJs);
-
-  const payload = await page.evaluate(async () => {
-    return await window.html2Fig.captureRaw();
-  });
-
-  await browser.close();
-
-  console.log(`📦 Captured raw payload: ${payload?.root?.childNodes?.length || 0} top-level nodes.`);
-
-  // 3. Run simulated Figma render
-  console.log('🎨 Rendering inside simulated Figma engine (code.js)...');
-  const textMetricsMap = {};
-  for (const item of domTruth.textElements) {
-    if (item.visualRect) {
-      if (item.fullText) textMetricsMap[item.fullText.replace(/\s+/g, ' ').trim()] = item.visualRect;
-      if (item.text) textMetricsMap[item.text.replace(/\s+/g, ' ').trim()] = item.visualRect;
-    }
-  }
-
-  const { createdNodes, env: mockFigma } = createFigmaMock(textMetricsMap);
-  global.__html__ = '';
-  global.figma = mockFigma;
-
-  const figmaCode = fs.readFileSync(FIGMA_CODE_PATH, 'utf8');
-  eval(figmaCode);
-
-  await renderTree(payload);
-  console.log(`✨ Figma render complete: ${createdNodes.length} nodes created.`);
-
+function evaluateLayout(domTruth, createdNodes, targetUrl = '', screenshotName = 'screenshot.png') {
   // 4. Exhaustive 360° Anomaly & Discrepancy Analysis
   console.log('🔎 Running Comprehensive 360° Discrepancy & Fidelity Analysis...');
   const anomalies = [];
@@ -1616,9 +1534,117 @@ async function auditUrl(targetUrl, options = {}) {
   return {
     passed: criticalCount === 0,
     compositeScore,
+    coverageRate,
+    geometryRate,
+    typographyRate,
+    stylingRate,
     anomalies: uniqueAnomalies,
     reportPath: reportFilePath
   };
+}
+
+async function auditUrl(targetUrl, options = {}) {
+  console.log(`\n======================================================`);
+  console.log(`🔍 [HTML-2-Fig 360° Audit] Starting comprehensive check for:`);
+  console.log(`   ${targetUrl}`);
+  console.log(`======================================================\n`);
+
+  if (!fs.existsSync(REPORT_DIR)) {
+    fs.mkdirSync(REPORT_DIR, { recursive: true });
+  }
+
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1440, height: 900 });
+
+  console.log('⏳ Navigating to URL...');
+  try {
+    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+  } catch (e) {
+    console.warn('⚠️ Navigation timeout or warning, proceeding with loaded DOM...');
+  }
+
+  // Wait for entrance animations / Slider Revolution to reach resting state
+  try {
+    const hasSlider = await page.$('.rev_slider, [class*="rev_slider"], .tp-caption, [data-frames]');
+    if (hasSlider) {
+      console.log('⏳ Waiting 2.8s for hero slider entrance animations to settle...');
+      await new Promise(r => setTimeout(r, 2800));
+    }
+  } catch (_) {}
+
+  // Smooth scroll to trigger lazy loading / animations
+  console.log('📜 Scrolling page to trigger lazy loading & animations...');
+  await page.evaluate(async () => {
+    const totalHeight = document.body.scrollHeight;
+    for (let y = 0; y < Math.min(totalHeight, 10000); y += 600) {
+      window.scrollTo(0, y);
+      await new Promise(r => setTimeout(r, 80));
+    }
+    window.scrollTo(0, 0);
+    try {
+      const swipers = document.querySelectorAll('.swiper, [class*="swiper-container"], [class*="swiper"]');
+      for (const el of swipers) {
+        const s = el.swiper || (window.jQuery && window.jQuery(el).data('swiper'));
+        if (s) {
+          try {
+            if (s.autoplay && s.autoplay.stop) s.autoplay.stop();
+            if (typeof s.slideToLoop === 'function') s.slideToLoop(0, 0);
+            else if (typeof s.slideTo === 'function') s.slideTo(0, 0);
+          } catch(e) {}
+        }
+      }
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 800));
+  });
+
+  // 1. Extract Ground-Truth DOM Data (Text, Images, Interactive, Dimensions, Styles)
+  console.log('📐 Extracting 360° Ground-Truth DOM hierarchy & visual glyph metrics...');
+  const domTruth = await extractDomTruth(page);
+
+  const screenshotName = `screenshot_${Date.now()}.png`;
+  const screenshotPath = path.join(REPORT_DIR, screenshotName);
+  console.log(`📸 Capturing live page viewport screenshot -> ${screenshotName}...`);
+  await page.screenshot({ path: screenshotPath, fullPage: false });
+
+  // 2. Run capture.js inside page
+  console.log('⚡ Running capture.js engine...');
+  const captureJs = fs.readFileSync(CAPTURE_JS_PATH, 'utf8');
+  await page.evaluate(captureJs);
+
+  const payload = await page.evaluate(async () => {
+    return await window.html2Fig.captureRaw();
+  });
+
+  await browser.close();
+
+  console.log(`📦 Captured raw payload: ${payload?.root?.childNodes?.length || 0} top-level nodes.`);
+
+  // 3. Run simulated Figma render
+  console.log('🎨 Rendering inside simulated Figma engine (code.js)...');
+  const textMetricsMap = {};
+  for (const item of domTruth.textElements) {
+    if (item.visualRect) {
+      if (item.fullText) textMetricsMap[item.fullText.replace(/\s+/g, ' ').trim()] = item.visualRect;
+      if (item.text) textMetricsMap[item.text.replace(/\s+/g, ' ').trim()] = item.visualRect;
+    }
+  }
+
+  const { createdNodes, env: mockFigma } = createFigmaMock(textMetricsMap);
+  global.__html__ = '';
+  global.figma = mockFigma;
+
+  const figmaCode = fs.readFileSync(FIGMA_CODE_PATH, 'utf8');
+  eval(figmaCode);
+
+  await renderTree(payload);
+  console.log(`✨ Figma render complete: ${createdNodes.length} nodes created.`);
+
+  return evaluateLayout(domTruth, createdNodes, targetUrl, screenshotName);
 }
 
 function generateHtmlReport(url, screenshotName, anomalies, figmaCount, domCount, scores) {
@@ -1789,4 +1815,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { auditUrl, createFigmaMock, getAbsoluteFigmaRect };
+module.exports = { auditUrl, extractDomTruth, evaluateLayout, createFigmaMock, getAbsoluteFigmaRect };
