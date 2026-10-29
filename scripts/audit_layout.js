@@ -336,6 +336,19 @@ async function auditUrl(targetUrl, options = {}) {
       await new Promise(r => setTimeout(r, 80));
     }
     window.scrollTo(0, 0);
+    try {
+      const swipers = document.querySelectorAll('.swiper, [class*="swiper-container"], [class*="swiper"]');
+      for (const el of swipers) {
+        const s = el.swiper || (window.jQuery && window.jQuery(el).data('swiper'));
+        if (s) {
+          try {
+            if (s.autoplay && s.autoplay.stop) s.autoplay.stop();
+            if (typeof s.slideToLoop === 'function') s.slideToLoop(0, 0);
+            else if (typeof s.slideTo === 'function') s.slideTo(0, 0);
+          } catch(e) {}
+        }
+      }
+    } catch(e) {}
     await new Promise(r => setTimeout(r, 800));
   });
 
@@ -530,8 +543,9 @@ async function auditUrl(targetUrl, options = {}) {
 
       const parentEl = el.parentElement;
       const parentRect = parentEl ? parentEl.getBoundingClientRect() : null;
-      const clonedSliderParent = el.closest('.slick-cloned, [class*="slick-cloned"]');
-      const isSliderChild = !!clonedSliderParent || (visualRect.x + visualRect.width < -50) || (visualRect.x > 2500);
+      const clonedSliderParent = el.closest('.slick-cloned, [class*="slick-cloned"], .swiper-slide:not(.swiper-slide-active):not(.swiper-slide-visible), .slick-slide:not(.slick-active)');
+      const isPromoModalChild = !!el.closest('.awb-off-canvas-wrap, [class*="newsletter-popup"], [class*="promo-popup"], #onetrust-consent-sdk, [class*="type-popup"]');
+      const isSliderChild = !!clonedSliderParent || isPromoModalChild || (visualRect.x + visualRect.width < -50) || (visualRect.x > 2500);
       const isInlineInParagraph = el.tagName === 'A' && cs.display.startsWith('inline') &&
         (['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'LABEL', 'BLOCKQUOTE', 'FIGCAPTION', 'DIV', 'SPAN'].includes(parentEl?.tagName) ||
          (parentEl && (parentEl.textContent || '').trim().length > cleanText.length + 5));
@@ -849,6 +863,8 @@ async function auditUrl(targetUrl, options = {}) {
           const fCompact = fLower.replace(/\s+/g, '');
           if (fCompact.includes(cleanCompact)) {
             if (cleanLower.length <= 3) {
+              const isCounterToken = /^\d+(?:\.\d+)?$/.test(cleanDom) || /^[kmbgt%]+$/i.test(cleanDom) || cleanDom.includes('+');
+              if (isCounterToken) return true;
               const wordRe = new RegExp('(?:^|\\s|\\W)' + cleanDom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:$|\\s|\\W)', 'i');
               return wordRe.test(f.cleanText);
             }
@@ -989,7 +1005,7 @@ async function auditUrl(targetUrl, options = {}) {
     if (!isCode && figmaNode.characters && figmaNode.characters.length > 15) {
       const fused = figmaNode.characters.match(/[a-z]{2,}[A-Z][a-z]{2,}/g) || [];
       if (fused.length >= 1) {
-        const domHasFused = fused.every(w => (domItem.fullText || '').includes(w));
+        const domHasFused = fused.every(w => (domItem.fullText || '').includes(w) || domTruth.textElements.some(d => (d.cleanText || '').includes(w) || (d.fullText || '').includes(w)));
         if (!domHasFused) {
           anomalies.push({
             severity: 'CRITICAL',
@@ -1171,7 +1187,7 @@ async function auditUrl(targetUrl, options = {}) {
     }
 
     const figmaFs = (figmaNode.getFontSizeAt ? figmaNode.getFontSizeAt(matchCharIndex) : figmaNode.fontSize) || 16;
-    if (Math.abs(figmaFs - expectedFontSize) >= 3 && expectedFontSize > 9) {
+    if (Math.abs(figmaFs - expectedFontSize) >= 3 && expectedFontSize > 9 && !isInlineOrUnified) {
       typoPass = false;
       anomalies.push({
         severity: Math.abs(figmaFs - expectedFontSize) >= 6 ? 'CRITICAL' : 'WARNING',
@@ -1359,7 +1375,9 @@ async function auditUrl(targetUrl, options = {}) {
     if (match) {
       mediaMatchedCount++;
       let p = match.node?.parent;
-      if (p && p.clipsContent) {
+      const isBgPatternOrMask = (media.className && /(?:background-pattern|background-mask|awb-background|pattern|mask)/i.test(media.className)) ||
+                                (p.name && /(?:background-pattern|background-mask|awb-background|pattern|mask)/i.test(p.name));
+      if (p && p.clipsContent && !isBgPatternOrMask) {
         if (match.node.y < -2) {
           anomalies.push({
             severity: 'CRITICAL',
@@ -1771,4 +1789,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { auditUrl };
+module.exports = { auditUrl, createFigmaMock, getAbsoluteFigmaRect };

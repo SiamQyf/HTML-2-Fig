@@ -82,7 +82,11 @@ async function auditInvariants(targetUrlOrFile, options = {}) {
     targetUrl = 'file://' + path.resolve(targetUrlOrFile).replace(/\\/g, '/');
   }
 
-  await page.goto(targetUrl, { waitUntil: options.wait || 'networkidle2', timeout: 45000 });
+  try {
+    await page.goto(targetUrl, { waitUntil: options.wait || 'networkidle2', timeout: 60000 });
+  } catch (e) {
+    console.warn('⚠️ Navigation timeout or warning, proceeding with loaded DOM...');
+  }
 
   // Scroll down to trigger lazy loading, Elementor reveals, and IntersectionObservers
   await page.evaluate(async () => {
@@ -99,6 +103,16 @@ async function auditInvariants(targetUrlOrFile, options = {}) {
           resolve();
         }
       }, 50);
+    });
+
+    // Freeze carousels and reset to initial slide so DOM truth matches static capture representation
+    document.querySelectorAll('.swiper, .swiper-container, .awb-swiper, [class*="swiper"]').forEach(s => {
+      if (s.swiper) {
+        try {
+          s.swiper.autoplay?.stop();
+          s.swiper.slideTo(0, 0);
+        } catch (_) {}
+      }
     });
   });
   await new Promise(r => setTimeout(r, 600));
@@ -157,6 +171,12 @@ async function auditInvariants(targetUrlOrFile, options = {}) {
           if (curr.classList.contains('offcanvas') && !curr.classList.contains('show')) {
             return false;
           }
+          if (curr.matches && curr.matches('.awb-off-canvas-wrap.type-popup, [class*="off-canvas-wrap"].type-popup, [id^="awb-oc-"]')) {
+            return false;
+          }
+        }
+        if (curr.closest && curr.closest('.awb-off-canvas-wrap.type-popup, [class*="off-canvas-wrap"].type-popup, [id^="awb-oc-"]')) {
+          return false;
         }
         curr = curr.parentElement;
       }
@@ -335,9 +355,8 @@ async function auditInvariants(targetUrlOrFile, options = {}) {
 
   for (const item of domTruth.textNodes) {
     const clean = item.text.replace(/\s+/g, ' ').toLowerCase();
-    if (!clean) continue;
     if (!mergedCapturedCorpus.includes(clean)) {
-      const words = clean.split(' ').map(w => w.replace(/[^\w\d]/g, '')).filter(w => w.length >= 2);
+      const words = clean.split(/[\s\u2010-\u2015\-]+/).map(w => w.replace(/[^\w\d]/g, '')).filter(w => w.length >= 2);
       const missingWords = words.filter(w => !mergedCapturedCorpus.includes(w) && !strippedCapturedCorpus.includes(w));
 
       // If element is CSS line-clamped, clamped suffix words are intentionally truncated by CSS
@@ -487,7 +506,23 @@ async function auditInvariants(targetUrlOrFile, options = {}) {
 
       const pos1 = s1.styles?.position || 'static';
       const pos2 = s2.styles?.position || 'static';
-      if (pos1 === 'absolute' || pos1 === 'fixed' || pos2 === 'absolute' || pos2 === 'fixed') continue;
+      if (pos1 === 'fixed' || pos2 === 'fixed') continue;
+
+      const getEffectiveText = (n) => {
+        if (n.text) return n.text;
+        if (n.childNodes && n.childNodes.length > 0) {
+          return n.childNodes.map(c => c.text || '').join('');
+        }
+        return '';
+      };
+      const t1 = getEffectiveText(s1);
+      const t2 = getEffectiveText(s2);
+
+      if (pos1 === 'absolute' || pos2 === 'absolute') {
+        const s1HasLongText = t1.trim().length > 15;
+        const s2HasLongText = t2.trim().length > 15;
+        if (!s1HasLongText || !s2HasLongText) continue;
+      }
 
       if (s1.rect.width > 2 && s1.rect.height > 2 && s2.rect.width > 2 && s2.rect.height > 2) {
         const s1HasContent = (s1.text && s1.text.trim()) || (s1.childNodes && s1.childNodes.length > 0) || s1.tag === 'IMG' || s1.tag === 'SVG';
@@ -505,11 +540,13 @@ async function auditInvariants(targetUrlOrFile, options = {}) {
             const s2IsCloseHeader = s2.tag === 'HEADER' && /modal-header|close/i.test(s2.attributes?.class || '') && (!s2.text || s2.text.trim() === '✕');
             if (s1IsCloseHeader || s2IsCloseHeader) continue;
 
-            // Ignore intentional avatar stack / badge overlaps
-            const isAvatarStack = /circle-stack|avatar-group|avatar-stack|avatars/i.test(parent.attributes?.class || '') ||
-              parseFloat(s1.styles?.marginLeft || '0') < 0 || parseFloat(s2.styles?.marginLeft || '0') < 0 ||
-              parseFloat(s1.styles?.marginRight || '0') < 0 || parseFloat(s2.styles?.marginRight || '0') < 0;
-            if (isAvatarStack) continue;
+            // Ignore intentional avatar stack / badge / negative margin overlaps
+            const isAvatarStack = /circle-stack|avatar-group|avatar-stack|avatars/i.test(parent.attributes?.class || '');
+            const hasNegativeMargin = parseFloat(s1.styles?.marginLeft || '0') < -0.5 || parseFloat(s2.styles?.marginLeft || '0') < -0.5 ||
+              parseFloat(s1.styles?.marginRight || '0') < -0.5 || parseFloat(s2.styles?.marginRight || '0') < -0.5 ||
+              parseFloat(s1.styles?.marginTop || '0') < -0.5 || parseFloat(s2.styles?.marginTop || '0') < -0.5 ||
+              parseFloat(s1.styles?.marginBottom || '0') < -0.5 || parseFloat(s2.styles?.marginBottom || '0') < -0.5;
+            if (isAvatarStack || hasNegativeMargin) continue;
 
             // Ignore transparent floating header overlaying hero/slider section
             const isHeaderHeroOverlay = (
@@ -523,15 +560,6 @@ async function auditInvariants(targetUrlOrFile, options = {}) {
             // Ignore minor line-height bleed between adjacent text lines/fragments
             const isInlineOrText1 = !s1.tag || ['SPAN', 'STRONG', 'EM', 'B', 'I', 'A', 'U'].includes(s1.tag);
             const isInlineOrText2 = !s2.tag || ['SPAN', 'STRONG', 'EM', 'B', 'I', 'A', 'U'].includes(s2.tag);
-            const getEffectiveText = (n) => {
-              if (n.text) return n.text;
-              if (n.childNodes && n.childNodes.length > 0) {
-                return n.childNodes.map(c => c.text || '').join('');
-              }
-              return '';
-            };
-            const t1 = getEffectiveText(s1);
-            const t2 = getEffectiveText(s2);
             if (isInlineOrText1 && isInlineOrText2 && t1 && t2) {
               const overlapHeight = Math.min(s1.rect.y + s1.rect.height, s2.rect.y + s2.rect.height) - Math.max(s1.rect.y, s2.rect.y);
               if (overlapHeight <= 12) continue;

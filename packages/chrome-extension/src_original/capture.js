@@ -619,6 +619,7 @@
             const savedTriggers = [];
             window.ScrollTrigger.getAll().forEach(st => {
               try {
+                if (st.pin || st.vars?.pin) return;
                 const savedProgress = st.animation ? st.animation.progress() : null;
                 const isCrazyScale = st.vars && st.vars.scrub && st.trigger && (st.trigger.className || '').includes('circle-shape');
                 if (st.animation && !isCrazyScale) {
@@ -647,7 +648,16 @@
             const savedTweens = [];
             window.gsap.globalTimeline.getChildren().forEach(tween => {
               try {
-                if (tween.scrollTrigger || !tween.paused()) {
+                if (tween.scrollTrigger) return;
+                const targets = typeof tween.targets === 'function' ? tween.targets() : (tween.target ? [tween.target] : []);
+                const isPinned = targets.some(t => {
+                  if (t && t.nodeType === 1) {
+                    return !!t.closest('.pin-spacer, [class*="pin-spacer"], .awb-full-sections, .awb-full-section, [data-pin]');
+                  }
+                  return false;
+                });
+                if (isPinned) return;
+                if (!tween.paused()) {
                   savedTweens.push({ tween, progress: tween.progress() });
                   tween.progress(1);
                 }
@@ -810,7 +820,7 @@
     // Neutralize cookie consent overlays, GDPR modals, and body scroll locks so scrolling reaches all sections
     try {
       const consentModals = document.querySelectorAll(
-        '#usercentrics-root, uc-layer2, #onetrust-consent-sdk, #CookiebotWidget, .cookie-banner, [id*="cookie-banner"], [class*="consent-modal"], [id*="consent-prompt"]'
+        '#usercentrics-root, uc-layer2, #onetrust-consent-sdk, #CookiebotWidget, .cookie-banner, [id*="cookie-banner"], [class*="consent-modal"], [id*="consent-prompt"], .awb-off-canvas-wrap.type-popup, .awb-off-canvas-wrap[class*="popup"], [class*="newsletter-popup"], [class*="promo-popup"]'
       );
       for (const c of consentModals) {
         const savedDisplay = c.style.display;
@@ -830,6 +840,57 @@
       }
     } catch {}
 
+
+    // Neutralize rotating/animated text wrappers (e.g. Avada .fusion-animated-texts-wrapper, .fusion-textillate, typed.js)
+    try {
+      const wrappers = document.querySelectorAll('.fusion-animated-texts-wrapper, [class*="animated-texts-wrapper"]');
+      for (const wrap of wrappers) {
+        const sW = wrap.style.width;
+        const sVis = wrap.style.visibility;
+        wrap.style.setProperty('width', 'auto', 'important');
+        wrap.style.setProperty('visibility', 'visible', 'important');
+        cleanupTasks.push(() => {
+          if (sW) wrap.style.width = sW; else wrap.style.removeProperty('width');
+          if (sVis) wrap.style.visibility = sVis; else wrap.style.removeProperty('visibility');
+        });
+
+        const textillates = wrap.querySelectorAll('.fusion-textillate');
+        for (const t of textillates) {
+          const stVis = t.style.visibility;
+          const stDisp = t.style.display;
+          t.style.setProperty('visibility', 'visible', 'important');
+          t.style.setProperty('display', 'inline-block', 'important');
+          cleanupTasks.push(() => {
+            if (stVis) t.style.visibility = stVis; else t.style.removeProperty('visibility');
+            if (stDisp) t.style.display = stDisp; else t.style.removeProperty('display');
+          });
+        }
+
+        const lines = wrap.querySelectorAll('.line1, [class*="line"]');
+        for (const l of lines) {
+          const slVis = l.style.visibility;
+          const slDisp = l.style.display;
+          const slW = l.style.width;
+          const slOv = l.style.overflow;
+          l.style.setProperty('visibility', 'visible', 'important');
+          l.style.setProperty('display', 'inline-block', 'important');
+          l.style.setProperty('width', 'auto', 'important');
+          l.style.setProperty('overflow', 'visible', 'important');
+          if (!l.textContent.trim()) {
+            const cur = wrap.querySelector('.fusion-animated-text.current') || wrap.querySelector('.fusion-animated-text');
+            if (cur && cur.textContent.trim()) {
+              l.textContent = cur.textContent.trim();
+            }
+          }
+          cleanupTasks.push(() => {
+            if (slVis) l.style.visibility = slVis; else l.style.removeProperty('visibility');
+            if (slDisp) l.style.display = slDisp; else l.style.removeProperty('display');
+            if (slW) l.style.width = slW; else l.style.removeProperty('width');
+            if (slOv) l.style.overflow = slOv; else l.style.removeProperty('overflow');
+          });
+        }
+      }
+    } catch {}
 
     // Now that virtual smooth scroll wrappers and scroll-linked animations are neutralized, scroll natively to trigger lazy images
     const scrollableContainers = [window];
@@ -966,6 +1027,7 @@
         if (window.ScrollTrigger) {
           window.ScrollTrigger.getAll().forEach(st => {
             try {
+              if (st.pin || st.vars?.pin) return;
               if (st.trigger) {
                 const r = st.trigger.getBoundingClientRect();
                 if (r.top < vh && r.bottom > 0) {
@@ -1005,6 +1067,7 @@
             if (window.ScrollTrigger) {
               window.ScrollTrigger.getAll().forEach(st => {
                 try {
+                  if (st.pin || st.vars?.pin) return;
                   if (st.animation) {
                     st.animation.progress(1);
                     st.animation.pause();
@@ -1017,6 +1080,15 @@
             if (window.gsap) {
               window.gsap.globalTimeline.getChildren(true, true, true).forEach(tween => {
                 try {
+                  if (tween.scrollTrigger) return;
+                  const targets = typeof tween.targets === 'function' ? tween.targets() : (tween.target ? [tween.target] : []);
+                  const isPinned = targets.some(t => {
+                    if (t && t.nodeType === 1) {
+                      return !!t.closest('.pin-spacer, [class*="pin-spacer"], .awb-full-sections, .awb-full-section, [data-pin]');
+                    }
+                    return false;
+                  });
+                  if (isPinned) return;
                   tween.progress(1);
                   tween.pause();
                 } catch {}
@@ -1376,11 +1448,26 @@
 
         const isMarquee = /marquee|ticker|loop/i.test(cls) || (m.parentElement && /marquee|ticker|loop/i.test(m.parentElement.className || ''));
 
+        const parent = m.parentElement;
+        const swiperObj = (m.swiper || (parent && parent.swiper));
+        if (swiperObj) {
+          try {
+            swiperObj.autoplay?.stop();
+            if (swiperObj.params?.autoplay) swiperObj.params.autoplay = false;
+            if (typeof swiperObj.slideToLoop === 'function' && swiperObj.params?.loop) {
+              swiperObj.slideToLoop(0, 0);
+            } else if (typeof swiperObj.slideTo === 'function') {
+              swiperObj.slideTo(0, 0);
+            }
+            swiperObj.update();
+          } catch (e) {}
+          continue;
+        }
+
         if (m.classList && m.classList.contains('swiper-wrapper')) {
           continue;
         }
 
-        const parent = m.parentElement;
         if (parent && parent.swiper) {
           try {
             parent.swiper.autoplay?.stop();
@@ -1411,6 +1498,59 @@
           });
         }
       }
+
+      // Marquee normalization: pause ticker and align first item to 0
+      try {
+        const marqueeWrappers = document.querySelectorAll('.awb-marquee-left, [class*="marquee-wrap"], [class*="marquee-container"]');
+        marqueeWrappers.forEach(wrap => {
+          const sAnim = wrap.style.animation;
+          const sTf = wrap.style.transform;
+          wrap.style.setProperty('animation', 'none', 'important');
+          wrap.style.setProperty('transform', 'none', 'important');
+          cleanupTasks.push(() => {
+            wrap.style.animation = sAnim;
+            wrap.style.transform = sTf;
+          });
+        });
+        const marquees = document.querySelectorAll('.awb-marquee-content, [class*="marquee-content"]');
+        const seenMarqueeParents = new Set();
+        marquees.forEach(mc => {
+          const p = mc.parentElement;
+          const sAnim = mc.style.animation;
+          const sTf = mc.style.transform;
+          const sDisp = mc.style.display;
+          if (!seenMarqueeParents.has(p)) {
+            seenMarqueeParents.add(p);
+            mc.style.setProperty('animation', 'none', 'important');
+            mc.style.setProperty('transform', 'none', 'important');
+          } else {
+            mc.style.setProperty('display', 'none', 'important');
+          }
+          cleanupTasks.push(() => {
+            mc.style.animation = sAnim;
+            mc.style.transform = sTf;
+            mc.style.display = sDisp;
+          });
+        });
+      } catch (_) {}
+
+      // Animated text wrapper normalization (e.g. Avada fusion-animated-texts-wrapper)
+      try {
+        const animWrappers = document.querySelectorAll('.fusion-animated-texts-wrapper, [class*="animated-texts-wrapper"]');
+        animWrappers.forEach(wrap => {
+          const textillate = wrap.querySelector('.fusion-textillate');
+          if (textillate) {
+            const sVis = textillate.style.visibility;
+            const sOp = textillate.style.opacity;
+            textillate.style.setProperty('visibility', 'visible', 'important');
+            textillate.style.setProperty('opacity', '1', 'important');
+            cleanupTasks.push(() => {
+              textillate.style.visibility = sVis;
+              textillate.style.opacity = sOp;
+            });
+          }
+        });
+      } catch (_) {}
     } catch (e) {}
 
     // Neutralize sticky-scroll runway containers (e.g. .stack-box, pin-spacers, stacked cards)
@@ -1541,6 +1681,7 @@
         }
       }
 
+      const processedStackItems = new Set();
       for (const box of stickyRunwayParents) {
         const bcs = window.getComputedStyle(box);
         if (bcs.position === 'sticky') continue;
@@ -1550,7 +1691,7 @@
           Array.from(box.children).find(c => window.getComputedStyle(c).position === 'sticky') || 
           box.firstElementChild;
         
-          if (contain && contain !== box) {
+        if (contain && contain !== box) {
           const cRect = contain.getBoundingClientRect();
           const targetH = Math.max(1, Math.round(cRect.height));
           if (targetH <= 50) continue;
@@ -1560,6 +1701,14 @@
           let rawItems = Array.from(box.querySelectorAll('.stack-item:not([class*="-wrapper"]):not([class*="-inner"]), [class*="card-item"]'));
           let items = rawItems.filter(item => !rawItems.some(other => other !== item && other.contains(item)));
 
+          // Also detect stacked full sections (e.g. .awb-full-section, [class*="full-section"])
+          if (items.length <= 1) {
+            const rawFullSecs = Array.from(box.querySelectorAll('.awb-full-section, [class*="full-section"]:not([class*="-wrap"]):not([class*="-container"]):not([class*="full-sections"])'));
+            const fullSecs = rawFullSecs.filter(item => !rawFullSecs.some(other => other !== item && other.contains(item)));
+            if (fullSecs.length > 1) {
+              items = fullSecs;
+            }
+          }
           if (items.length <= 1 && contain) {
             const absChildren = Array.from(contain.children).filter(c => {
               const ccs = window.getComputedStyle(c);
@@ -1572,6 +1721,9 @@
           }
 
           if (items.length > 1) {
+            if (items.some(it => processedStackItems.has(it))) continue;
+            items.forEach(it => processedStackItems.add(it));
+
             // Keep ALL stacked cards and position them into a clean stack container, with the last card on top!
             const maxItemH = Math.max(targetH, ...items.map(it => Math.round(it.getBoundingClientRect().height || it.offsetHeight || 0)));
             const primaryW = Math.round(items[0].getBoundingClientRect().width || box.getBoundingClientRect().width);
@@ -1609,6 +1761,81 @@
                 itemParent.style.height = savedParentH;
               });
             }
+            const isFullSections = items.some(it => (it.classList && (it.classList.contains('awb-full-section') || it.classList.contains('fusion-fullwidth'))) || (it.getBoundingClientRect().height >= 600 && it.getBoundingClientRect().width >= 1000));
+            if (isFullSections) {
+              const slideH = Math.min(window.innerHeight || 900, Math.round(contain.getBoundingClientRect().height || window.innerHeight || 900) / items.length > 300 ? Math.round(contain.getBoundingClientRect().height / items.length) : (window.innerHeight || 900));
+              const totalItemsH = items.length * slideH;
+              box.style.setProperty('height', totalItemsH + 'px', 'important');
+              box.style.setProperty('min-height', totalItemsH + 'px', 'important');
+              if (box.classList.contains('pin-spacer') || (box.className && String(box.className).includes('pin-spacer'))) {
+                box.style.setProperty('padding-bottom', '0px', 'important');
+              }
+              if (itemParent && itemParent !== box) {
+                itemParent.style.setProperty('height', totalItemsH + 'px', 'important');
+                itemParent.style.setProperty('min-height', totalItemsH + 'px', 'important');
+                itemParent.style.setProperty('overflow', 'visible', 'important');
+              }
+              if (box.parentElement && (box.parentElement.classList.contains('awb-full-sections-wrap') || (box.parentElement.className && String(box.parentElement.className).includes('full-sections-wrap')))) {
+                box.parentElement.style.setProperty('height', totalItemsH + 'px', 'important');
+                box.parentElement.style.setProperty('min-height', totalItemsH + 'px', 'important');
+              }
+              let curTop = 0;
+              items.forEach((item, idx) => {
+                const sPos = item.style.position;
+                const sTop = item.style.top;
+                const sLeft = item.style.left;
+                const sWidth = item.style.width;
+                const sHeight = item.style.height;
+                const sMargin = item.style.margin;
+                const sZIndex = item.style.zIndex;
+                const sOp = item.style.opacity;
+                const sVis = item.style.visibility;
+                const itH = slideH;
+
+                item.style.setProperty('position', 'absolute', 'important');
+                item.style.setProperty('top', curTop + 'px', 'important');
+                item.style.setProperty('left', '0px', 'important');
+                item.style.setProperty('width', primaryW + 'px', 'important');
+                item.style.setProperty('height', itH + 'px', 'important');
+                item.style.setProperty('margin', '0px', 'important');
+                item.style.setProperty('opacity', '1', 'important');
+                item.style.setProperty('visibility', 'visible', 'important');
+                item.style.setProperty('z-index', String(idx + 1), 'important');
+
+                const animChildren = Array.from(item.querySelectorAll('.fusion-animated, [style*="opacity"]'));
+                const childSaves = animChildren.map(c => ({
+                  el: c,
+                  op: c.style.opacity,
+                  vis: c.style.visibility,
+                  tf: c.style.transform
+                }));
+                animChildren.forEach(c => {
+                  c.style.setProperty('opacity', '1', 'important');
+                  c.style.setProperty('visibility', 'visible', 'important');
+                  c.style.setProperty('transform', 'none', 'important');
+                });
+
+                curTop += itH;
+
+                cleanupTasks.push(() => {
+                  item.style.position = sPos;
+                  item.style.top = sTop;
+                  item.style.left = sLeft;
+                  item.style.width = sWidth;
+                  item.style.height = sHeight;
+                  item.style.margin = sMargin;
+                  item.style.zIndex = sZIndex;
+                  item.style.opacity = sOp;
+                  item.style.visibility = sVis;
+                  childSaves.forEach(cs => {
+                    cs.el.style.opacity = cs.op;
+                    cs.el.style.visibility = cs.vis;
+                    cs.el.style.transform = cs.tf;
+                  });
+                });
+              });
+            } else {
+
 
             // Stack cards on top of each other with sequential z-index so the last card is on top
             items.forEach((item, idx) => {
@@ -1635,6 +1862,8 @@
                 item.style.zIndex = sZIndex;
               });
             });
+          
+            }
           } else if (items.length === 1) {
             const savedH = box.style.height;
             const savedMinH = box.style.minHeight;
@@ -5990,6 +6219,8 @@
       if (clean) return true;
       const w = parseFloat(cs.width) || 0;
       const h = parseFloat(cs.height) || 0;
+      if (w <= 4 && h > 0) return false;
+      if (el.closest && el.closest('.fusion-animated-texts-wrapper, [class*="animated-texts-wrapper"], .typed-cursor, [class*="typewriter"]')) return false;
       const hasBg = (cs.backgroundColor && cs.backgroundColor !== 'transparent' && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') ||
                     (cs.backgroundImage && cs.backgroundImage !== 'none');
       const hasBorder = (parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderBottomWidth) > 0 ||
@@ -6005,8 +6236,10 @@
 
   function canUnifyTextContainer(el) {
     if (!el || el.childNodes.length === 0) return false;
-    const isAnimSplit = !!(typeof el.className === 'string' && /split-text|text-reveal|splitting|fancy-text|anime-text/i.test(el.className)) ||
-                        el.hasAttribute?.('data-splitting') || el.hasAttribute?.('data-fancy-text');
+    const isAnimSplit = !!(typeof el.className === 'string' && /split-text|text-reveal|splitting|fancy-text|anime-text|fusion-title-rotating|fusion-animated-texts/i.test(el.className)) ||
+                        el.hasAttribute?.('data-splitting') || el.hasAttribute?.('data-fancy-text') ||
+                        !!(el.closest && el.closest('.fusion-title-rotating, [class*="animated-texts"]')) ||
+                        !!(el.querySelector && el.querySelector('.fusion-animated-texts-wrapper, [class*="animated-texts-wrapper"], .fusion-textillate'));
     if (!isAnimSplit && (hasVisualPseudoContent(el, '::before') || hasVisualPseudoContent(el, '::after'))) return false;
     const elCs = window.getComputedStyle(el);
     if (elCs.display.includes('flex') || elCs.display.includes('grid')) return false;
@@ -6045,7 +6278,7 @@
           }
           const cs = window.getComputedStyle(child);
           if (cs.display === 'none') continue;
-          const isChildAnimSplit = !!(child.closest && child.closest('.splitting, [data-splitting], [data-fancy-text], .anime-text, .words, .word, .chars, .char'));
+          const isChildAnimSplit = isAnimSplit || !!(child.closest && child.closest('.splitting, [data-splitting], [data-fancy-text], .anime-text, .words, .word, .chars, .char, .fusion-animated-texts-wrapper, [class*="animated-texts-wrapper"], .fusion-textillate'));
           const bContent = window.getComputedStyle(child, '::before').content;
           const aContent = window.getComputedStyle(child, '::after').content;
           if (!isChildAnimSplit && ((bContent && bContent !== 'none' && bContent !== 'normal') || (aContent && aContent !== 'none' && aContent !== 'normal'))) {
@@ -6341,6 +6574,15 @@
         }
         if (!t) return;
 
+        const tt = parentCs.textTransform;
+        if (tt === 'capitalize') {
+          t = t.replace(/(?:^|\s)\S/g, c => c.toUpperCase());
+        } else if (tt === 'uppercase') {
+          t = t.toUpperCase();
+        } else if (tt === 'lowercase') {
+          t = t.toLowerCase();
+        }
+
         const firstRect = currRects[0] || null;
         const isNewLine = !!(lastTextRect && firstRect && (firstRect.top >= lastTextRect.top + Math.max(3, lastTextRect.height * 0.45)));
 
@@ -6358,9 +6600,16 @@
             const isChar1 = lastTextElement.classList?.contains('char') || lastTextElement.hasAttribute?.('data-char');
             const isChar2 = node.parentElement?.classList?.contains('char') || node.parentElement?.hasAttribute?.('data-char');
             const isCharInsideWord = inSameWord || (!word1 && !word2 && isChar1 && isChar2);
-            if (!isCharInsideWord) {
+                        if (!isCharInsideWord) {
               const isPunctuation = /^[.,;:!?\)\]’”%—]/.test(t);
-              if (!isPunctuation) {
+              const isUnitOrSuffix = (
+                /^(?:k|m|b|t|g|s|h|yr|y|d|w|cr|lakh|%)[\+\-]?$/i.test(t.trim()) ||
+                /^[\+\-%]/.test(t.trim()) ||
+                !!node.parentElement?.classList?.contains('unit') ||
+                !!node.parentElement?.classList?.contains('suffix') ||
+                !!node.parentElement?.closest?.('.content-box-percentage, .counter-box, .fusion-counter-box, [class*="counter"]')
+              ) && /\d$/.test(fullText.trim());
+              if (!isPunctuation && !isUnitOrSuffix) {
                 fullText += ' ';
               }
             }
@@ -6398,6 +6647,9 @@
           lastTextRect = currRects[currRects.length - 1];
         }
       } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const nodeCs = window.getComputedStyle(node);
+        if (nodeCs.display === 'none') return;
+        if (node.classList && (node.classList.contains('fusion-animated-texts') || (node.classList.contains('fusion-animated-text') && !node.classList.contains('current')))) return;
         if (node.tagName === 'BR') {
           if (fullText.endsWith(' ')) fullText = fullText.slice(0, -1);
           if (!fullText.endsWith('\n')) fullText += "\n";
@@ -6670,6 +6922,15 @@
         }
         if (!t) return;
 
+        const tt = parentCs.textTransform;
+        if (tt === 'capitalize') {
+          t = t.replace(/(?:^|\s)\S/g, c => c.toUpperCase());
+        } else if (tt === 'uppercase') {
+          t = t.toUpperCase();
+        } else if (tt === 'lowercase') {
+          t = t.toLowerCase();
+        }
+
         const firstRect = currRects[0] || null;
         const isNewLine = !!(lastTextRect && firstRect && (firstRect.top >= lastTextRect.top + Math.max(3, lastTextRect.height * 0.45)));
 
@@ -6687,9 +6948,16 @@
             const isChar1 = lastTextElement.classList?.contains('char') || lastTextElement.hasAttribute?.('data-char');
             const isChar2 = node.parentElement?.classList?.contains('char') || node.parentElement?.hasAttribute?.('data-char');
             const isCharInsideWord = inSameWord || (!word1 && !word2 && isChar1 && isChar2);
-            if (!isCharInsideWord) {
+                        if (!isCharInsideWord) {
               const isPunctuation = /^[.,;:!?\)\]’”%—]/.test(t);
-              if (!isPunctuation) {
+              const isUnitOrSuffix = (
+                /^(?:k|m|b|t|g|s|h|yr|y|d|w|cr|lakh|%)[\+\-]?$/i.test(t.trim()) ||
+                /^[\+\-%]/.test(t.trim()) ||
+                !!node.parentElement?.classList?.contains('unit') ||
+                !!node.parentElement?.classList?.contains('suffix') ||
+                !!node.parentElement?.closest?.('.content-box-percentage, .counter-box, .fusion-counter-box, [class*="counter"]')
+              ) && /\d$/.test(fullText.trim());
+              if (!isPunctuation && !isUnitOrSuffix) {
                 fullText += ' ';
               }
             }
@@ -6724,6 +6992,9 @@
           lastTextRect = currRects[currRects.length - 1];
         }
       } else if (node.nodeType === 1) {
+        const nodeCs = window.getComputedStyle(node);
+        if (nodeCs.display === 'none') return;
+        if (node.classList && (node.classList.contains('fusion-animated-texts') || (node.classList.contains('fusion-animated-text') && !node.classList.contains('current')))) return;
         if (node.tagName === 'BR') {
           if (fullText.endsWith(' ')) fullText = fullText.slice(0, -1);
           if (!fullText.endsWith('\n')) fullText += "\n";
@@ -7569,6 +7840,15 @@
       if (isCursorFollower) {
         return null;
       }
+      const isDemoBadge = (typeof el.className === 'string' && (
+        /\b(?:awb-quick-nav|awb-preview-badges|demo-switcher|theme-preview-bar)\b/i.test(el.className)
+      )) || (el.closest && (() => {
+        const c = el.closest('.awb-quick-nav, .awb-preview-badges, .demo-switcher, .theme-preview-bar');
+        return c && c.tagName !== 'BODY' && c.tagName !== 'HTML';
+      })());
+      if (isDemoBadge) {
+        return null;
+      }
     }
 
     // Skip internal digit ribbons inside animated odometers so only the resolved counter text is captured
@@ -7611,7 +7891,17 @@
       return results;
     }
 
-    let isHidden = (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02);
+    const hasZeroFilterOpacity = (
+      (styles.filter && /opacity\(\s*0(?:\.0+)?%?\s*\)/i.test(styles.filter)) ||
+      (styles.webkitFilter && /opacity\(\s*0(?:\.0+)?%?\s*\)/i.test(styles.webkitFilter)) ||
+      (el.style && (
+        (el.style.filter && /opacity\(\s*0(?:\.0+)?%?\s*\)/i.test(el.style.filter)) ||
+        (el.style.webkitFilter && /opacity\(\s*0(?:\.0+)?%?\s*\)/i.test(el.style.webkitFilter)) ||
+        /--awb-filter\s*:\s*opacity\(\s*0(?:\.0+)?%?\s*\)/i.test(el.getAttribute('style') || '')
+      ))
+    );
+
+    let isHidden = (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.02 || hasZeroFilterOpacity);
 
     // If an image has a real URL but is hidden by lazy-load CSS (opacity:0, visibility:hidden), don't drop it!
     if (tag === 'IMG' || el instanceof HTMLImageElement || el instanceof HTMLPictureElement || tag === 'PICTURE') {
@@ -7682,7 +7972,7 @@
     // Drop resting-hidden backdrops, curtains, scrims, and modal backdrops
     // (e.g. Apple #globalnav-curtain, .globalnav-curtain, .modal-backdrop, .curtain, .scrim, .drawer-backdrop)
     const isBackdropOrCurtain = (
-      /curtain|scrim|backdrop|modal-backdrop|offcanvas-backdrop|nav-curtain|globalnav-curtain/i.test(cls + ' ' + (el.id || '')) ||
+      /curtain|scrim|backdrop|modal-backdrop|offcanvas-backdrop|off-canvas-backdrop|off-canvas-overlay|awb-off-canvas|nav-curtain|globalnav-curtain/i.test(cls + ' ' + (el.id || '')) ||
       ((styles.position === 'fixed' || styles.position === 'absolute') && (styles.backdropFilter && styles.backdropFilter !== 'none') && (parseFloat(styles.opacity) <= 0.05 || styles.visibility === 'hidden'))
     );
     if (isBackdropOrCurtain && (styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
@@ -7701,7 +7991,7 @@
 
     const isEffectivelyHiddenAtRest = isHidden || (!hasVisualMedia && parseFloat(styles.opacity) <= 0.04) || styles.visibility === 'hidden' || styles.display === 'none';
 
-    if (isHoverClassOrAttr && isEffectivelyHiddenAtRest && !hasVisualMedia) {
+    if ((isHoverClassOrAttr || hasZeroFilterOpacity) && isEffectivelyHiddenAtRest && !hasVisualMedia) {
       styles.opacity = '0';
       styles.visibility = 'hidden';
       return null;
@@ -7710,7 +8000,12 @@
     // 2. Hidden or offscreen icons, arrows, or secondary content inside buttons, links, or interactive controls:
     // When a button/link is visible, any resting-hidden or off-screen inner element is a hover-state icon/variant
     // (e.g. animated hover chevron, swap icon). It must NEVER be captured or revealed.
-    const interactiveHost = el.closest && el.closest('button, a, [role="button"], .btn, [class*="btn"], [class*="button"], .theme-btn');
+    const interactiveHost = (tag !== 'BODY' && tag !== 'HTML') && el.closest && (() => {
+      const h = el.closest('button, a, [role="button"], .btn, [class*="btn"], [class*="button"], .theme-btn');
+      if (!h || h.tagName === 'BODY' || h.tagName === 'HTML' || h.tagName === 'MAIN' || h.tagName === 'SECTION' || h.tagName === 'FORM') return null;
+      if (h.classList && (h.classList.contains('fusion-body') || h.classList.contains('site-wrapper') || h.classList.contains('page-wrapper'))) return null;
+      return h;
+    })();
     if (interactiveHost) {
       try {
         const hostCs = window.getComputedStyle(interactiveHost);
@@ -7866,6 +8161,8 @@
       '[class*="modal"]:not(.show):not(.in):not(.active):not(.open), ' +
       '.offcanvas:not(.show):not(.open):not(.active), ' +
       '[class*="offcanvas"]:not(.show):not(.open):not(.active), ' +
+      '[class*="off-canvas"]:not(.show):not(.open):not(.active):not(.is-open):not(.awb-off-canvas-opened), ' +
+      '[class*="type-popup"]:not(.show):not(.open):not(.active):not(.is-open):not(.awb-off-canvas-opened), ' +
       '[class*="drawer"]:not(.show):not(.open):not(.active), ' +
       '[class*="popup"]:not(.show):not(.open):not(.active), ' +
       '[class*="mini-cart"]:not(.show):not(.open):not(.active), ' +
@@ -8025,7 +8322,7 @@
                                  (styles.webkitBackgroundClip && styles.webkitBackgroundClip.includes('text'))) &&
                                 (styles.backgroundImage && styles.backgroundImage.includes('gradient'));
 
-        if (isContentElement && (
+        if (!hasZeroFilterOpacity && isContentElement && (
           (inlineOp !== null && inlineOp < 0.98) ||
           (hasOpacityAnim && (curOpacity < 0.98 || (inlineOp !== null && inlineOp < 0.98))) ||
           (hasActiveAnim && (isNaN(curOpacity) || curOpacity < 0.99)) ||
@@ -8052,13 +8349,15 @@
     const isAnimHiddenContent = (
       styles.display !== 'none' &&
       !isFixedOrHighZOverlay &&
+      !hasZeroFilterOpacity &&
       (styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.15) &&
       hasVisibleContent &&
       !isNavDropdown && !isHoverOrOverlay && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && !isBackdropOrCurtain &&
       !el.closest('.vertical-counter, .odometer, .swiper-slide:not(.swiper-slide-active)')
     );
 
-    const isAnimTarget = hasAnimClass || hasScrollRevealBehavior || isAnimHiddenContent;
+    const isTextillateWrap = !!(el.closest && el.closest('.fusion-animated-texts-wrapper, [class*="animated-texts-wrapper"], .fusion-textillate'));
+    const isAnimTarget = hasAnimClass || hasScrollRevealBehavior || isAnimHiddenContent || isTextillateWrap;
 
     if (isAnimTarget) {
       // Force element to its final / fully-revealed state
@@ -8916,8 +9215,9 @@
 
       // Animated counters: If element is an odometer, vertical-counter, elementor-counter-number, or data-to container,
       // resolve its final number cleanly so ribbons/animations don't create intermediate states
-      const isCounterContainer = (typeof el.className === 'string' && (el.className.includes('odometer') || el.className.includes('vertical-counter') || el.className.includes('elementor-counter-number') || el.className.includes('counter-number') || el.className.includes('counter'))) ||
-                                 el.hasAttribute('data-to') || el.hasAttribute('data-to-value') || el.hasAttribute('data-count');
+      const isNavOrMenuEl = ['NAV', 'HEADER', 'MENU', 'UL', 'OL', 'LI'].includes(tag) || (typeof el.className === 'string' && /awb-menu|fusion-menu|main-menu|nav-menu|mega-menu/i.test(el.className));
+      const isCounterContainer = !isNavOrMenuEl && ((typeof el.className === 'string' && (el.className.includes('odometer') || el.className.includes('vertical-counter') || el.className.includes('elementor-counter-number') || el.className.includes('counter-number') || el.className.includes('counter'))) ||
+                                 (el.hasAttribute('data-to') || el.hasAttribute('data-to-value') || el.hasAttribute('data-count')));
       if (isCounterContainer) {
         let counterVal = el.getAttribute('data-to-value') || el.getAttribute('data-to') || el.getAttribute('data-count') || el.getAttribute('data-val') || '';
         const delimiter = el.getAttribute('data-delimiter') || ',';
@@ -9347,7 +9647,8 @@
       // on the right side of the captured Figma frame.
       const clientWidth = document.documentElement.clientWidth || document.body?.clientWidth || window.innerWidth;
       const fullDocWidth = clientWidth;
-      const fullDocHeight = Math.max(
+      const bodyBottom = root && root.rect ? Math.round((root.rect.y || 0) + (root.rect.height || 0)) : 0;
+      const fullDocHeight = bodyBottom > (window.innerHeight || 900) ? bodyBottom : Math.max(
         document.documentElement.scrollHeight,
         document.body ? document.body.scrollHeight : 0,
         window.innerHeight
