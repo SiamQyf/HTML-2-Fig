@@ -33,6 +33,10 @@ function getChromePath() {
   return undefined;
 }
 
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, version: '2.0.0', time: Date.now() });
+});
+
 // In-memory jobs
 const jobs = new Map();
 
@@ -483,9 +487,38 @@ async function runPipeline(job, jobDir, options) {
   }
 }
 
-app.listen(PORT, () => {
+function openBrowser(targetUrl) {
+  if (process.env.OPEN_BROWSER === 'false') return;
+  const { exec } = require('child_process');
+  const startCmd = process.platform === 'win32' ? `start "" "${targetUrl}"` :
+                   process.platform === 'darwin' ? `open "${targetUrl}"` :
+                   `xdg-open "${targetUrl}"`;
+  exec(startCmd, () => {});
+}
+
+const server = app.listen(PORT, () => {
   console.log(`\n======================================================`);
   console.log(`🚀 HTML-2-Fig Visual Studio is running!`);
   console.log(`🌐 Open in your browser: http://localhost:${PORT}`);
   console.log(`======================================================\n`);
+  openBrowser(`http://localhost:${PORT}`);
+});
+
+server.on('error', async (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log(`\n⚠️  Port ${PORT} is already in use.`);
+    try {
+      const res = await fetch(`http://localhost:${PORT}/api/health`);
+      const data = await res.json();
+      if (data.ok) {
+        console.log(`✓ HTML-2-Fig Studio is already running on port ${PORT}!`);
+        console.log(`🌐 Opening browser: http://localhost:${PORT}\n`);
+        openBrowser(`http://localhost:${PORT}`);
+        return;
+      }
+    } catch (_) {}
+    console.error(`❌ Port ${PORT} is occupied by another process. Please close it or set PORT=4243.`);
+  } else {
+    console.error('Server error:', err);
+  }
 });

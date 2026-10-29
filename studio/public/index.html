@@ -359,9 +359,9 @@
       <span>HTML-2-Fig</span>
       <span class="brand-badge">Visual Studio</span>
     </div>
-    <div style="font-size: 0.85rem; color: var(--text-muted); display:flex; align-items:center; gap:8px;">
+    <div id="serverStatusPill" style="font-size: 0.85rem; color: #10b981; display:flex; align-items:center; gap:8px;">
       <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
-      Autonomous Verification Engine v2.0
+      Studio Server Connected
     </div>
   </header>
 
@@ -485,10 +485,34 @@
   <div id="toast">Figma Payload copied to clipboard!</div>
 
   <script>
+    const API_BASE = (window.location.protocol === 'file:' || window.location.origin === 'null' || !window.location.port)
+      ? 'http://localhost:4242'
+      : '';
+
     let currentJobId = null;
     let pollInterval = null;
     let currentSlices = [];
     let curSliceIdx = 0;
+
+    async function checkServerConnection() {
+      const pill = document.getElementById('serverStatusPill');
+      if (!pill) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/health`, { cache: 'no-store' });
+        const data = await res.json();
+        if (data && data.ok) {
+          pill.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981;"></span> Studio Server Connected (localhost:4242)';
+          pill.style.color = '#10b981';
+          return true;
+        }
+      } catch (e) {
+        pill.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;"></span> Server Offline — Run start-studio.bat';
+        pill.style.color = '#ef4444';
+        return false;
+      }
+    }
+    setInterval(checkServerConnection, 3500);
+    checkServerConnection();
 
     function setPreset(url) {
       document.getElementById('urlInput').value = url;
@@ -499,6 +523,18 @@
       const viewport = document.getElementById('viewportSelect').value;
       if (!url) return alert('Please enter a valid website URL.');
 
+      // Check server health first
+      try {
+        const h = await fetch(`${API_BASE}/api/health`, { cache: 'no-store' });
+        if (!h.ok) throw new Error();
+      } catch (_) {
+        return alert(
+          '⚠️ HTML-2-Fig Studio Server is not running!\n\n' +
+          'Please start the server by double-clicking "start-studio.bat" or running "npm run studio" in terminal.\n' +
+          'The server will run at http://localhost:4242.'
+        );
+      }
+
       document.getElementById('runBtn').disabled = true;
       document.getElementById('progressCard').style.display = 'block';
       document.getElementById('resultsContainer').style.display = 'none';
@@ -506,7 +542,7 @@
       document.getElementById('progressBar').style.width = '5%';
 
       try {
-        const res = await fetch('/api/start-audit', {
+        const res = await fetch(`${API_BASE}/api/start-audit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url, viewport })
@@ -523,7 +559,7 @@
     async function checkProgress() {
       if (!currentJobId) return;
       try {
-        const res = await fetch('/api/job/' + currentJobId);
+        const res = await fetch(`${API_BASE}/api/job/` + currentJobId);
         const job = await res.json();
 
         document.getElementById('stepLabel').textContent = job.step;
@@ -560,13 +596,13 @@
       curSliceIdx = 0;
       updateSliceView();
 
-      document.getElementById('downloadBtn').href = result.figmaDownloadUrl;
+      document.getElementById('downloadBtn').href = `${API_BASE}${result.figmaDownloadUrl}`;
     }
 
     function updateSliceView() {
       if (currentSlices.length === 0) return;
       const s = currentSlices[curSliceIdx];
-      document.getElementById('currentSliceImg').src = s.url;
+      document.getElementById('currentSliceImg').src = `${API_BASE}${s.url}`;
       document.getElementById('sliceCounter').textContent = `Slice ${curSliceIdx + 1} of ${currentSlices.length} (Y: ${s.y}px - ${s.y + s.height}px)`;
     }
 
@@ -592,7 +628,7 @@
     async function copyFigmaJson() {
       if (!currentJobId) return;
       try {
-        const res = await fetch(`/api/job/${currentJobId}/download-figma`);
+        const res = await fetch(`${API_BASE}/api/job/${currentJobId}/download-figma`);
         const text = await res.text();
         await navigator.clipboard.writeText(text);
         showToast('✓ Figma Payload copied to clipboard! Paste into the Figma plugin.');
