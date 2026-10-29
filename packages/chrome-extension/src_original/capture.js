@@ -9730,65 +9730,12 @@
       } catch (e) {}
 
       const ok = await writeClipboard(json);
-      const completionMsg = '✓ v2.0 Captured (Settled & Unpinned)! Paste in Figma (Ctrl+V)';
-
-      // Always show floating interactive action card on page
-      try {
-        const oldCard = document.getElementById('h2f-completion-card');
-        if (oldCard) oldCard.remove();
-        const card = document.createElement('div');
-        card.id = 'h2f-completion-card';
-        card.setAttribute('data-h2f-ignore', 'true');
-        card.style.cssText = 'position:fixed; bottom:24px; right:24px; z-index:2147483647; background:#131c2e; border:1.5px solid #10b981; border-radius:14px; padding:14px 20px; box-shadow:0 16px 40px rgba(0,0,0,0.7), 0 0 20px rgba(16,185,129,0.3); color:#f8fafc; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:14px; display:flex; align-items:center; gap:12px; backdrop-filter:blur(16px);';
-        
-        const hVal = Math.round(payload.root?.rect?.height || payload.documentRect?.height || 0);
-        const statusSpan = document.createElement('span');
-        statusSpan.style.cssText = 'font-weight:700; color:#10b981; display:flex; align-items:center; gap:6px;';
-        statusSpan.innerHTML = '✓ Captured (' + hVal + 'px)';
-
-        const copyBtn = document.createElement('button');
-        copyBtn.style.cssText = 'background:' + (ok ? 'rgba(16,185,129,0.2)' : 'linear-gradient(135deg, #10b981, #059669)') + '; color:#fff; border:1px solid ' + (ok ? '#10b981' : 'transparent') + '; padding:8px 16px; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.2s;';
-        copyBtn.textContent = ok ? '✓ Copied (Paste in Figma)' : '👉 Click to Copy Figma JSON';
-        copyBtn.onclick = async () => {
-          try {
-            await navigator.clipboard.writeText(json);
-            copyBtn.textContent = '✓ Copied! Paste in Figma (Ctrl+V)';
-            copyBtn.style.background = '#10b981';
-            copyBtn.style.color = '#fff';
-          } catch (e) {
-            writeClipboard(json);
-            copyBtn.textContent = '✓ Copied! Paste in Figma (Ctrl+V)';
-          }
-        };
-
-        const dlBtn = document.createElement('button');
-        dlBtn.style.cssText = 'background:rgba(255,255,255,0.08); color:#cbd5e1; border:1px solid rgba(255,255,255,0.15); padding:8px 12px; border-radius:8px; font-weight:600; font-size:13px; cursor:pointer;';
-        dlBtn.textContent = '⬇️ JSON';
-        dlBtn.title = 'Download Figma JSON Payload';
-        dlBtn.onclick = () => {
-          const blob = new Blob([json], { type: 'application/json' });
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = 'figma_capture_' + Date.now() + '.json';
-          a.click();
-        };
-
-        const closeBtn = document.createElement('button');
-        closeBtn.style.cssText = 'background:none; border:none; color:#64748b; font-size:18px; cursor:pointer; padding:0 4px; line-height:1;';
-        closeBtn.innerHTML = '&times;';
-        closeBtn.onclick = () => card.remove();
-
-        card.appendChild(statusSpan);
-        card.appendChild(copyBtn);
-        card.appendChild(dlBtn);
-        card.appendChild(closeBtn);
-        document.body.appendChild(card);
-      } catch (_) {}
+      const completionMsg = 'Open our Figma plugin and paste (Ctrl/ Cmd + V)';
 
       if (halo) {
-        halo.finish(ok, ok ? completionMsg : '👉 Click the floating button below to copy Figma JSON', 8000);
+        halo.finish(ok, completionMsg, 6000);
       } else {
-        showEdgeLighting(ok ? completionMsg : '👉 Click the floating button below to copy Figma JSON', 8000);
+        showEdgeLighting(completionMsg, 6000);
       }
     } catch (err) {
       console.error('[HTML-2-Fig] Capture error:', err);
