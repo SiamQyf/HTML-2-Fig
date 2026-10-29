@@ -817,10 +817,17 @@
       }
     } catch {}
 
-    // Neutralize cookie consent overlays, GDPR modals, and body scroll locks so scrolling reaches all sections
+    // Auto-dismiss cookie banners by simulating clicking accept/allow
+    try {
+      const btns = Array.from(document.querySelectorAll('button, a[role="button"], input[type="button"]'));
+      const accept = btns.find(b => /accept all|agree|allow all|required only|i accept|got it/i.test(b.textContent || b.value || ''));
+      if (accept) { try { accept.click(); } catch (_) {} }
+    } catch (_) {}
+
+    // Neutralize cookie consent overlays, GDPR modals, off-canvas drawers and body scroll locks so scrolling reaches all sections
     try {
       const consentModals = document.querySelectorAll(
-        '#usercentrics-root, uc-layer2, #onetrust-consent-sdk, #CookiebotWidget, .cookie-banner, [id*="cookie-banner"], [class*="consent-modal"], [id*="consent-prompt"], .awb-off-canvas-wrap.type-popup, .awb-off-canvas-wrap[class*="popup"], [class*="newsletter-popup"], [class*="promo-popup"]'
+        '#usercentrics-root, uc-layer2, #onetrust-consent-sdk, #CookiebotWidget, .cookie-banner, [id*="cookie-banner"], [class*="consent-modal"], [id*="consent-prompt"], .awb-off-canvas-wrap, [class*="off-canvas"], [class*="type-popup"], .awb-show, [class*="newsletter-popup"], [class*="promo-popup"]'
       );
       for (const c of consentModals) {
         const savedDisplay = c.style.display;
