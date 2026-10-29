@@ -1,3 +1,27 @@
+
+function findInstalledChromeExtensions() {
+  const dirs = [];
+  const localAppData = process.env.LOCALAPPDATA;
+  if (!localAppData) return dirs;
+  const chromeBase = path.join(localAppData, 'Google/Chrome/User Data');
+  if (!fs.existsSync(chromeBase)) return dirs;
+  try {
+    const profiles = fs.readdirSync(chromeBase).filter(p => p === 'Default' || p.startsWith('Profile '));
+    for (const prof of profiles) {
+      const extFolder = path.join(chromeBase, prof, 'Extensions/pdkcnebbgmaoiidjblohpeanelipeapi');
+      if (fs.existsSync(extFolder)) {
+        const versions = fs.readdirSync(extFolder);
+        for (const v of versions) {
+          const fullVerPath = path.join(extFolder, v);
+          if (fs.statSync(fullVerPath).isDirectory()) {
+            dirs.push(fullVerPath);
+          }
+        }
+      }
+    }
+  } catch (_) {}
+  return dirs;
+}
 /**
  * CWS-Compliant Minification Script for HTML-to-Fig Chrome Extension
  *
@@ -142,7 +166,8 @@ async function protect() {
       mirrorDir,
       path.join(rootDir, 'packages/chrome-extension-webstore'),
       path.join(rootDir, 'dist/html-to-figma-chrome-extension'),
-      path.join(rootDir, 'dist/chrome-extension-webstore')
+      path.join(rootDir, 'dist/chrome-extension-webstore'),
+      ...findInstalledChromeExtensions()
     ];
     for (const d of otherDirs) {
       if (fs.existsSync(d)) {
@@ -159,7 +184,8 @@ async function protect() {
     mirrorDir,
     path.join(rootDir, 'packages/chrome-extension-webstore'),
     path.join(rootDir, 'dist/html-to-figma-chrome-extension'),
-    path.join(rootDir, 'dist/chrome-extension-webstore')
+    path.join(rootDir, 'dist/chrome-extension-webstore'),
+    ...findInstalledChromeExtensions()
   ];
   for (const f of syncFiles) {
     const srcF = path.join(extDir, f);

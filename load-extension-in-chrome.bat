@@ -22,3 +22,4 @@ echo   HTML.to.Figma — Perfect Capture (v2.0 Autonomous)  2.0.0
 echo --------------------------------------------------------
 echo.
 pause
+
