@@ -485,10 +485,91 @@
   }
 
   /* ======================================================================
+   *  2b. UNIVERSAL SELF-HEALING RULE ENGINE (Over-The-Air Dynamic Sync)
+   * ====================================================================== */
+  let _activeUniversalRules = null;
+
+  async function loadUniversalRules() {
+    if (_activeUniversalRules) return _activeUniversalRules;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 650);
+      const res = await fetch('http://localhost:4242/api/rules', { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.rules) {
+          _activeUniversalRules = data.rules;
+          try {
+            if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+              chrome.storage.local.set({ 'h2f_universal_rules': data.rules });
+            }
+          } catch (_) {}
+          return _activeUniversalRules;
+        }
+      }
+    } catch (_) {}
+
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        const cached = await new Promise(r => chrome.storage.local.get(['h2f_universal_rules'], r));
+        if (cached && cached.h2f_universal_rules) {
+          _activeUniversalRules = cached.h2f_universal_rules;
+          return _activeUniversalRules;
+        }
+      }
+    } catch (_) {}
+
+    _activeUniversalRules = {
+      offCanvasFilters: { enabled: true, selectors: ['#onetrust-consent-sdk', '[class*="consent"]', '[class*="cookie"]', '.awb-off-canvas-wrap', '[class*="off-canvas"]', '[class*="type-popup"]', '.awb-show'] },
+      pinSpacerUnstackers: { enabled: true, containerSelectors: ['.pin-spacer', '[class*="pin-spacer"]', '[data-pin]', '.awb-full-sections', '.stack-box'], childSelectors: ['.awb-full-section', '[class*="full-section"]', '.stack-item', '.fusion-fullwidth'] },
+      animationNeutralizers: { enabled: true, resetSwipers: { enabled: true } },
+      clipEnforcers: { enabled: true, detectSvgPatternAncestors: true, enforceFrameClip: true },
+      hydrationPlan: { enabled: true, stepDistance: 500, stepDelayMs: 80, settleDelayMs: 1200 }
+    };
+    return _activeUniversalRules;
+  }
+
+  /* ======================================================================
    *  3.  PAGE PRE-SCROLLER (Triggers lazy-loaded images & animations)
    * ====================================================================== */
   async function prepareAndScrollPage() {
     const cleanupTasks = [];
+    const activeRules = await loadUniversalRules();
+
+    // 0. Auto-dismiss & hide cookie consent modals, off-canvas drawers and body locks from universal rules
+    if (activeRules.offCanvasFilters?.enabled) {
+      try {
+        const btns = Array.from(document.querySelectorAll('button, a[role="button"], input[type="button"]'));
+        const accept = btns.find(b => /accept all|agree|allow all|required only|i accept|got it/i.test(b.textContent || b.value || ''));
+        if (accept) { try { accept.click(); } catch (_) {} }
+      } catch (_) {}
+
+      try {
+        const selectors = activeRules.offCanvasFilters.selectors.join(', ');
+        const modals = document.querySelectorAll(selectors);
+        for (const m of modals) {
+          const sDisp = m.style.display;
+          m.style.setProperty('display', 'none', 'important');
+          cleanupTasks.push(() => { try { if (sDisp) m.style.display = sDisp; else m.style.removeProperty('display'); } catch (_) {} });
+        }
+      } catch (_) {}
+    }
+
+    // 0b. Universal pre-scroll hydration walk to warm IntersectionObservers and trigger dynamic assets
+    if (activeRules.hydrationPlan?.enabled) {
+      const stepDist = activeRules.hydrationPlan.stepDistance || 500;
+      const stepDelay = activeRules.hydrationPlan.stepDelayMs || 80;
+      const settleDelay = activeRules.hydrationPlan.settleDelayMs || 1200;
+      const docH = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0);
+      const stepCount = Math.min(25, Math.ceil(docH / stepDist));
+      for (let i = 0; i < stepCount; i++) {
+        window.scrollBy(0, stepDist);
+        await new Promise(r => setTimeout(r, stepDelay));
+      }
+      window.scrollTo(0, 0);
+      await new Promise(r => setTimeout(r, settleDelay));
+    }
 
     // 1. Ensure document has finished initial loading and DOM parsing
     if (document.readyState !== 'complete') {

@@ -3,23 +3,32 @@ function findInstalledChromeExtensions() {
   const dirs = [];
   const localAppData = process.env.LOCALAPPDATA;
   if (!localAppData) return dirs;
-  const chromeBase = path.join(localAppData, 'Google/Chrome/User Data');
-  if (!fs.existsSync(chromeBase)) return dirs;
-  try {
-    const profiles = fs.readdirSync(chromeBase).filter(p => p === 'Default' || p.startsWith('Profile '));
-    for (const prof of profiles) {
-      const extFolder = path.join(chromeBase, prof, 'Extensions/pdkcnebbgmaoiidjblohpeanelipeapi');
-      if (fs.existsSync(extFolder)) {
-        const versions = fs.readdirSync(extFolder);
-        for (const v of versions) {
-          const fullVerPath = path.join(extFolder, v);
-          if (fs.statSync(fullVerPath).isDirectory()) {
-            dirs.push(fullVerPath);
+
+  const browserBases = [
+    path.join(localAppData, 'Google/Chrome/User Data'),
+    path.join(localAppData, 'BraveSoftware/Brave-Browser/User Data'),
+    path.join(localAppData, 'Microsoft/Edge/User Data')
+  ];
+
+  for (const bBase of browserBases) {
+    if (!fs.existsSync(bBase)) continue;
+    try {
+      const profiles = fs.readdirSync(bBase).filter(p => p === 'Default' || p.startsWith('Profile '));
+      for (const prof of profiles) {
+        // 1. WebStore installed ID
+        const extFolder = path.join(bBase, prof, 'Extensions/pdkcnebbgmaoiidjblohpeanelipeapi');
+        if (fs.existsSync(extFolder)) {
+          const versions = fs.readdirSync(extFolder);
+          for (const v of versions) {
+            const fullVerPath = path.join(extFolder, v);
+            if (fs.statSync(fullVerPath).isDirectory()) {
+              dirs.push(fullVerPath);
+            }
           }
         }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
   return dirs;
 }
 /**

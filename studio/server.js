@@ -37,6 +37,34 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, version: '2.0.0', time: Date.now() });
 });
 
+const RULES_PATH = path.join(__dirname, '../rules/rules.json');
+
+app.get('/api/rules', (req, res) => {
+  try {
+    if (fs.existsSync(RULES_PATH)) {
+      const rules = JSON.parse(fs.readFileSync(RULES_PATH, 'utf8'));
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.json(rules);
+    }
+  } catch (err) {}
+  res.status(500).json({ error: 'Rules not available' });
+});
+
+app.post('/api/rules/sync', (req, res) => {
+  try {
+    const newRules = req.body;
+    if (newRules && typeof newRules === 'object') {
+      newRules.updatedAt = new Date().toISOString();
+      fs.writeFileSync(RULES_PATH, JSON.stringify(newRules, null, 2), 'utf8');
+      return res.json({ ok: true, version: newRules.version || Date.now() });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+  res.status(400).json({ error: 'Invalid payload' });
+});
+
 // In-memory jobs
 const jobs = new Map();
 

@@ -1,0 +1,93 @@
+{
+  "version": "2.1.0",
+  "name": "HTML-2-Fig Universal Self-Healing Invariant Rules",
+  "updatedAt": "2026-10-29T18:25:00Z",
+  "rules": {
+    "offCanvasFilters": {
+      "enabled": true,
+      "selectors": [
+        "#onetrust-consent-sdk",
+        "#usercentrics-root",
+        "#CookiebotWidget",
+        "[class*=\"consent\"]",
+        "[id*=\"consent\"]",
+        "[class*=\"cookie\"]",
+        "[id*=\"cookie\"]",
+        ".awb-off-canvas-wrap",
+        "[class*=\"off-canvas\"]",
+        "[class*=\"type-popup\"]",
+        ".awb-show",
+        "[class*=\"newsletter-popup\"]",
+        "[class*=\"promo-popup\"]"
+      ],
+      "actions": ["hide", "neutralizeBodyLock"]
+    },
+    "pinSpacerUnstackers": {
+      "enabled": true,
+      "containerSelectors": [
+        ".pin-spacer",
+        "[class*=\"pin-spacer\"]",
+        "[data-pin]",
+        "[data-sticky-scroll]",
+        ".awb-full-sections",
+        ".awb-full-sections-wrap",
+        ".stack-box"
+      ],
+      "childSelectors": [
+        ".awb-full-section",
+        "[class*=\"full-section\"]:not([class*=\"-wrap\"]):not([class*=\"-container\"])",
+        ".stack-item",
+        "[class*=\"card-item\"]",
+        ".fusion-fullwidth"
+      ],
+      "unstackMode": "sequential-flow",
+      "clampPaddingBottom": "0px",
+      "normalizePosition": "relative",
+      "removeOverflowClip": true
+    },
+    "animationNeutralizers": {
+      "enabled": true,
+      "frameworks": ["gsap", "scrollTrigger", "scrollSmoother", "skrollr", "anime", "sal", "aos", "wow"],
+      "resetSwipers": {
+        "enabled": true,
+        "selectors": [".swiper", "[class*=\"swiper-container\"]", ".slick-slider", ".owl-carousel"],
+        "stopAutoplay": true,
+        "slideToZero": true,
+        "clearParallaxTransforms": true,
+        "parallaxSelectors": [
+          "[data-swiper-parallax]",
+          "[data-swiper-parallax-x]",
+          "[data-swiper-parallax-y]"
+        ]
+      },
+      "fastForwardTweens": true,
+      "revealSplittingText": {
+        "selectors": [
+          ".fusion-animated-texts-wrapper",
+          "[class*=\"animated-texts-wrapper\"]",
+          ".fusion-textillate",
+          "[data-splitting]",
+          ".split-text",
+          ".text-anim",
+          ".title-anim",
+          ".hero-text-anim"
+        ],
+        "forceVisibility": true,
+        "forceOpacity": 1.0,
+        "forceDisplay": "inline-block"
+      }
+    },
+    "clipEnforcers": {
+      "enabled": true,
+      "detectSvgPatternAncestors": true,
+      "enforceFrameClip": true
+    },
+    "hydrationPlan": {
+      "enabled": true,
+      "maxScrollHeight": 50000,
+      "stepDistance": 500,
+      "stepDelayMs": 80,
+      "settleDelayMs": 1200
+    }
+  }
+}
