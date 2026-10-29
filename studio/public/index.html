@@ -364,10 +364,7 @@
         <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
         Studio Server Connected
       </div>
-      <button class="btn-secondary" style="padding:8px 16px; font-size:0.85rem; border-color:rgba(56, 189, 248, 0.4); background:rgba(2, 132, 199, 0.15); color:#38bdf8;" onclick="buildAndApplyExtension()">
-        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-        Apply to Extension
-      </button>
+      
     </div>
   </header>
 
@@ -488,51 +485,7 @@
     </div>
   </main>
 
-  <!-- Extension Sync Modal -->
-  <div id="extModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(6px); z-index:200; align-items:center; justify-content:center;">
-    <div style="background:#131c2e; border:1px solid rgba(255,255,255,0.12); border-radius:16px; width:90%; max-width:540px; padding:28px; box-shadow:0 24px 48px rgba(0,0,0,0.6); display:flex; flex-direction:column; gap:18px;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div style="display:flex; align-items:center; gap:10px;">
-          <div style="width:36px; height:36px; border-radius:8px; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); display:flex; align-items:center; justify-content:center; color:#10b981;">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
-          </div>
-          <div>
-            <h3 style="font-size:1.1rem; font-weight:700;">Extension Built & Synchronized!</h3>
-            <p style="color:#94a3b8; font-size:0.82rem;">All pixel-perfect fixes have been compiled into your extension folders.</p>
-          </div>
-        </div>
-        <button onclick="closeExtModal()" style="background:none; border:none; color:#94a3b8; font-size:1.4rem; cursor:pointer;">&times;</button>
-      </div>
 
-      <div style="background:#0b0f17; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:8px;">
-        <span style="font-size:0.75rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:600;">Extension Directory</span>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <input id="extPathInput" type="text" readonly value="C:\\h2F\\packages\\chrome-extension" style="flex:1; background:transparent; border:none; color:#38bdf8; font-family:'JetBrains Mono', monospace; font-size:0.85rem; outline:none;">
-          <button onclick="copyExtPath()" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.1); color:#fff; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:0.78rem; font-weight:600;">Copy</button>
-        </div>
-      </div>
-
-      <div style="display:flex; flex-direction:column; gap:10px; font-size:0.88rem; color:#cbd5e1; line-height:1.5;">
-        <div style="font-weight:700; color:#fff; font-size:0.9rem;">To apply in your Chrome browser:</div>
-        <div style="display:flex; gap:10px; align-items:flex-start;">
-          <span style="background:rgba(2,132,199,0.2); color:#38bdf8; font-weight:700; font-size:0.78rem; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">1</span>
-          <span>Open a new tab in Chrome and go to <code style="background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:4px; color:#38bdf8;">chrome://extensions</code></span>
-        </div>
-        <div style="display:flex; gap:10px; align-items:flex-start;">
-          <span style="background:rgba(2,132,199,0.2); color:#38bdf8; font-weight:700; font-size:0.78rem; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">2</span>
-          <span>Ensure <strong>Developer mode</strong> (top-right toggle switch) is turned <strong>ON</strong>.</span>
-        </div>
-        <div style="display:flex; gap:10px; align-items:flex-start;">
-          <span style="background:rgba(2,132,199,0.2); color:#38bdf8; font-weight:700; font-size:0.78rem; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">3</span>
-          <span>Click <strong>Load unpacked</strong> and select the copied folder path above (or click the <strong>Reload ↺</strong> icon on HTML.to.Figma if already loaded).</span>
-        </div>
-      </div>
-
-      <div style="display:flex; justify-content:flex-end; margin-top:6px;">
-        <button onclick="closeExtModal()" class="btn-primary" style="padding:10px 22px;">Done</button>
-      </div>
-    </div>
-  </div>
 
   <div id="toast">Figma Payload copied to clipboard!</div>
 

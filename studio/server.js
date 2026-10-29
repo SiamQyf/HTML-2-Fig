@@ -37,17 +37,6 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, version: '2.0.0', time: Date.now() });
 });
 
-app.post('/api/build-extension', async (req, res) => {
-  const { exec } = require('child_process');
-  exec('npm run protect:ext', { cwd: path.resolve(__dirname, '..') }, (err, stdout, stderr) => {
-    if (err) {
-      return res.status(500).json({ ok: false, error: stderr || err.message });
-    }
-    const extPath = path.resolve(__dirname, '../packages/chrome-extension');
-    res.json({ ok: true, output: stdout, extensionDir: extPath });
-  });
-});
-
 // In-memory jobs
 const jobs = new Map();
 
