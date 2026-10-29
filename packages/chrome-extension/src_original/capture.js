@@ -9731,7 +9731,7 @@
 
       const ok = await writeClipboard(json);
 
-      const completionMsg = 'Open our Figma plugin and paste (Ctrl/ Cmd + V)';
+      const completionMsg = '✓ v2.0 Captured (Settled & Unpinned)! Paste in Figma (Ctrl+V)';
       if (ok) {
         if (halo) {
           halo.finish(true, completionMsg, 6000);
