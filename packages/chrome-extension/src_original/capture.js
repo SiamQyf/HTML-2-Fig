@@ -4826,17 +4826,6 @@
         
         if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = baseRect.y + t + mt;
         else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = baseRect.y + baseRect.height - pseudoRect.height - b - mb;
-        if (cs.translate && cs.translate !== 'none') {
-          const tr = cs.translate.trim().split(/\s+/);
-          if (tr[0]) {
-            const tx = tr[0].endsWith('%') ? pseudoRect.width * (parseFloat(tr[0]) / 100) : parseFloat(tr[0]);
-            if (!isNaN(tx)) pseudoRect.x += tx;
-          }
-          if (tr[1]) {
-            const ty = tr[1].endsWith('%') ? pseudoRect.height * (parseFloat(tr[1]) / 100) : parseFloat(tr[1]);
-            if (!isNaN(ty)) pseudoRect.y += ty;
-          }
-        }
 
         // Filter out pseudo-elements that are completely outside an overflow:hidden ancestor
         let clipAncestor = containingEl || el.parentElement;
