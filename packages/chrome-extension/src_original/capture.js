@@ -5093,7 +5093,7 @@
             for (const m of matches) {
               if (m[1] && !m[1].startsWith('data:')) {
                 const trimmed = m[1].trim();
-                const shouldForcePng = propVal === cs.backgroundImage && isRepeatingBg && /\.svg(\?|$)/i.test(trimmed);
+                const shouldForcePng = propVal === cs.backgroundImage && isRepeatingBg && /\.svg([?#]|$)/i.test(trimmed);
                 assets.addImage(trimmed, shouldForcePng);
               }
             }
@@ -7161,8 +7161,33 @@
   
   function isPureInlineTextChild(node) {
     if (!node) return false;
-    if (node.nodeType === 3) return true;
+    if (node.nodeType === 3) {
+      try {
+        const rng = document.createRange();
+        rng.selectNodeContents(node);
+        const crs = Array.from(rng.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+        rng.detach();
+        if (crs.length > 1) {
+          const tops = [];
+          for (const r of crs) {
+            if (!tops.some(t => Math.abs(t - r.top) < Math.max(4, r.height * 0.35))) tops.push(r.top);
+          }
+          if (tops.length > 1) return false;
+        }
+      } catch (_) {}
+      return true;
+    }
     if (node.nodeType === 1) {
+      try {
+        const crs = Array.from(node.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+        if (crs.length > 1) {
+          const tops = [];
+          for (const r of crs) {
+            if (!tops.some(t => Math.abs(t - r.top) < Math.max(4, r.height * 0.35))) tops.push(r.top);
+          }
+          if (tops.length > 1) return false;
+        }
+      } catch (_) {}
       const tag = node.tagName.toUpperCase();
       if (tag === 'BR') return false; // Do not glue text across explicit <br> breaks into unified text runs
       if (['IMG', 'SVG', 'CANVAS', 'VIDEO', 'IFRAME', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'HR'].includes(tag)) {
@@ -8893,7 +8918,7 @@
         for (const m of matches) {
           if (m[1] && !m[1].startsWith('data:')) {
             const trimmed = m[1].trim();
-            const shouldForcePng = p === styles.backgroundImage && isRepeatingBg && /\.svg(\?|$)/i.test(trimmed);
+            const shouldForcePng = p === styles.backgroundImage && isRepeatingBg && /\.svg([?#]|$)/i.test(trimmed);
             assets.addImage(trimmed, shouldForcePng);
           }
         }
@@ -9972,7 +9997,7 @@
           for (const m of matches) {
             if (m[1] && !m[1].startsWith('data:')) {
               const trimmed = m[1].trim();
-              const shouldForcePng = isRepeatingBg && /\.svg(\?|$)/i.test(trimmed);
+              const shouldForcePng = isRepeatingBg && /\.svg([?#]|$)/i.test(trimmed);
               assets.addImage(trimmed, shouldForcePng);
             }
           }
