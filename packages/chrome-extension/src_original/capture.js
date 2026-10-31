@@ -3605,6 +3605,32 @@
     }
   }
 
+  
+  function generateStarPath(cx, cy, R) {
+    const r = R * 0.382;
+    let d = '';
+    for (let p = 0; p < 10; p++) {
+      const angle = (p * 36 - 90) * Math.PI / 180;
+      const rad = (p % 2 === 0) ? R : r;
+      const x = Math.round((cx + rad * Math.cos(angle)) * 100) / 100;
+      const y = Math.round((cy + rad * Math.sin(angle)) * 100) / 100;
+      d += (p === 0 ? 'M' : 'L') + x + ' ' + y;
+    }
+    return d + 'Z';
+  }
+
+  function generateStarsSvg(count, w, h, color) {
+    const itemW = w / count;
+    const R = Math.min(itemW, h) * 0.44;
+    let paths = '';
+    for (let i = 0; i < count; i++) {
+      const cx = i * itemW + itemW / 2;
+      const cy = h / 2;
+      paths += '<path d="' + generateStarPath(cx, cy, R) + '" fill="' + color + '"/>';
+    }
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' + paths + '</svg>';
+  }
+
   function isIconElementOrFont(text, fontFamily, className) {
     if (!text) return false;
     const trimmed = text.trim();
@@ -5681,6 +5707,54 @@
         const ty = resolveCssLen(tParts[1] || '0', pseudoRect.height);
         pseudoRect.x += tx;
         pseudoRect.y += ty;
+      }
+
+      const isStarRating = (
+        (cs.fontFamily && /star|woocommerce/i.test(cs.fontFamily)) ||
+        (el.className && typeof el.className === 'string' && /star-rating/i.test(el.className)) ||
+        (el.parentElement?.className && typeof el.parentElement.className === 'string' && /star-rating/i.test(el.parentElement.className))
+      ) && /^[sS]{1,5}$/.test(text);
+
+      if (isStarRating) {
+        let ratingEl = el;
+        if (el.classList && el.classList.contains('star-rating')) {
+          ratingEl = el;
+        } else if (el.parentElement && el.parentElement.classList && el.parentElement.classList.contains('star-rating')) {
+          ratingEl = el.parentElement;
+        } else if (el.closest) {
+          ratingEl = el.closest('.star-rating') || el;
+        }
+
+        const rRect = ratingEl.getBoundingClientRect();
+        const fullStarsW = Math.max(20, Math.round(rRect.width || (parseFloat(cs.fontSize) || 14) * 5.4 || 75));
+        const fullStarsH = Math.max(10, Math.round(rRect.height || parseFloat(cs.fontSize) || 14));
+        const starColor = cs.color || '#e6a23c';
+        const starsSvg = generateStarsSvg(5, fullStarsW, fullStarsH, starColor);
+
+        const cbFixed = isElementOrAncestorFixed(ratingEl, window.getComputedStyle(ratingEl));
+        const cbFixedShiftY = cbFixed ? getFixedShiftY(ratingEl, window.getComputedStyle(ratingEl)) : 0;
+        const scrollX = cbFixed ? 0 : window.scrollX;
+        const scrollY = (cbFixed ? 0 : window.scrollY) + cbFixedShiftY;
+
+        return {
+          nodeType: ELEMENT_NODE,
+          id: getNodeId('svg-star-rating-pseudo'),
+          tag: 'SVG',
+          content: starsSvg,
+          styles: {
+            ...styles,
+            display: 'block',
+            position: 'absolute',
+            width: fullStarsW + 'px',
+            height: fullStarsH + 'px'
+          },
+          rect: {
+            x: rRect.x + scrollX,
+            y: rRect.y + scrollY,
+            width: fullStarsW,
+            height: fullStarsH
+          }
+        };
       }
 
       const chars = Array.from(text);
