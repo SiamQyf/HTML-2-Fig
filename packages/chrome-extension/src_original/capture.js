@@ -1112,21 +1112,23 @@
         '[class*="page-loader"], [id*="page-loader"], [class*="site-loader"], [id*="site-loader"], ' +
         '[class*="loading-screen"], [id*="loading-screen"], [class*="splash-screen"], [id*="splash-screen"], ' +
         '.qode-preloader, .edgtf-preloader, .eltdf-preloader, .fusion-preloader, .avada-preloader, ' +
-        '.animsition-loading, [data-preloader], .mfn-demo-panel, [class*="demo-panel"]'
+        '.animsition-loading, [data-preloader]'
       );
       for (const p of preloaders) {
+        if (!p || p === document.body || p === document.documentElement || p.tagName === 'BODY' || p.tagName === 'HTML' || p.contains(document.body)) continue;
         const savedDisplay = p.style.display;
         p.style.display = 'none';
-        cleanupTasks.push(() => { p.style.display = savedDisplay; });
+        cleanupTasks.push(() => { try { p.style.display = savedDisplay; } catch {} });
       }
     } catch {}
 
     // Neutralize cookie consent overlays, GDPR modals, and body scroll locks so scrolling reaches all sections
     try {
       const consentModals = document.querySelectorAll(
-        '#usercentrics-root, uc-layer2, #onetrust-consent-sdk, #CookiebotWidget, .cookie-banner, [id*="cookie-banner"], [class*="consent-modal"], [id*="consent-prompt"], .awb-off-canvas-wrap.type-popup, .awb-off-canvas-wrap[class*="popup"], [class*="newsletter-popup"], [class*="promo-popup"], #mfn-consent-mode, .mfn-cookies, [class*="mfn-cookie"], [id*="consent-mode"], [class*="consent-banner"], [class*="cookie-consent"], [id*="cookie-consent"]'
+        '#usercentrics-root, uc-layer2, #onetrust-consent-sdk, #CookiebotWidget, .cookie-banner, [id*="cookie-banner"], [class*="consent-modal"], [id*="consent-prompt"], .awb-off-canvas-wrap.type-popup, .awb-off-canvas-wrap[class*="popup"], [class*="newsletter-popup"], [class*="promo-popup"], #mfn-consent-mode, div.mfn-cookies, div.mfn-cookies-popup, div.mfn-cookies-wrapper, div[id*="consent-mode"], [class*="consent-banner"]'
       );
       for (const c of consentModals) {
+        if (!c || c === document.body || c === document.documentElement || c.tagName === 'BODY' || c.tagName === 'HTML' || c.contains(document.body)) continue;
         const savedDisplay = c.style.display;
         c.style.display = 'none';
         cleanupTasks.push(() => { try { c.style.display = savedDisplay; } catch {} });
