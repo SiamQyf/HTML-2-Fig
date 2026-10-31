@@ -5002,11 +5002,15 @@
       // Resolve containing block for absolutely positioned pseudo-elements
       let containingEl = el;
       let baseRect = parentRect;
+      let cbOriginX = parentRect.x;
+      let cbOriginY = parentRect.y;
+      let cbInnerW = parentRect.width;
+      let cbInnerH = parentRect.height;
       if (cs.position === 'absolute') {
         containingEl = getPositionedContainingBlock(el);
+        const containingElCs = (containingEl === el) ? window.getComputedStyle(el) : window.getComputedStyle(containingEl);
         if (containingEl && containingEl !== el) {
           const clientCbRect = containingEl.getBoundingClientRect();
-          const containingElCs = window.getComputedStyle(containingEl);
           const cbFixed = isElementOrAncestorFixed(containingEl, containingElCs);
           const cbFixedShiftY = cbFixed ? getFixedShiftY(containingEl, containingElCs) : 0;
           const cbScrollX = cbFixed ? 0 : window.scrollX;
@@ -5017,6 +5021,21 @@
             width: clientCbRect.width,
             height: clientCbRect.height
           };
+        }
+        if (containingEl && containingEl !== document.body && containingEl !== document.documentElement) {
+          const cbBorderLeft = parseFloat(containingElCs.borderLeftWidth) || 0;
+          const cbBorderTop = parseFloat(containingElCs.borderTopWidth) || 0;
+          const cbBorderRight = parseFloat(containingElCs.borderRightWidth) || 0;
+          const cbBorderBottom = parseFloat(containingElCs.borderBottomWidth) || 0;
+          cbOriginX = baseRect.x + cbBorderLeft;
+          cbOriginY = baseRect.y + cbBorderTop;
+          cbInnerW = Math.max(0, baseRect.width - cbBorderLeft - cbBorderRight);
+          cbInnerH = Math.max(0, baseRect.height - cbBorderTop - cbBorderBottom);
+        } else {
+          cbOriginX = baseRect.x;
+          cbOriginY = baseRect.y;
+          cbInnerW = baseRect.width;
+          cbInnerH = baseRect.height;
         }
       }
 
@@ -5032,10 +5051,10 @@
           const b = parseFloat(cs.bottom);
           const l = parseFloat(cs.left);
           const r = parseFloat(cs.right);
-          if (!isNaN(l) && cs.left !== 'auto') px = baseRect.x + l;
-          else if (!isNaN(r) && cs.right !== 'auto') px = baseRect.x + baseRect.width - tri.w - r;
-          if (!isNaN(t) && cs.top !== 'auto') py = baseRect.y + t;
-          else if (!isNaN(b) && cs.bottom !== 'auto') py = baseRect.y + baseRect.height - tri.h - b;
+          if (!isNaN(l) && cs.left !== 'auto') px = cbOriginX + l;
+          else if (!isNaN(r) && cs.right !== 'auto') px = cbOriginX + cbInnerW - tri.w - r;
+          if (!isNaN(t) && cs.top !== 'auto') py = cbOriginY + t;
+          else if (!isNaN(b) && cs.bottom !== 'auto') py = cbOriginY + cbInnerH - tri.h - b;
         } else if (parentCs.display && (parentCs.display.includes('grid') || parentCs.display.includes('flex'))) {
           if (parentCs.placeItems === 'center' || parentCs.alignItems === 'center') {
             py = parentRect.y + (parentRect.height - tri.h) / 2;
@@ -5215,11 +5234,11 @@
         const ml = parseFloat(cs.marginLeft) || 0;
         const mr = parseFloat(cs.marginRight) || 0;
 
-        if (!isNaN(l) && cs.left !== 'auto') pseudoRect.x = baseRect.x + l + ml;
-        else if (!isNaN(r) && cs.right !== 'auto') pseudoRect.x = baseRect.x + baseRect.width - pseudoRect.width - r - mr;
+        if (!isNaN(l) && cs.left !== 'auto') pseudoRect.x = cbOriginX + l + ml;
+        else if (!isNaN(r) && cs.right !== 'auto') pseudoRect.x = cbOriginX + cbInnerW - pseudoRect.width - r - mr;
         
-        if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = baseRect.y + t + mt;
-        else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = baseRect.y + baseRect.height - pseudoRect.height - b - mb;
+        if (!isNaN(t) && cs.top !== 'auto') pseudoRect.y = cbOriginY + t + mt;
+        else if (!isNaN(b) && cs.bottom !== 'auto') pseudoRect.y = cbOriginY + cbInnerH - pseudoRect.height - b - mb;
 
         // Filter out pseudo-elements that are completely outside an overflow:hidden ancestor
         let clipAncestor = containingEl || el.parentElement;
