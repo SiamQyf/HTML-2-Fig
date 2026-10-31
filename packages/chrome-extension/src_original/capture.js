@@ -3728,19 +3728,31 @@
     }
 
     if (fixedEl && fixedStyles && fixedStyles.position === 'fixed') {
+      const cls = (fixedEl.className && typeof fixedEl.className === 'string') ? fixedEl.className : '';
+
+      const isHeaderOrNav = (
+        fixedEl.tagName === 'HEADER' ||
+        /header|top-bar|top_bar|topbar|navbar|mainmenu|nav-menu/i.test(cls + ' ' + (fixedEl.id || '')) ||
+        !!(fixedEl.closest && fixedEl.closest('header, [role="banner"], #Top_bar, #Header, .header_wrapper, #Header_wrapper'))
+      );
+      if (isHeaderOrNav && !/bottom/i.test(cls + ' ' + (fixedEl.id || ''))) return 0;
+
       const b = fixedStyles.bottom;
       const t = fixedStyles.top;
-      const cls = (fixedEl.className && typeof fixedEl.className === 'string') ? fixedEl.className : '';
       const isBottomCoord = (b && b !== 'auto' && (
         t === 'auto' ||
         parseFloat(t) < 0 ||
         parseFloat(b) < parseFloat(t) ||
         (fixedEl.style && fixedEl.style.bottom !== '' && fixedEl.style.top === '')
       ));
+      const isSlidingFooter = (
+        (fixedEl.tagName === 'FOOTER' || /footer|mfn-footer/i.test(cls + ' ' + (fixedEl.id || '')) || !!(fixedEl.closest && fixedEl.closest('footer, .mfn-footer, #mfn-footer-template, #Footer'))) &&
+        /mfn-footer-sliding|footer-sliding|fixed-footer|reveal-footer/i.test(document.body?.className || '')
+      );
       const isFooterOrBottomClass = (
         fixedEl.tagName === 'FOOTER' ||
         /footer|mfn-footer|blur-bottom|scroll-to-top|back-to-top|fixed-bottom|sticky-bottom|bottom-bar|floating-bottom|slide-bottom/i.test(cls + ' ' + (fixedEl.id || '')) ||
-        /mfn-footer-sliding|footer-sliding|fixed-footer|reveal-footer/i.test(document.body?.className || '')
+        isSlidingFooter
       );
       const isAnchoredBottom = isBottomCoord || isFooterOrBottomClass;
 
