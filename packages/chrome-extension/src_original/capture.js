@@ -5402,7 +5402,7 @@
           }
         } else {
           const isCenteredText = parentCs.textAlign === 'center' || cs.textAlign === 'center';
-          const isIconContainer = isIconPseudo || (parentRect.width > 0 && parentRect.width <= 64 && Math.abs(parentRect.width - parentRect.height) <= 6);
+          const isIconContainer = (parentRect.width > 0 && parentRect.width <= 64 && Math.abs(parentRect.width - parentRect.height) <= 6);
           const isFloatRight = cs.float === 'right' || cs.cssFloat === 'right';
           const isFloatLeft = cs.float === 'left' || cs.cssFloat === 'left';
 
@@ -5448,16 +5448,19 @@
               } catch (_) {}
             }
             if (!placedBeforeFirstChild) {
+              const isRightAlign = parentCs.textAlign === 'right' || parentCs.textAlign === 'end' || cs.textAlign === 'right' || cs.textAlign === 'end';
               if (isCenteredText || (isIconContainer && !el.childNodes?.length)) {
                 pseudoRect.x = parentRect.x + (parentRect.width - pseudoRect.width) / 2;
+              } else if (isRightAlign) {
+                pseudoRect.x = parentRect.x + parentRect.width - pseudoRect.width - (parseFloat(parentCs.paddingRight) || 0) - (parseFloat(cs.marginRight) || 0);
               } else {
-                pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0);
+                pseudoRect.x = parentRect.x + (parseFloat(parentCs.paddingLeft) || 0) + (parseFloat(cs.marginLeft) || 0);
               }
 
               const parentLineH = parseFloat(parentCs.lineHeight);
               const isMiddleAlign = parentCs.verticalAlign === 'middle' || cs.verticalAlign === 'middle' ||
                                     (!isNaN(parentLineH) && parentLineH >= parentRect.height * 0.8 && parentRect.height > 0);
-              if (isMiddleAlign || (isIconContainer && !el.childNodes?.length)) {
+              if (isMiddleAlign || isIconPseudo || (isIconContainer && !el.childNodes?.length)) {
                 pseudoRect.y = parentRect.y + (parentRect.height - pseudoRect.height) / 2;
               } else {
                 pseudoRect.y = parentRect.y + (parseFloat(parentCs.paddingTop) || 0);
