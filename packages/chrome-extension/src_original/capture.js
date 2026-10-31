@@ -484,6 +484,288 @@
     return showEdgeLighting(message, duration, onClick);
   }
 
+
+  /* ======================================================================
+   *  2b. CAPTURE PROMPT (Top-center pill prompting user to press SPACE BAR)
+   * ====================================================================== */
+  function showCapturePrompt(onStart) {
+    try {
+      const old = document.getElementById('h2f-capture-prompt-host');
+      if (old) old.remove();
+    } catch (e) {}
+
+    if (window.__h2fPromptKeydownListener) {
+      window.removeEventListener('keydown', window.__h2fPromptKeydownListener, true);
+      window.removeEventListener('keyup', window.__h2fPromptKeydownListener, true);
+      document.removeEventListener('keydown', window.__h2fPromptKeydownListener, true);
+      document.removeEventListener('keyup', window.__h2fPromptKeydownListener, true);
+      window.__h2fPromptKeydownListener = null;
+    }
+
+    const host = document.createElement('div');
+    host.id = 'h2f-capture-prompt-host';
+    host.setAttribute('data-h2f-ignore', 'true');
+    host.style.cssText = 'all:initial; position:fixed; inset:0; width:100vw; height:0; pointer-events:none; z-index:2147483647;';
+    const root = host.attachShadow({ mode: 'open' });
+
+    root.innerHTML = `
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        .notification-container {
+          position: fixed; top: 22px; left: 50%;
+          transform: translateX(-50%) translateY(-8px);
+          display: flex; align-items: center; gap: 4px;
+          z-index: 2147483647; pointer-events: auto;
+          opacity: 0;
+          transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .notification-container.visible {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+        .notification-pill {
+          background: rgba(13, 15, 24, 0.92);
+          backdrop-filter: blur(24px) saturate(180%);
+          -webkit-backdrop-filter: blur(24px) saturate(180%);
+          color: #f8fafc;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          font-size: 13px; font-weight: 500;
+          padding: 10px 22px; border-radius: 999px;
+          border: 1.5px solid rgba(0, 242, 254, 0.4);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 20px rgba(0, 242, 254, 0.25);
+          display: flex; align-items: center; gap: 10px;
+          cursor: pointer;
+          transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+          white-space: nowrap;
+          user-select: none;
+          outline: none;
+        }
+        .notification-pill:hover {
+          background: rgba(20, 25, 42, 0.96);
+          border-color: rgba(0, 242, 254, 0.75);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75), 0 0 25px rgba(0, 242, 254, 0.45);
+          transform: translateY(-1px);
+        }
+        .notification-pill:focus,
+        .notification-pill:focus-visible {
+          border-color: #00f2fe;
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.8), 0 0 25px rgba(0, 242, 254, 0.55);
+        }
+        .notification-pill:active {
+          transform: translateY(0);
+        }
+        .pill-dot {
+          width: 8px; height: 8px; border-radius: 50%;
+          background: #00f2fe; box-shadow: 0 0 8px #00f2fe;
+          animation: pillDotBlink 1.4s infinite ease-in-out;
+          flex-shrink: 0;
+        }
+        @keyframes pillDotBlink {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.35; transform: scale(0.75); }
+        }
+        .figma-link-pill {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          background: rgba(13, 15, 24, 0.92);
+          backdrop-filter: blur(24px) saturate(180%);
+          -webkit-backdrop-filter: blur(24px) saturate(180%);
+          color: #f8fafc;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          font-size: 13px;
+          font-weight: 500;
+          padding: 10px 16px;
+          border-radius: 999px;
+          border: 1.5px solid rgba(0, 242, 254, 0.4);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 20px rgba(0, 242, 254, 0.25);
+          text-decoration: none;
+          cursor: pointer;
+          white-space: nowrap;
+          user-select: none;
+          outline: none;
+          transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .figma-link-pill:hover {
+          background: rgba(26, 32, 52, 0.96);
+          border-color: #38bdf8;
+          color: #ffffff;
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75), 0 0 22px rgba(56, 189, 248, 0.45);
+          transform: translateY(-1px);
+        }
+        .figma-link-pill:active {
+          transform: translateY(0);
+        }
+        .figma-link-arrow {
+          opacity: 0.75;
+          transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+        .figma-link-pill:hover .figma-link-arrow {
+          opacity: 1;
+          transform: translate(1px, -1px);
+        }
+      </style>
+      <div class="notification-container" id="notificationContainer">
+        <div class="notification-pill" id="notificationPill" tabindex="0" title="Click here or press SPACE BAR to capture">
+          <div class="pill-dot"></div>
+          <span class="pill-text" id="pillText">Click here or Press 'SPACE BAR' to capture then paste on our figma plugin</span>
+        </div>
+        <a href="https://www.figma.com/community/plugin/1688188726585755829" target="_blank" rel="noopener noreferrer" class="figma-link-pill" id="figmaLinkPill" title="Open Figma Plugin">
+          <svg viewBox="0 0 38 57" width="10" height="15" fill="none" style="flex-shrink:0; display:block;">
+            <path d="M19 28.5C19 23.2533 23.2533 19 28.5 19C33.7467 19 38 23.2533 38 28.5C38 33.7467 33.7467 38 28.5 38C23.2533 38 19 33.7467 19 28.5Z" fill="#1ABCFE"/>
+            <path d="M0 47.5C0 42.2533 4.25329 38 9.5 38H19V47.5C19 52.7467 14.7467 57 9.5 57C4.25329 57 0 52.7467 0 47.5Z" fill="#0ACF83"/>
+            <path d="M19 0V19H28.5C33.7467 19 38 14.7467 38 9.5C38 4.25329 33.7467 0 28.5 0H19Z" fill="#FF7262"/>
+            <path d="M0 9.5C0 14.7467 4.25329 19 9.5 19H19V0H9.5C4.25329 0 0 4.25329 0 9.5Z" fill="#F24E1E"/>
+            <path d="M0 28.5C0 33.7467 4.25329 38 9.5 38H19V19H9.5C4.25329 19 0 23.2533 0 28.5Z" fill="#A259FF"/>
+          </svg>
+          <span class="figma-link-text">Figma</span>
+          <svg class="figma-link-arrow" viewBox="0 0 24 24" width="10.5" height="10.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="7" y1="17" x2="17" y2="7"></line>
+            <polyline points="7 7 17 7 17 17"></polyline>
+          </svg>
+        </a>
+      </div>
+    `;
+
+    const container = root.getElementById('notificationContainer');
+    const pill = root.getElementById('notificationPill');
+    const figmaPill = root.getElementById('figmaLinkPill');
+
+    let dismissed = false;
+    function cleanup() {
+      if (dismissed) return;
+      dismissed = true;
+      if (window.__h2fPromptKeydownListener) {
+        window.removeEventListener('keydown', window.__h2fPromptKeydownListener, true);
+        window.removeEventListener('keyup', window.__h2fPromptKeydownListener, true);
+        document.removeEventListener('keydown', window.__h2fPromptKeydownListener, true);
+        document.removeEventListener('keyup', window.__h2fPromptKeydownListener, true);
+        try {
+          const iframes = document.querySelectorAll('iframe');
+          for (const iframe of iframes) {
+            try {
+              if (iframe.contentWindow) {
+                iframe.contentWindow.removeEventListener('keydown', window.__h2fPromptKeydownListener, true);
+                iframe.contentWindow.removeEventListener('keyup', window.__h2fPromptKeydownListener, true);
+              }
+            } catch (_) {}
+          }
+        } catch (_) {}
+        window.__h2fPromptKeydownListener = null;
+      }
+      try {
+        if (container) container.classList.remove('visible');
+        setTimeout(() => {
+          try { host.remove(); } catch (e) {}
+        }, 250);
+      } catch (e) {
+        try { host.remove(); } catch (e) {}
+      }
+    }
+
+    function trigger() {
+      cleanup();
+      try { host.remove(); } catch (e) {}
+      if (typeof onStart === 'function') onStart();
+    }
+
+    function isSpace(e) {
+      return (
+        e.code === 'Space' ||
+        e.code === 'Spacebar' ||
+        e.key === ' ' ||
+        e.key === 'Spacebar' ||
+        e.key === 'Space' ||
+        e.keyCode === 32 ||
+        e.which === 32
+      );
+    }
+
+    window.__h2fPromptKeydownListener = function(e) {
+      if (isSpace(e)) {
+        try { e.preventDefault(); } catch (_) {}
+        try { e.stopPropagation(); } catch (_) {}
+        try { e.stopImmediatePropagation(); } catch (_) {}
+        trigger();
+      } else if (e.code === 'Escape' || e.key === 'Escape' || e.keyCode === 27) {
+        try { e.preventDefault(); } catch (_) {}
+        cleanup();
+        if (typeof window.__html2FigOnPromptDismiss === 'function') {
+          window.__html2FigOnPromptDismiss();
+        }
+      }
+    };
+
+    // Attach to both window and document on capture phase
+    window.addEventListener('keydown', window.__h2fPromptKeydownListener, true);
+    window.addEventListener('keyup', window.__h2fPromptKeydownListener, true);
+    document.addEventListener('keydown', window.__h2fPromptKeydownListener, true);
+    document.addEventListener('keyup', window.__h2fPromptKeydownListener, true);
+
+    // Also attach to child iframes if any
+    try {
+      const iframes = document.querySelectorAll('iframe');
+      for (const iframe of iframes) {
+        try {
+          if (iframe.contentWindow) {
+            iframe.contentWindow.addEventListener('keydown', window.__h2fPromptKeydownListener, true);
+            iframe.contentWindow.addEventListener('keyup', window.__h2fPromptKeydownListener, true);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    if (pill) {
+      pill.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        trigger();
+      });
+      pill.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        trigger();
+      });
+    }
+
+    if (figmaPill) {
+      figmaPill.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        window.open('https://www.figma.com/community/plugin/1688188726585755829', '_blank');
+      });
+      figmaPill.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+      });
+    }
+
+    document.documentElement.appendChild(host);
+
+    function grabFocus() {
+      try {
+        window.focus();
+        if (document.body) document.body.focus();
+        if (pill) {
+          pill.tabIndex = 0;
+          pill.focus();
+        }
+      } catch (_) {}
+    }
+
+    requestAnimationFrame(() => {
+      if (container) container.classList.add('visible');
+      grabFocus();
+    });
+    setTimeout(grabFocus, 50);
+    setTimeout(grabFocus, 200);
+
+    return {
+      remove: cleanup,
+      trigger: trigger
+    };
+  }
+
+
   /* ======================================================================
    *  3.  PAGE PRE-SCROLLER (Triggers lazy-loaded images & animations)
    * ====================================================================== */
@@ -529,7 +811,7 @@
       script.textContent = `
         (function() {
           try {
-            const swipers = document.querySelectorAll('.swiper, [class*="swiper-container"]');
+            const swipers = document.querySelectorAll('.swiper, [class*="swiper"], [class*="carousel"], [class*="slider"]');
             for (const el of swipers) {
               const s = el.swiper || (window.jQuery && window.jQuery(el).data('swiper'));
               if (s) {
@@ -556,6 +838,21 @@
       `;
       document.documentElement.appendChild(script);
       script.remove();
+
+      // Pre-mark all visible slides in view across all swipers/carousels
+      try {
+        const allSlides = document.querySelectorAll('.swiper-slide, .slick-slide, [class*="swiper-slide"], [class*="slick-slide"]');
+        for (const slide of allSlides) {
+          const swiperContainer = slide.closest('.swiper, [class*="swiper"], [class*="carousel"], [class*="slider"]');
+          if (swiperContainer) {
+            const swR = swiperContainer.getBoundingClientRect();
+            const slR = slide.getBoundingClientRect();
+            if (slR.width > 10 && slR.right > swR.left + 5 && slR.left < swR.right - 5) {
+              slide.classList.add('swiper-slide-visible');
+            }
+          }
+        }
+      } catch (e) {}
 
       // Reset parallax transforms on ALL [data-swiper-parallax] elements.
       // Swiper's parallax module sets transform: translateX(Npx) on these based on the
@@ -1039,6 +1336,22 @@
           });
         }
       } catch (e) {}
+
+      // f) Avada / Fusion scroll reveal / motion effects active in this viewport
+      try {
+        const fusionMotionEls = document.querySelectorAll('[data-motion-effects], [data-animationtype], .fusion-layout-column, .fusion-animated');
+        for (const el of fusionMotionEls) {
+          const r = el.getBoundingClientRect();
+          if (r.top < vh * 1.5 && r.bottom > -100) {
+            el.setAttribute('data-h2f-revealed', 'true');
+            if (el.style) {
+              if (el.style.opacity === '0' || (el.style.opacity && parseFloat(el.style.opacity) < 0.9)) {
+                el.style.setProperty('opacity', '1', 'important');
+              }
+            }
+          }
+        }
+      } catch (e) {}
     }
 
     // Scroll back to top
@@ -1047,6 +1360,20 @@
     }
     window.dispatchEvent(new Event('scroll'));
     await new Promise(r => setTimeout(r, 150));
+
+    // Lock in revealed state for scroll-animated elements that reset on scroll-to-top
+    try {
+      const motionRevealedEls = document.querySelectorAll('[data-h2f-revealed], [data-motion-effects], [data-animationtype], .fusion-animated');
+      for (const el of motionRevealedEls) {
+        if (el.style) {
+          el.style.setProperty('opacity', '1', 'important');
+          el.style.setProperty('visibility', 'visible', 'important');
+          if (el.style.transform && el.style.transform.includes('0.01px')) {
+            el.style.setProperty('transform', 'none', 'important');
+          }
+        }
+      }
+    } catch (e) {}
 
     // Ensure all Swipers remain frozen and reset to slide 0 after scrolling completes
     freezeAndResetSwipers();
@@ -1145,7 +1472,8 @@
               '.hero-text-anim, .wow, [data-wow-delay], [data-aos], [data-sal], [data-scroll], .animated, ' +
               '.fadeInUp, .fadeIn, .fadeInLeft, .fadeInRight, .fadeInDown, .bounceIn, .zoomIn, ' +
               '[class*="wow"], [class*="fadeIn"], [class*="-anim"], [class*="has-animation"], [class*="scroll-reveal"], ' +
-              '[data-framer-appear-id], [class*="motion"], [class*="framer-motion"], .elementor-invisible, [class*="elementor-invisible"]'
+              '[data-framer-appear-id], [class*="motion"], [class*="framer-motion"], .elementor-invisible, [class*="elementor-invisible"], ' +
+              '[data-motion-effects], [data-scroll-devices], [data-animationtype], .fusion-layout-column, .fusion-animated, [class*="fusion-builder-column"]'
             );
             for (const el of scrubEls) {
               try {
@@ -1172,6 +1500,15 @@
                 if (el.classList.contains('wow')) {
                   el.classList.add('animated');
                   el.style.visibility = 'visible';
+                }
+                if (el.hasAttribute('data-motion-effects') || el.hasAttribute('data-animationtype') || el.classList.contains('fusion-layout-column') || el.classList.contains('fusion-animated')) {
+                  if (el.style) {
+                    el.style.opacity = '1';
+                    el.style.visibility = 'visible';
+                    if (el.style.transform && el.style.transform.includes('0.01px')) {
+                      el.style.transform = 'none';
+                    }
+                  }
                 }
               } catch (e) {}
             }
@@ -7523,12 +7860,17 @@
 
         let lineClamp = 0;
         let isClamped = false;
+        let isHorizEllipsis = false;
         if (node.parentElement) {
           try {
             const pCs = window.getComputedStyle(node.parentElement);
             const lc = parseInt(pCs.webkitLineClamp || pCs.lineClamp, 10);
-            const pOverflow = pCs.overflow || pCs.overflowY;
+            const pOverflow = pCs.overflow || pCs.overflowY || pCs.overflowX;
             const pClientH = node.parentElement.clientHeight;
+            const pClientW = node.parentElement.clientWidth;
+            isHorizEllipsis = (pCs.textOverflow === 'ellipsis' || pCs.whiteSpace === 'nowrap' || pCs.overflowX === 'hidden' || pCs.overflow === 'hidden') &&
+                              (node.parentElement.scrollWidth > pClientW + 3);
+
             if (lc > 0 && pOverflow !== 'visible' && pClientH > 0 && pClientH < textH - 4) {
               lineClamp = lc;
               isClamped = true;
@@ -7536,6 +7878,9 @@
             } else if (pOverflow === 'hidden' && pClientH > 0 && pClientH < textH - 10) {
               isClamped = true;
               textH = Math.ceil(pClientH);
+            } else if (isHorizEllipsis && pClientW > 0) {
+              lineClamp = 1;
+              isClamped = true;
             }
           } catch (_) {}
         }
@@ -7549,7 +7894,10 @@
               rChar.setEnd(node, i + 1);
               const cr = rChar.getBoundingClientRect();
               if (cr.width === 0 && cr.height === 0) continue;
-              if (cr.bottom <= pRect.bottom + 2) {
+              const isWithin = isHorizEllipsis
+                ? (cr.right <= pRect.right - 14 && cr.bottom <= pRect.bottom + 2)
+                : (cr.bottom <= pRect.bottom + 2);
+              if (isWithin) {
                 lastVisibleIdx = i + 1;
               }
             }
@@ -7927,7 +8275,7 @@
         if (slide.classList.contains('tab-pane')) return true;
         if (slide.classList.contains('swiper-slide-active') || slide.classList.contains('swiper-slide-visible') || slide.classList.contains('swiper-slide-fully-visible')) return false;
         if (slide.classList.contains('slick-active') || slide.classList.contains('slick-current')) return false;
-        const swiperContainer = slide.closest('.swiper, [class*="swiper-container"], .slick-slider');
+        const swiperContainer = slide.closest('.swiper, [class*="swiper"], [class*="carousel"], [class*="slider"]');
         if (swiperContainer) {
           const swR = swiperContainer.getBoundingClientRect();
           const slR = slide.getBoundingClientRect();
@@ -7971,9 +8319,9 @@
     }
 
     // 1. Any element with hover classes that is hidden at rest stays hidden
-    const cleanClsForHover = cls.replace(/\brs-hover-ready\b/g, '');
-    const isHoverClassOrAttr = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay|show-on-hover|hover-img|portfolio-hover|overlay-hover|hover-item|hover-box-content|on-hover|\bhover\b|hover-|\bhover_|_hover\b|-hover\b|icon-hover|arrow-hover|btn-hover|hover-icon|hover-arrow|group-hover/i.test(cleanClsForHover) ||
-                               !!(el.closest && el.closest('.hover-box, [class*="hover-"], .feature-box') && /overlay|mask|reveal|box-overlay|hover-content|hover|icon|arrow/i.test(cleanClsForHover));
+    const cleanClsForHover = cls.replace(/\b(?:rs-hover-ready|hover-type-none|hover-none|no-hover)\b/gi, '');
+    const isHoverClassOrAttr = /box-overlay|\boverlay\b|hover-content|hover-reveal|hover-show|hover-mask|feature-box-overlay|feature-box-bg-overlay|show-on-hover|hover-img|portfolio-hover|overlay-hover|hover-item|hover-box-content|on-hover|\bhover\b|hover-(?!none\b)|\bhover_|_hover\b|-hover\b|icon-hover|arrow-hover|btn-hover|hover-icon|hover-arrow|group-hover/i.test(cleanClsForHover) ||
+                               !!(el.closest && el.closest('.hover-box, [class*="hover-"]:not(.hover-type-none):not(.hover-none), .feature-box') && /overlay|mask|reveal|box-overlay|hover-content|hover|icon|arrow/i.test(cleanClsForHover));
 
     const hasVisualMedia = (styles.backgroundImage && styles.backgroundImage !== 'none') ||
                            tag === 'IMG' || tag === 'PICTURE' || tag === 'CANVAS' || tag === 'VIDEO';
@@ -8186,7 +8534,7 @@
       if (!slide) return false;
       if (slide.classList.contains('swiper-slide-active') || slide.classList.contains('swiper-slide-visible') || slide.classList.contains('swiper-slide-fully-visible')) return false;
       if (slide.classList.contains('slick-active') || slide.classList.contains('slick-current') || slide.classList.contains('active')) return false;
-      const swiperContainer = slide.closest('.swiper, [class*="swiper-container"], .slick-slider, .owl-carousel');
+      const swiperContainer = slide.closest('.swiper, [class*="swiper"], [class*="carousel"], [class*="slider"], .owl-carousel');
       if (swiperContainer) {
         const swR = swiperContainer.getBoundingClientRect();
         const slR = slide.getBoundingClientRect();
@@ -8233,10 +8581,12 @@
 
     const cleanAnimCls = cls.replace(/\b(?:no-reduced-motion|reduced-motion|motion-reduce|motion-safe)\b/gi, '');
     const hasAnimClass = !isCarouselOrTab && !isHoverOrOverlay && !isNavDropdown && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && !isBackdropOrCurtain && (
-      /elementor-invisible|title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos|sal|scroll-reveal|invert|fade_anim|has-animation|appear|in-view|inview|is-visible|fadeIn|fade-in|fadeUp|fade-up|fadeDown|fade-down|fadeLeft|fade-left|fadeRight|fade-right|animate|animated|animation|zoomIn|bounceIn|reveal|\bframer-motion\b|\bmotion\b|\bmotion-|while-in-view|scroll-anim|scroll-fade/i.test(cleanAnimCls) ||
+      /elementor-invisible|title-anim|text-anim|hero-text-anim|words|word|chars|char|splitting|fancy-text|split-text|reveal-text|scroll-text|scrub-text|anime-text|aos|sal|scroll-reveal|invert|fade_anim|has-animation|appear|in-view|inview|is-visible|fadeIn|fade-in|fadeUp|fade-up|fadeDown|fade-down|fadeLeft|fade-left|fadeRight|fade-right|animate|animated|animation|zoomIn|bounceIn|reveal|\bframer-motion\b|\bmotion\b|\bmotion-|while-in-view|scroll-anim|scroll-fade|fusion-animated/i.test(cleanAnimCls) ||
       el.hasAttribute('data-anime') || el.hasAttribute('data-fancy-text') || el.hasAttribute('data-splitting') || el.hasAttribute('data-aos') || el.hasAttribute('data-sal') || el.hasAttribute('data-scroll') || el.hasAttribute('data-animation') || el.hasAttribute('data-animate') || el.hasAttribute('data-motion') ||
+      el.hasAttribute('data-motion-effects') || el.hasAttribute('data-animationtype') || el.hasAttribute('data-scroll-devices') ||
+      ((document.body?.classList?.contains('do-animate') || document.body?.classList?.contains('fusion-body')) && (cleanAnimCls.includes('fusion-layout-column') || cleanAnimCls.includes('fusion_builder_column'))) ||
       !!(el.closest && (() => {
-        const anc = el.closest('.elementor-invisible, .title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [data-sal], [data-scroll], [data-anime], [data-fancy-text], [class*="framer-motion"], [class*="invert"], [class*="fade_anim"], [class*="has-animation"], [class*="fadeIn"], [class*="fade-"], [class*="animate"]');
+        const anc = el.closest('.elementor-invisible, .title-anim, .text-anim, .hero-text-anim, .anime-text, .splitting, .words, .word, .chars, .char, .swiper-parallax-fancy-text, .split-text, .reveal-text, .scroll-text, .scrub-text, [data-aos], .wow, .scroll-reveal, [data-sal], [data-scroll], [data-anime], [data-fancy-text], [class*="framer-motion"], [class*="invert"], [class*="fade_anim"], [class*="has-animation"], [class*="fadeIn"], [class*="fade-"], [class*="animate"], [data-motion-effects], [data-animationtype], .fusion-animated');
         if (!anc || anc.tagName === 'HTML' || anc.tagName === 'BODY') return false;
         return true;
       })())
@@ -8278,7 +8628,8 @@
           if (matParts) {
             const vals = matParts[1].split(',').map(v => parseFloat(v.trim()));
             const ty = vals.length >= 16 ? vals[13] : (vals.length >= 6 ? vals[5] : 0);
-            if (Math.abs(ty) > 10 && (isNaN(curOpacity) || curOpacity < 0.99)) {
+            const tz = vals.length >= 16 ? vals[14] : 0;
+            if ((Math.abs(ty) > 10 || (Math.abs(tz) > 0.005 && Math.abs(tz) < 1)) && (isNaN(curOpacity) || curOpacity < 0.99)) {
               hasEntranceTranslate = true;
             }
           }
@@ -8342,7 +8693,7 @@
       (styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.15) &&
       hasVisibleContent &&
       !isNavDropdown && !isHoverOrOverlay && !isInactiveTab && !isInactiveVariant && !isModalOrOffcanvas && !isAccordionOrToggleState && !isBackdropOrCurtain &&
-      !el.closest('.vertical-counter, .odometer, .swiper-slide:not(.swiper-slide-active)')
+      !el.closest('.vertical-counter, .odometer, .swiper-slide:not(.swiper-slide-active):not(.swiper-slide-visible)')
     );
 
     const isTextillateWrap = !!(el.closest && el.closest('.fusion-animated-texts-wrapper, [class*="animated-texts-wrapper"], .fusion-textillate'));
@@ -8377,17 +8728,16 @@
         }
       }
 
-      // Neutralize entrance transforms (translateY offsets and tiny tilts)
-      // but ONLY for split-text animations, NEVER for components or layout containers
-      if (hasAnimClass && styles.transform && styles.transform !== 'none') {
+      // Neutralize entrance transforms (translateY offsets, hardware-accel z-translations, and tiny tilts)
+      if (styles.transform && styles.transform !== 'none') {
         const parts = styles.transform.match(/matrix(?:3d)?\(([^)]+)\)/);
         if (parts) {
           const vals = parts[1].split(',').map(v => parseFloat(v.trim()));
           const a = vals[0], b = vals[1];
           const tAngle = Math.abs(Math.atan2(b, a) * (180 / Math.PI));
-          // Preserve structural rotations (≥ 15°), only remove entrance tilts / translateY
           const isStructuralRot = (tAngle >= 15 && tAngle <= 345);
-          if (!isStructuralRot) {
+          const isHardwareZOnly = vals.length >= 16 && vals[0] === 1 && vals[5] === 1 && vals[10] === 1 && vals[12] === 0 && vals[13] === 0 && Math.abs(vals[14]) < 1;
+          if (!isStructuralRot || isHardwareZOnly) {
             styles.transform = 'none';
           }
         } else if (!/rotate\s*\(\s*[-+]?(?:90|180|270|45)/i.test(styles.transform)) {
@@ -9676,9 +10026,10 @@
     }
   }
 
-  async function startCapture(options = {}) {
+  async function runActualCapture() {
     if (window.__html2FigRunning) return;
     window.__html2FigRunning = true;
+    window.__html2FigPromptActive = false;
 
     let halo = null;
     try {
@@ -9746,9 +10097,33 @@
     }
   }
 
+  function startCapture(options = {}) {
+    if (window.__html2FigRunning) return;
+    if (options && options.immediate) {
+      return runActualCapture();
+    }
+    // If prompt is already showing and user clicks extension again, start capture immediately
+    if (window.__html2FigPromptActive && window.__html2FigPromptController) {
+      window.__html2FigPromptController.trigger();
+      return;
+    }
+    window.__html2FigPromptActive = true;
+    window.__html2FigOnPromptDismiss = () => {
+      window.__html2FigPromptActive = false;
+      window.__html2FigPromptController = null;
+    };
+    window.__html2FigPromptController = showCapturePrompt(() => {
+      window.__html2FigPromptActive = false;
+      window.__html2FigPromptController = null;
+      runActualCapture();
+    });
+  }
+
   window.html2Fig = {
     startCapture,
-    captureRaw
+    runActualCapture,
+    captureRaw,
+    showCapturePrompt
   };
 })();
 
