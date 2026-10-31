@@ -1106,7 +1106,14 @@
 
     // Hide preloaders — save state
     try {
-      const preloaders = document.querySelectorAll('#preloader, .preloader, .loader-wrapper, #loading, .page-loader, .site-preloader');
+      const preloaders = document.querySelectorAll(
+        '#preloader, .preloader, .loader-wrapper, #loading, .page-loader, .site-preloader, ' +
+        '.mfn-preloader, #mfn-preloader, .mfn-loader, [class*="preloader"], [id*="preloader"], ' +
+        '[class*="page-loader"], [id*="page-loader"], [class*="site-loader"], [id*="site-loader"], ' +
+        '[class*="loading-screen"], [id*="loading-screen"], [class*="splash-screen"], [id*="splash-screen"], ' +
+        '.qode-preloader, .edgtf-preloader, .eltdf-preloader, .fusion-preloader, .avada-preloader, ' +
+        '.animsition-loading, [data-preloader], .mfn-demo-panel, [class*="demo-panel"]'
+      );
       for (const p of preloaders) {
         const savedDisplay = p.style.display;
         p.style.display = 'none';
@@ -8407,6 +8414,16 @@
 
     // Drop resting-hidden backdrops, curtains, scrims, and modal backdrops
     // (e.g. Apple #globalnav-curtain, .globalnav-curtain, .modal-backdrop, .curtain, .scrim, .drawer-backdrop)
+    const isPreloaderOrLoader = (
+      /preloader|loader-wrapper|site-preloader|page-loader|loading-screen|splash-screen|mfn-preloader|mfn-loader|page-loading|site-loading|animsition-loading|qode-preloader|fusion-preloader|avada-preloader|mfn-demo-panel/i.test(cls + ' ' + (el.id || '')) ||
+      el.hasAttribute?.('data-preloader')
+    );
+    if (isPreloaderOrLoader) {
+      styles.opacity = '0';
+      styles.visibility = 'hidden';
+      return null;
+    }
+
     const isBackdropOrCurtain = (
       /curtain|scrim|backdrop|modal-backdrop|offcanvas-backdrop|off-canvas-backdrop|off-canvas-overlay|awb-off-canvas|nav-curtain|globalnav-curtain/i.test(cls + ' ' + (el.id || '')) ||
       ((styles.position === 'fixed' || styles.position === 'absolute') && (styles.backdropFilter && styles.backdropFilter !== 'none') && (parseFloat(styles.opacity) <= 0.05 || styles.visibility === 'hidden'))
