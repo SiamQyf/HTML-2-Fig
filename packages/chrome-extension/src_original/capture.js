@@ -1124,7 +1124,7 @@
     // Neutralize cookie consent overlays, GDPR modals, and body scroll locks so scrolling reaches all sections
     try {
       const consentModals = document.querySelectorAll(
-        '#usercentrics-root, uc-layer2, #onetrust-consent-sdk, #CookiebotWidget, .cookie-banner, [id*="cookie-banner"], [class*="consent-modal"], [id*="consent-prompt"], .awb-off-canvas-wrap.type-popup, .awb-off-canvas-wrap[class*="popup"], [class*="newsletter-popup"], [class*="promo-popup"]'
+        '#usercentrics-root, uc-layer2, #onetrust-consent-sdk, #CookiebotWidget, .cookie-banner, [id*="cookie-banner"], [class*="consent-modal"], [id*="consent-prompt"], .awb-off-canvas-wrap.type-popup, .awb-off-canvas-wrap[class*="popup"], [class*="newsletter-popup"], [class*="promo-popup"], #mfn-consent-mode, .mfn-cookies, [class*="mfn-cookie"], [id*="consent-mode"], [class*="consent-banner"], [class*="cookie-consent"], [id*="cookie-consent"]'
       );
       for (const c of consentModals) {
         const savedDisplay = c.style.display;
@@ -3729,8 +3729,18 @@
       const b = fixedStyles.bottom;
       const t = fixedStyles.top;
       const cls = (fixedEl.className && typeof fixedEl.className === 'string') ? fixedEl.className : '';
-      const isAnchoredBottom = (b && b !== 'auto' && (t === 'auto' || parseFloat(b) < parseFloat(t))) ||
-        /blur-bottom|scroll-to-top|back-to-top|fixed-bottom/i.test(cls);
+      const isBottomCoord = (b && b !== 'auto' && (
+        t === 'auto' ||
+        parseFloat(t) < 0 ||
+        parseFloat(b) < parseFloat(t) ||
+        (fixedEl.style && fixedEl.style.bottom !== '' && fixedEl.style.top === '')
+      ));
+      const isFooterOrBottomClass = (
+        fixedEl.tagName === 'FOOTER' ||
+        /footer|mfn-footer|blur-bottom|scroll-to-top|back-to-top|fixed-bottom|sticky-bottom|bottom-bar|floating-bottom|slide-bottom/i.test(cls + ' ' + (fixedEl.id || '')) ||
+        /mfn-footer-sliding|footer-sliding|fixed-footer|reveal-footer/i.test(document.body?.className || '')
+      );
+      const isAnchoredBottom = isBottomCoord || isFooterOrBottomClass;
 
       if (isAnchoredBottom) {
         const docH = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0, window.innerHeight);
@@ -9066,6 +9076,11 @@
 
     const isFixed = isElementOrAncestorFixed(el, styles);
     const fixedShiftY = isFixed ? getFixedShiftY(el, styles) : 0;
+    if (fixedShiftY !== 0 && (el.tagName === 'FOOTER' || /footer/i.test(cls + ' ' + (el.id || '')) || (el.closest && el.closest('footer, [class*="footer"], [id*="footer"]')))) {
+      if (styles.zIndex && parseInt(styles.zIndex, 10) < 0) {
+        styles.zIndex = '1';
+      }
+    }
     
     // For position: fixed elements (like floating scroll-to-top buttons in bottom-right or progressive blur at bottom),
     // when document is scrolled to top (0,0), clientRect.y is their exact viewport position.
