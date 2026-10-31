@@ -8862,11 +8862,12 @@
         styles.opacity = '1';
       }
 
-      // Remove clip-path entrance masks (inset-based reveals)
+      // Remove clip-path entrance masks (inset-based reveals like inset(0 0 100% 0))
+      // Never remove structural insets or rounded-corner clip shapes (e.g. inset(... round 20px))
       if (styles.clipPath && styles.clipPath !== 'none' && styles.clipPath.includes('inset')) {
-        const isZero = /^inset\(\s*(?:0(?:px|%|em|rem)?\s*)+\)$/i.test(styles.clipPath);
-        const isHundred = /100%/i.test(styles.clipPath);
-        if (!isZero && (!isHundred || hasAnimClass)) {
+        const hasRoundRadius = /round/i.test(styles.clipPath);
+        const isEntranceHidingMask = /100%|\b(?:50|60|70|80|90)%\b/i.test(styles.clipPath);
+        if (!hasRoundRadius && isEntranceHidingMask) {
           styles.clipPath = 'none';
         }
       }
