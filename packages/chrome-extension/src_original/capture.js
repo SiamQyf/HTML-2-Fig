@@ -5194,6 +5194,114 @@
     return document.body || document.documentElement;
   }
 
+    function formatCounterNumber(val, style = 'decimal') {
+    const num = Math.max(1, parseInt(val, 10) || 1);
+    const s = (style || 'decimal').toLowerCase();
+    if (s === 'decimal-leading-zero') {
+      return num < 10 ? '0' + num : String(num);
+    }
+    if (s === 'upper-roman' || s === 'lower-roman') {
+      const romanMap = [
+        [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'],
+        [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'],
+        [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']
+      ];
+      let n = num, res = '';
+      for (const [v, str] of romanMap) {
+        while (n >= v) { res += str; n -= v; }
+      }
+      return s === 'lower-roman' ? res.toLowerCase() : res;
+    }
+    if (s === 'upper-alpha' || s === 'upper-latin') {
+      return String.fromCharCode(65 + ((num - 1) % 26));
+    }
+    if (s === 'lower-alpha' || s === 'lower-latin') {
+      return String.fromCharCode(97 + ((num - 1) % 26));
+    }
+    return String(num);
+  }
+
+  function evalCssCounter(el, counterName) {
+    if (!el || !counterName) return 1;
+    let scopeRoot = null;
+    let initialVal = 0;
+    let cur = el.parentElement;
+    while (cur && cur !== document.documentElement) {
+      try {
+        const cr = window.getComputedStyle(cur).counterReset;
+        if (cr && cr !== 'none') {
+          const m = cr.match(new RegExp('(?:^|\\s)' + counterName + '(?:\\s+(-?\\d+))?(?:\\s|$)', 'i'));
+          if (m) {
+            scopeRoot = cur;
+            initialVal = m[1] !== undefined ? parseInt(m[1], 10) : 0;
+            break;
+          }
+        }
+      } catch (_) {}
+      cur = cur.parentElement;
+    }
+
+    if (!scopeRoot) {
+      scopeRoot = el.parentElement || document.body || document.documentElement;
+    }
+
+    let count = initialVal;
+    let foundIncrement = false;
+
+    try {
+      const allEls = scopeRoot.querySelectorAll('*');
+      for (let i = 0; i < allEls.length; i++) {
+        const target = allEls[i];
+        let inc = 0;
+        try {
+          const ci = window.getComputedStyle(target).counterIncrement;
+          if (ci && ci !== 'none') {
+            const m = ci.match(new RegExp('(?:^|\\s)' + counterName + '(?:\\s+(-?\\d+))?(?:\\s|$)', 'i'));
+            if (m) inc = m[1] !== undefined ? parseInt(m[1], 10) : 1;
+          }
+          if (!inc) {
+            const ciB = window.getComputedStyle(target, '::before').counterIncrement;
+            if (ciB && ciB !== 'none') {
+              const m = ciB.match(new RegExp('(?:^|\\s)' + counterName + '(?:\\s+(-?\\d+))?(?:\\s|$)', 'i'));
+              if (m) inc = m[1] !== undefined ? parseInt(m[1], 10) : 1;
+            }
+          }
+        } catch (_) {}
+
+        if (inc) {
+          count += inc;
+          foundIncrement = true;
+        }
+
+        if (target === el) break;
+      }
+    } catch (_) {}
+
+    if (!foundIncrement && el.parentElement) {
+      try {
+        const siblings = Array.from(el.parentElement.children).filter(c => c.tagName === el.tagName);
+        const idx = siblings.indexOf(el);
+        if (idx !== -1) return idx + 1;
+      } catch (_) {}
+    }
+
+    return count > 0 ? count : 1;
+  }
+
+  function resolveCssCounters(contentStr, evalFn) {
+    if (!contentStr || !contentStr.includes('counter')) return contentStr;
+    let resolved = contentStr.replace(/counter\s*\(\s*([a-zA-Z0-9_-]+)(?:\s*,\s*([a-zA-Z0-9_-]+))?\s*\)/gi, (_, name, style) => {
+      const val = evalFn(name);
+      return formatCounterNumber(val, style || 'decimal');
+    });
+    resolved = resolved.replace(/counters\s*\(\s*([a-zA-Z0-9_-]+)\s*,\s*["']([^"']*)["'](?:\s*,\s*([a-zA-Z0-9_-]+))?\s*\)/gi, (_, name, sep, style) => {
+      const val = evalFn(name);
+      return formatCounterNumber(val, style || 'decimal');
+    });
+    resolved = resolved.replace(/"([^"]*)"/g, '$1').replace(/'([^']*)'/g, '$1').trim();
+    return resolved;
+  }
+
   async function serializePseudo(el, pseudo, assets, fonts, parentRect) {
     if (captureTimedOut) return null;
     try {
@@ -5386,6 +5494,9 @@
       let rawContent = content;
       const altSep = rawContent.indexOf('" / "');
       if (altSep !== -1) rawContent = rawContent.substring(0, altSep + 1);
+      if (rawContent && rawContent.includes('counter')) {
+        rawContent = resolveCssCounters(rawContent, (cName) => evalCssCounter(el, cName));
+      }
       let text = rawContent.replace(/^["']|["']$/g, '').trim();
 
       // Resolve CSS quote keywords
