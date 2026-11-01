@@ -272,8 +272,16 @@
         }
 
         /* 5. Companion Figma Link Pill (4px gap after notification pill) */
-        .figma-link-pill {
+        .figma-pill-wrapper {
           display: none;
+          position: relative;
+          align-items: center;
+        }
+        .figma-pill-wrapper.visible {
+          display: inline-flex;
+        }
+        .figma-link-pill {
+          display: flex;
           align-items: center;
           gap: 6px;
           background: rgba(13, 15, 24, 0.92);
@@ -293,9 +301,6 @@
           user-select: none;
           transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .figma-link-pill.visible {
-          display: flex;
-        }
         .figma-link-pill:hover {
           background: rgba(26, 32, 52, 0.96);
           border-color: #38bdf8;
@@ -313,6 +318,40 @@
         .figma-link-pill:hover .figma-link-arrow {
           opacity: 1;
           transform: translate(1px, -1px);
+        }
+
+        .pill-close-btn {
+          position: absolute;
+          top: -5px;
+          right: -5px;
+          width: 17px;
+          height: 17px;
+          border-radius: 50%;
+          background: rgba(15, 18, 28, 0.95);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          border: 1.2px solid rgba(255, 255, 255, 0.25);
+          color: #94a3b8;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          padding: 0;
+          margin: 0;
+          z-index: 20;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+          transition: all 0.18s ease;
+          outline: none;
+        }
+        .pill-close-btn:hover {
+          background: rgba(225, 29, 72, 0.95);
+          border-color: rgba(255, 255, 255, 0.5);
+          color: #ffffff;
+          transform: scale(1.15);
+          box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+        }
+        .pill-close-btn:active {
+          transform: scale(0.9);
         }
 
         /* Success & Error State Enhancements */
@@ -377,20 +416,28 @@
             <div class="pill-dot"></div>
             <span class="pill-text" id="pillText">${message || ''}</span>
           </div>
-          <a href="https://www.figma.com/community/plugin/1688188726585755829" target="_blank" rel="noopener noreferrer" class="figma-link-pill ${message ? 'visible' : ''}" id="figmaLinkPill" title="Open Figma Plugin">
-            <svg viewBox="0 0 38 57" width="10" height="15" fill="none" style="flex-shrink:0; display:block;">
-              <path d="M19 28.5C19 23.2533 23.2533 19 28.5 19C33.7467 19 38 23.2533 38 28.5C38 33.7467 33.7467 38 28.5 38C23.2533 38 19 33.7467 19 28.5Z" fill="#1ABCFE"/>
-              <path d="M0 47.5C0 42.2533 4.25329 38 9.5 38H19V47.5C19 52.7467 14.7467 57 9.5 57C4.25329 57 0 52.7467 0 47.5Z" fill="#0ACF83"/>
-              <path d="M19 0V19H28.5C33.7467 19 38 14.7467 38 9.5C38 4.25329 33.7467 0 28.5 0H19Z" fill="#FF7262"/>
-              <path d="M0 9.5C0 14.7467 4.25329 19 9.5 19H19V0H9.5C4.25329 0 0 4.25329 0 9.5Z" fill="#F24E1E"/>
-              <path d="M0 28.5C0 33.7467 4.25329 38 9.5 38H19V19H9.5C4.25329 19 0 23.2533 0 28.5Z" fill="#A259FF"/>
-            </svg>
-            <span class="figma-link-text">Figma</span>
-            <svg class="figma-link-arrow" viewBox="0 0 24 24" width="10.5" height="10.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="7" y1="17" x2="17" y2="7"></line>
-              <polyline points="7 7 17 7 17 17"></polyline>
-            </svg>
-          </a>
+          <div class="figma-pill-wrapper ${message ? 'visible' : ''}" id="figmaWrapper">
+            <a href="https://www.figma.com/community/plugin/1688188726585755829" target="_blank" rel="noopener noreferrer" class="figma-link-pill" id="figmaLinkPill" title="Open Figma Plugin">
+              <svg viewBox="0 0 38 57" width="10" height="15" fill="none" style="flex-shrink:0; display:block;">
+                <path d="M19 28.5C19 23.2533 23.2533 19 28.5 19C33.7467 19 38 23.2533 38 28.5C38 33.7467 33.7467 38 28.5 38C23.2533 38 19 33.7467 19 28.5Z" fill="#1ABCFE"/>
+                <path d="M0 47.5C0 42.2533 4.25329 38 9.5 38H19V47.5C19 52.7467 14.7467 57 9.5 57C4.25329 57 0 52.7467 0 47.5Z" fill="#0ACF83"/>
+                <path d="M19 0V19H28.5C33.7467 19 38 14.7467 38 9.5C38 4.25329 33.7467 0 28.5 0H19Z" fill="#FF7262"/>
+                <path d="M0 9.5C0 14.7467 4.25329 19 9.5 19H19V0H9.5C4.25329 0 0 4.25329 0 9.5Z" fill="#F24E1E"/>
+                <path d="M0 28.5C0 33.7467 4.25329 38 9.5 38H19V19H9.5C4.25329 19 0 23.2533 0 28.5Z" fill="#A259FF"/>
+              </svg>
+              <span class="figma-link-text">Figma</span>
+              <svg class="figma-link-arrow" viewBox="0 0 24 24" width="10.5" height="10.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="7" y1="17" x2="17" y2="7"></line>
+                <polyline points="7 7 17 7 17 17"></polyline>
+              </svg>
+            </a>
+            <button class="pill-close-btn" id="pillCloseBtn" title="Close" aria-label="Close">
+              <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -399,7 +446,11 @@
     const container = root.getElementById('notificationContainer');
     const pill = root.getElementById('notificationPill');
     const pillText = root.getElementById('pillText');
+    const figmaWrapper = root.getElementById('figmaWrapper');
     const figmaPill = root.getElementById('figmaLinkPill');
+    const closeBtn = root.getElementById('pillCloseBtn');
+
+    let finishTimer = null;
 
     if (onClick && pill) {
       pill.addEventListener('click', () => onClick(pill));
@@ -410,6 +461,17 @@
         e.preventDefault();
         e.stopPropagation();
         window.open('https://www.figma.com/community/plugin/1688188726585755829', '_blank');
+      });
+    }
+
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        controller.remove();
+      });
+      closeBtn.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
       });
     }
 
@@ -433,16 +495,16 @@
           else pill.classList.add('compact');
         }
       },
-      finish(success, text, finishDuration = 6000, newOnClick) {
+      finish(success, text, finishDuration = 12000, newOnClick) {
         if (text && pillText) pillText.textContent = text;
         if (pill) {
           if (text) pill.classList.remove('compact');
           else pill.classList.add('compact');
         }
-        if (success && figmaPill) {
-          figmaPill.classList.add('visible');
-        } else if (figmaPill) {
-          figmaPill.classList.remove('visible');
+        if (success && figmaWrapper) {
+          figmaWrapper.classList.add('visible');
+        } else if (figmaWrapper) {
+          figmaWrapper.classList.remove('visible');
         }
         if (wrapper) {
           wrapper.classList.remove('success', 'error');
@@ -457,7 +519,8 @@
         }, 1200);
 
         if (finishDuration) {
-          setTimeout(() => {
+          if (finishTimer) clearTimeout(finishTimer);
+          finishTimer = setTimeout(() => {
             if (wrapper) wrapper.classList.remove('visible');
             setTimeout(() => {
               try { host.remove(); } catch (e) {}
@@ -466,6 +529,7 @@
         }
       },
       remove() {
+        if (finishTimer) clearTimeout(finishTimer);
         if (wrapper) wrapper.classList.remove('visible');
         setTimeout(() => {
           try { host.remove(); } catch (e) {}
@@ -604,37 +668,87 @@
           opacity: 1;
           transform: translate(1px, -1px);
         }
+        .figma-pill-wrapper {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+        }
+        .pill-close-btn {
+          position: absolute;
+          top: -5px;
+          right: -5px;
+          width: 17px;
+          height: 17px;
+          border-radius: 50%;
+          background: rgba(15, 18, 28, 0.95);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          border: 1.2px solid rgba(255, 255, 255, 0.25);
+          color: #94a3b8;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          padding: 0;
+          margin: 0;
+          z-index: 20;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+          transition: all 0.18s ease;
+          outline: none;
+        }
+        .pill-close-btn:hover {
+          background: rgba(225, 29, 72, 0.95);
+          border-color: rgba(255, 255, 255, 0.5);
+          color: #ffffff;
+          transform: scale(1.15);
+          box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+        }
+        .pill-close-btn:active {
+          transform: scale(0.9);
+        }
       </style>
       <div class="notification-container" id="notificationContainer">
         <div class="notification-pill" id="notificationPill" tabindex="0" title="Click here or press SPACE BAR to capture">
           <div class="pill-dot"></div>
           <span class="pill-text" id="pillText">Click here or Press 'SPACE BAR' to capture then paste on our figma plugin</span>
         </div>
-        <a href="https://www.figma.com/community/plugin/1688188726585755829" target="_blank" rel="noopener noreferrer" class="figma-link-pill" id="figmaLinkPill" title="Open Figma Plugin">
-          <svg viewBox="0 0 38 57" width="10" height="15" fill="none" style="flex-shrink:0; display:block;">
-            <path d="M19 28.5C19 23.2533 23.2533 19 28.5 19C33.7467 19 38 23.2533 38 28.5C38 33.7467 33.7467 38 28.5 38C23.2533 38 19 33.7467 19 28.5Z" fill="#1ABCFE"/>
-            <path d="M0 47.5C0 42.2533 4.25329 38 9.5 38H19V47.5C19 52.7467 14.7467 57 9.5 57C4.25329 57 0 52.7467 0 47.5Z" fill="#0ACF83"/>
-            <path d="M19 0V19H28.5C33.7467 19 38 14.7467 38 9.5C38 4.25329 33.7467 0 28.5 0H19Z" fill="#FF7262"/>
-            <path d="M0 9.5C0 14.7467 4.25329 19 9.5 19H19V0H9.5C4.25329 0 0 4.25329 0 9.5Z" fill="#F24E1E"/>
-            <path d="M0 28.5C0 33.7467 4.25329 38 9.5 38H19V19H9.5C4.25329 19 0 23.2533 0 28.5Z" fill="#A259FF"/>
-          </svg>
-          <span class="figma-link-text">Figma</span>
-          <svg class="figma-link-arrow" viewBox="0 0 24 24" width="10.5" height="10.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="7" y1="17" x2="17" y2="7"></line>
-            <polyline points="7 7 17 7 17 17"></polyline>
-          </svg>
-        </a>
+        <div class="figma-pill-wrapper" id="figmaWrapper">
+          <a href="https://www.figma.com/community/plugin/1688188726585755829" target="_blank" rel="noopener noreferrer" class="figma-link-pill" id="figmaLinkPill" title="Open Figma Plugin">
+            <svg viewBox="0 0 38 57" width="10" height="15" fill="none" style="flex-shrink:0; display:block;">
+              <path d="M19 28.5C19 23.2533 23.2533 19 28.5 19C33.7467 19 38 23.2533 38 28.5C38 33.7467 33.7467 38 28.5 38C23.2533 38 19 33.7467 19 28.5Z" fill="#1ABCFE"/>
+              <path d="M0 47.5C0 42.2533 4.25329 38 9.5 38H19V47.5C19 52.7467 14.7467 57 9.5 57C4.25329 57 0 52.7467 0 47.5Z" fill="#0ACF83"/>
+              <path d="M19 0V19H28.5C33.7467 19 38 14.7467 38 9.5C38 4.25329 33.7467 0 28.5 0H19Z" fill="#FF7262"/>
+              <path d="M0 9.5C0 14.7467 4.25329 19 9.5 19H19V0H9.5C4.25329 0 0 4.25329 0 9.5Z" fill="#F24E1E"/>
+              <path d="M0 28.5C0 33.7467 4.25329 38 9.5 38H19V19H9.5C4.25329 19 0 23.2533 0 28.5Z" fill="#A259FF"/>
+            </svg>
+            <span class="figma-link-text">Figma</span>
+            <svg class="figma-link-arrow" viewBox="0 0 24 24" width="10.5" height="10.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="7" y1="17" x2="17" y2="7"></line>
+              <polyline points="7 7 17 7 17 17"></polyline>
+            </svg>
+          </a>
+          <button class="pill-close-btn" id="pillCloseBtn" title="Close" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
       </div>
     `;
 
     const container = root.getElementById('notificationContainer');
     const pill = root.getElementById('notificationPill');
     const figmaPill = root.getElementById('figmaLinkPill');
+    const closeBtn = root.getElementById('pillCloseBtn');
 
     let dismissed = false;
     function cleanup() {
       if (dismissed) return;
       dismissed = true;
+      if (typeof window.__html2FigOnPromptDismiss === 'function') {
+        try { window.__html2FigOnPromptDismiss(); } catch (_) {}
+      }
       if (window.__h2fPromptKeydownListener) {
         window.removeEventListener('keydown', window.__h2fPromptKeydownListener, true);
         window.removeEventListener('keyup', window.__h2fPromptKeydownListener, true);
@@ -735,6 +849,17 @@
         window.open('https://www.figma.com/community/plugin/1688188726585755829', '_blank');
       });
       figmaPill.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+      });
+    }
+
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        cleanup();
+      });
+      closeBtn.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
       });
     }
@@ -10316,9 +10441,9 @@
       const completionMsg = 'Open our Figma plugin and paste (Ctrl/ Cmd + V)';
       if (ok) {
         if (halo) {
-          halo.finish(true, completionMsg, 6000);
+          halo.finish(true, completionMsg, 12000);
         } else {
-          showEdgeLighting(completionMsg, 6000);
+          showEdgeLighting(completionMsg, 12000);
         }
       } else {
         if (halo) {
