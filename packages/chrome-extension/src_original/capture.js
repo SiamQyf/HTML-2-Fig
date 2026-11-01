@@ -95,7 +95,7 @@
     maskRepeat: 'repeat', webkitMaskRepeat: 'repeat',
     rotate: 'none', scale: 'none', verticalAlign: 'baseline',
     visibility: 'visible', webkitTextFillColor: '', whiteSpace: 'normal',
-    width: 'auto', writingMode: 'horizontal-tb', textOrientation: 'mixed', zIndex: 'auto', clipPath: 'none'
+    width: 'auto', writingMode: 'horizontal-tb', textOrientation: 'mixed', zIndex: 'auto', clipPath: 'none', boxDecorationBreak: 'slice', webkitBoxDecorationBreak: 'slice'
   };
 
   /* Helper: Enforces that fonts never render as light, thin, or extra light. Regular (400) is the lowest. */
@@ -3446,7 +3446,16 @@
     // We resolve the effective background color from ancestor elements so Figma renders
     // the identical visual: a clean unshadowed interior matching the background, and
     // the soft drop shadow cast outward.
-    if (cs.boxShadow && cs.boxShadow !== 'none' && isTransparentColor(cs.backgroundColor) && (!cs.backgroundImage || cs.backgroundImage === 'none')) {
+    function hasNonZeroBoxShadow(bs) {
+      if (!bs || bs === 'none' || bs === 'initial' || bs === 'inherit') return false;
+      const m = bs.match(/(-?[\d.]+)px\s+(-?[\d.]+)px(?:\s+([\d.]+)px)?(?:\s+([\d.]+)px)?/g);
+      if (!m) return false;
+      return m.some(part => {
+        const nums = part.split(/\s+/).map(p => parseFloat(p) || 0);
+        return nums.some(n => Math.abs(n) > 0.1);
+      });
+    }
+    if (hasNonZeroBoxShadow(cs.boxShadow) && isTransparentColor(cs.backgroundColor) && (!cs.backgroundImage || cs.backgroundImage === 'none')) {
       let p = el.parentElement;
       while (p && p !== document.documentElement) {
         const pcs = window.getComputedStyle(p);
@@ -9858,7 +9867,11 @@
 
           if (fragChildNodes.length > 0) {
             const fragStyles = { ...styles };
-            if (styles.boxDecorationBreak !== 'clone') {
+            const isClone = (styles.boxDecorationBreak === 'clone' || styles.webkitBoxDecorationBreak === 'clone' ||
+                     (el.style && (el.style.boxDecorationBreak === 'clone' || el.style.webkitBoxDecorationBreak === 'clone')) ||
+                     window.getComputedStyle(el).boxDecorationBreak === 'clone' ||
+                     window.getComputedStyle(el).webkitBoxDecorationBreak === 'clone');
+            if (!isClone) {
               if (k > 0) {
                 fragStyles.borderLeftWidth = '0px';
                 fragStyles.borderLeftStyle = 'none';
