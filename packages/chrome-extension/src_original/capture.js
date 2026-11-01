@@ -896,6 +896,24 @@
       injectScript.textContent = `
         window.__h2f_cleanup = window.__h2f_cleanup || [];
         try {
+          if (window.Lenis && window.Lenis.prototype) {
+            window.__h2f_lenis_instances = window.__h2f_lenis_instances || new Set();
+            const origRaf = window.Lenis.prototype.raf;
+            window.Lenis.prototype.raf = function(...args) {
+              window.__h2f_lenis_instances.add(this);
+              if (window.__h2f_freeze_scroll) return;
+              return origRaf.apply(this, args);
+            };
+            window.__h2f_cleanup.push(() => {
+              window.Lenis.prototype.raf = origRaf;
+              window.__h2f_freeze_scroll = false;
+              if (window.__h2f_lenis_instances) {
+                window.__h2f_lenis_instances.forEach(inst => {
+                  try { inst.start(); } catch(e){}
+                });
+              }
+            });
+          }
           if (window.skrollr && typeof window.skrollr.get === 'function') {
             const skr = window.skrollr.get();
             if (skr && typeof skr.destroy === 'function') {
@@ -1369,6 +1387,69 @@
     }
     window.dispatchEvent(new Event('scroll'));
     await new Promise(r => setTimeout(r, 150));
+
+    // Freeze Lenis smooth scroll, prevent bounce-back, and neutralize theme parallax loops (e.g. Salient nectarPreventParallax)
+    try {
+      window.nectarPreventParallax = true;
+      const stopLenisScript = document.createElement('script');
+      stopLenisScript.textContent = `
+        window.__h2f_freeze_scroll = true;
+        window.nectarPreventParallax = true;
+        if (window.__h2f_lenis_instances) {
+          window.__h2f_lenis_instances.forEach(inst => {
+            try {
+              inst.scrollTo(0, { immediate: true });
+              inst.stop();
+            } catch(e){}
+          });
+        }
+        if (window.lenis && typeof window.lenis.stop === 'function') {
+          try {
+            window.lenis.scrollTo(0, { immediate: true });
+            window.lenis.stop();
+          } catch(e){}
+        }
+      `;
+      document.documentElement.appendChild(stopLenisScript);
+      stopLenisScript.remove();
+      cleanupTasks.push(() => {
+        try {
+          window.nectarPreventParallax = false;
+          const restoreScript = document.createElement('script');
+          restoreScript.textContent = 'window.nectarPreventParallax = false;';
+          document.documentElement.appendChild(restoreScript);
+          restoreScript.remove();
+        } catch(e){}
+      });
+    } catch(e) {}
+
+    // Reset parallax transforms on elements with scroll animations (e.g. Salient .nectar-el-parallax-scroll, [data-scroll-animation])
+    // These elements compute an offset transform mid-scroll (e.g. translateY(-7000px)), which causes their content to be clipped or completely blank in Figma.
+    try {
+      const parallaxScrollEls = document.querySelectorAll(
+        '.nectar-el-parallax-scroll, [data-scroll-animation], [data-scroll-animation-intensity], [class*="parallax-scroll"], [data-parallax-speed], [data-stellar-ratio]'
+      );
+      const savedParallaxTransforms = [];
+      for (const el of parallaxScrollEls) {
+        savedParallaxTransforms.push({
+          el,
+          transform: el.style.transform,
+          transition: el.style.transition
+        });
+        el.style.setProperty('transform', 'none', 'important');
+        el.style.setProperty('transition', 'none', 'important');
+      }
+      cleanupTasks.push(() => {
+        for (const item of savedParallaxTransforms) {
+          try {
+            if (item.transform) item.el.style.transform = item.transform;
+            else item.el.style.removeProperty('transform');
+            if (item.transition) item.el.style.transition = item.transition;
+            else item.el.style.removeProperty('transition');
+          } catch(e){}
+        }
+      });
+    } catch(e) {}
 
     // Lock in revealed state for scroll-animated elements that reset on scroll-to-top
     try {
