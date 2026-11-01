@@ -322,8 +322,8 @@
 
         .pill-close-btn {
           position: absolute;
-          top: -5px;
-          right: -5px;
+          top: -8px;
+          right: -13px;
           width: 17px;
           height: 17px;
           border-radius: 50%;
@@ -675,8 +675,8 @@
         }
         .pill-close-btn {
           position: absolute;
-          top: -5px;
-          right: -5px;
+          top: -8px;
+          right: -13px;
           width: 17px;
           height: 17px;
           border-radius: 50%;
