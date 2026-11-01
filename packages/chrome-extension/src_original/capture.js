@@ -7148,12 +7148,12 @@
             } else {
               res += '\n';
             }
-            if (raw[i] === ' ') {
+            if (/\s/.test(raw[i])) {
               lastCharWasSpace = true;
               continue;
             }
           }
-          if (raw[i] === ' ') {
+          if (/\s/.test(raw[i])) {
             if (!lastCharWasSpace && !res.endsWith('\n') && res.length > 0) {
               res += ' ';
             }
@@ -7495,32 +7495,9 @@
   function isPureInlineTextChild(node) {
     if (!node) return false;
     if (node.nodeType === 3) {
-      try {
-        const rng = document.createRange();
-        rng.selectNodeContents(node);
-        const crs = Array.from(rng.getClientRects()).filter(r => r.width > 0 && r.height > 0);
-        rng.detach();
-        if (crs.length > 1) {
-          const tops = [];
-          for (const r of crs) {
-            if (!tops.some(t => Math.abs(t - r.top) < Math.max(4, r.height * 0.35))) tops.push(r.top);
-          }
-          if (tops.length > 1) return false;
-        }
-      } catch (_) {}
-      return true;
+      return (node.textContent || '').trim().length > 0;
     }
     if (node.nodeType === 1) {
-      try {
-        const crs = Array.from(node.getClientRects()).filter(r => r.width > 0 && r.height > 0);
-        if (crs.length > 1) {
-          const tops = [];
-          for (const r of crs) {
-            if (!tops.some(t => Math.abs(t - r.top) < Math.max(4, r.height * 0.35))) tops.push(r.top);
-          }
-          if (tops.length > 1) return false;
-        }
-      } catch (_) {}
       const tag = node.tagName.toUpperCase();
       if (tag === 'BR') return false; // Do not glue text across explicit <br> breaks into unified text runs
       if (['IMG', 'SVG', 'CANVAS', 'VIDEO', 'IFRAME', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'HR'].includes(tag)) {
