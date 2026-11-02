@@ -8763,21 +8763,22 @@
 
     // Drop resting-hidden backdrops, curtains, scrims, and modal backdrops
     // (e.g. Apple #globalnav-curtain, .globalnav-curtain, .modal-backdrop, .curtain, .scrim, .drawer-backdrop)
-    const isPreloaderOrLoader = (
-      /preloader|loader-wrapper|site-preloader|page-loader|loading-screen|splash-screen|mfn-preloader|mfn-loader|page-loading|site-loading|animsition-loading|qode-preloader|fusion-preloader|avada-preloader|mfn-demo-panel/i.test(cls + ' ' + (el.id || '')) ||
-      el.hasAttribute?.('data-preloader')
+    const isDocRoot = (tag === 'BODY' || tag === 'HTML');
+    const isPreloaderOrLoader = !isDocRoot && !/preloader-off|no-preloader|without-preloader|preloader-disabled/i.test(cls) && (
+      /\b(?:preloader|site-preloader|page-loader|loading-screen|splash-screen|mfn-preloader|mfn-loader|page-loading|site-loading|animsition-loading|qode-preloader|fusion-preloader|avada-preloader|mfn-demo-panel)\b|loader-wrapper/i.test(cls + ' ' + (el.id || '')) ||
+      (el.hasAttribute?.('data-preloader') && el.getAttribute?.('data-preloader') !== 'off' && el.getAttribute?.('data-preloader') !== 'false')
     );
-    if (isPreloaderOrLoader) {
+    if (!isDocRoot && isPreloaderOrLoader) {
       styles.opacity = '0';
       styles.visibility = 'hidden';
       return null;
     }
 
-    const isBackdropOrCurtain = (
-      /curtain|scrim|backdrop|modal-backdrop|offcanvas-backdrop|off-canvas-backdrop|off-canvas-overlay|awb-off-canvas|nav-curtain|globalnav-curtain/i.test(cls + ' ' + (el.id || '')) ||
+    const isBackdropOrCurtain = !isDocRoot && (
+      /\b(?:curtain|scrim|backdrop|modal-backdrop|offcanvas-backdrop|off-canvas-backdrop|off-canvas-overlay|awb-off-canvas|nav-curtain|globalnav-curtain)\b/i.test(cls + ' ' + (el.id || '')) ||
       ((styles.position === 'fixed' || styles.position === 'absolute') && (styles.backdropFilter && styles.backdropFilter !== 'none') && (parseFloat(styles.opacity) <= 0.05 || styles.visibility === 'hidden'))
     );
-    if (isBackdropOrCurtain && (styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
+    if (!isDocRoot && isBackdropOrCurtain && (styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
       styles.opacity = '0';
       styles.visibility = 'hidden';
       return null;
@@ -8978,7 +8979,7 @@
     ) : null;
     const isModalOrOffcanvas = !!modalRoot;
 
-    if (modalRoot) {
+    if (!isDocRoot && modalRoot) {
       const mStyle = window.getComputedStyle(modalRoot);
       const isModalHidden = mStyle.display === 'none' || mStyle.visibility === 'hidden' || parseFloat(mStyle.opacity) <= 0.05;
       if (isModalHidden || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden) {
@@ -8988,13 +8989,13 @@
       }
     }
 
-    if (isInactiveTab && (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
+    if (!isDocRoot && isInactiveTab && (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
       styles.opacity = '0';
       styles.visibility = 'hidden';
       return null;
     }
 
-    const isInactiveSlideContainer = !!(el.closest && (() => {
+    const isInactiveSlideContainer = !isDocRoot && !!(el.closest && (() => {
       const slide = el.closest('.swiper-slide, .slick-slide, .owl-item, .carousel-item');
       if (!slide) return false;
       if (slide.classList.contains('swiper-slide-active') || slide.classList.contains('swiper-slide-visible') || slide.classList.contains('swiper-slide-fully-visible')) return false;
@@ -9010,19 +9011,19 @@
       }
       return true;
     })());
-    if (isInactiveSlideContainer) {
+    if (!isDocRoot && isInactiveSlideContainer) {
       styles.opacity = '0';
       styles.visibility = 'hidden';
       return null;
     }
 
-    if (isInactiveVariant && (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
+    if (!isDocRoot && isInactiveVariant && (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
       styles.opacity = '0';
       styles.visibility = 'hidden';
       return null;
     }
 
-    if (isNavDropdown && (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
+    if (!isDocRoot && isNavDropdown && (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) <= 0.05 || isHidden)) {
       styles.opacity = '0';
       styles.visibility = 'hidden';
       return null;
@@ -9260,7 +9261,6 @@
     const isDemoSwitcher = (typeof el.id === 'string' && /(?:^|_|-)(?:style-switcher|theme-switcher|demo-switcher|switcher-container)(?:$|_|-)/i.test(el.id)) ||
                            (typeof el.className === 'string' && /(?:^|\s)(?:[a-z0-9_-]*(?:style-switcher|theme-switcher|demo-switcher|switcher-container)|cnvs-switcher-container)(?:$|\s)/i.test(el.className));
 
-    const isDocRoot = (tag === 'BODY' || tag === 'HTML');
     if (!isDocRoot && (isClipHidden || isTinyHidden || isZeroClipped || isSrOnlyClass || isDemoSwitcher)) return null;
 
     const clientRect = el.getBoundingClientRect();
@@ -10017,12 +10017,16 @@
               appendTrailSpace(lastItem);
             }
           }
-          const sChild = await serializeNode(child, assets, fonts, styles);
-          if (sChild) {
-            const itemsToAdd = Array.isArray(sChild) ? sChild : [sChild];
-            for (const item of itemsToAdd) {
-              childNodes.push(item);
+          try {
+            const sChild = await serializeNode(child, assets, fonts, styles);
+            if (sChild) {
+              const itemsToAdd = Array.isArray(sChild) ? sChild : [sChild];
+              for (const item of itemsToAdd) {
+                childNodes.push(item);
+              }
             }
+          } catch (childErr) {
+            console.warn('[HTML-2-Fig] child serialize error:', childErr);
           }
           idx++;
         }
