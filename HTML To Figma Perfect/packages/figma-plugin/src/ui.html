@@ -2709,8 +2709,110 @@
       return;
     }
     try {
-      const data = JSON.parse(trimmed);
-      if (!data.root || !data.version) {
+      let cleanText = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      let data = JSON.parse(cleanText);
+
+      // 1. Unwrap multiple stringifications (common with clipboard / extension messaging)
+      while (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch (_) {
+          break;
+        }
+      }
+
+      // 2. Check for explicit error payloads from capture extension
+      if (data && typeof data === 'object' && (data.error || data.status === 'error')) {
+        const errMsg = (data.error && data.error.message) || data.error || data.message || 'Capture failed';
+        showToast('⚠️ Capture issue: ' + errMsg, 'error', 6000);
+        return;
+      }
+
+      // 3. Unwrap array wrapper (e.g. [ { root, version } ] or [ node ])
+      if (Array.isArray(data) && data.length > 0) {
+        if (data[0] && typeof data[0] === 'object' && (data[0].root || data[0].tag || data[0].nodeType === 1 || data[0].payload)) {
+          data = data[0];
+        }
+      }
+
+      // 4. Unwrap object wrappers (e.g. { payload: ... }, { data: ... }, { result: ... }, { capture: ... }, { h2f_last_capture: ... })
+      if (data && typeof data === 'object') {
+        if (data.payload && typeof data.payload === 'object') {
+          data = data.payload;
+        } else if (data.data && typeof data.data === 'object' && (data.data.root || data.data.tag || data.data.nodeType === 1 || data.data.childNodes)) {
+          data = data.data;
+        } else if (data.result && typeof data.result === 'object' && (data.result.root || data.result.tag || data.result.nodeType === 1)) {
+          data = data.result;
+        } else if (data.capture && typeof data.capture === 'object' && (data.capture.root || data.capture.tag || data.capture.nodeType === 1)) {
+          data = data.capture;
+        } else if (data.h2f_last_capture) {
+          let lastCap = data.h2f_last_capture;
+          if (typeof lastCap === 'string') {
+            try { lastCap = JSON.parse(lastCap); } catch (_) {}
+          }
+          if (lastCap && typeof lastCap === 'object') data = lastCap;
+        }
+      }
+
+      // Unpack again if data was stringified inside a wrapper
+      while (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch (_) {
+          break;
+        }
+      }
+
+      // 5. Map alternative root property names (e.g. document, tree, node, body, element)
+      if (data && typeof data === 'object' && !data.root) {
+        if (data.document && typeof data.document === 'object' && (data.document.tag || data.document.nodeType === 1 || data.document.childNodes)) {
+          data.root = data.document;
+        } else if (data.tree && typeof data.tree === 'object' && (data.tree.tag || data.tree.nodeType === 1 || data.tree.childNodes)) {
+          data.root = data.tree;
+        } else if (data.node && typeof data.node === 'object' && (data.node.tag || data.node.nodeType === 1 || data.node.childNodes)) {
+          data.root = data.node;
+        } else if (data.body && typeof data.body === 'object' && (data.body.tag || data.body.nodeType === 1 || data.body.childNodes)) {
+          data.root = data.body;
+        } else if (data.element && typeof data.element === 'object' && (data.element.tag || data.element.nodeType === 1 || data.element.childNodes)) {
+          data.root = data.element;
+        }
+      }
+
+      // 6. If data itself IS a single element node (tag, styles, rect, childNodes, etc.)
+      if (data && typeof data === 'object' && !data.root && (data.tag || data.nodeType === 1 || data.childNodes || (data.styles && data.rect))) {
+        data = {
+          version: 2,
+          generator: 'HTML-2-Fig',
+          documentTitle: data.name || data.tag || 'Element Capture',
+          documentRect: data.rect || { x: 0, y: 0, width: 1440, height: 900 },
+          viewportRect: data.rect || { x: 0, y: 0, width: 1440, height: 900 },
+          devicePixelRatio: 1,
+          root: data,
+          assets: data.assets || {},
+          fonts: data.fonts || []
+        };
+      }
+
+      // 7. Ensure version and required fields are set if root is present
+      if (data && typeof data === 'object' && data.root) {
+        if (!data.version || typeof data.version !== 'number') {
+          data.version = 2;
+        }
+        if (!data.documentRect) {
+          data.documentRect = data.root.rect || { x: 0, y: 0, width: 1440, height: 900 };
+        }
+        if (!data.viewportRect) {
+          data.viewportRect = data.documentRect;
+        }
+        if (!data.assets) {
+          data.assets = {};
+        }
+        if (!data.fonts) {
+          data.fonts = [];
+        }
+      }
+
+      if (!data || !data.root || !data.version) {
         showToast('⚠️ Invalid capture structure. Please paste a URL or re-capture.', 'error');
         return;
       }

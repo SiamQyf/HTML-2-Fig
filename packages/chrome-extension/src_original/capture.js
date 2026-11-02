@@ -9260,10 +9260,11 @@
     const isDemoSwitcher = (typeof el.id === 'string' && /(?:^|_|-)(?:style-switcher|theme-switcher|demo-switcher|switcher-container)(?:$|_|-)/i.test(el.id)) ||
                            (typeof el.className === 'string' && /(?:^|\s)(?:[a-z0-9_-]*(?:style-switcher|theme-switcher|demo-switcher|switcher-container)|cnvs-switcher-container)(?:$|\s)/i.test(el.className));
 
-    if (isClipHidden || isTinyHidden || isZeroClipped || isSrOnlyClass || isDemoSwitcher) return null;
+    const isDocRoot = (tag === 'BODY' || tag === 'HTML');
+    if (!isDocRoot && (isClipHidden || isTinyHidden || isZeroClipped || isSrOnlyClass || isDemoSwitcher)) return null;
 
     const clientRect = el.getBoundingClientRect();
-    if (!isAnimTarget && (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') && (clientRect.height <= 0.5 || clientRect.width <= 0.5)) {
+    if (!isDocRoot && !isAnimTarget && (styles.overflow === 'hidden' || styles.overflowX === 'hidden' || styles.overflowY === 'hidden' || styles.overflow === 'clip') && (clientRect.height <= 0.5 || clientRect.width <= 0.5)) {
       return null;
     }
 
@@ -10339,6 +10340,7 @@
   }
 
   async function captureRaw(options = {}) {
+    captureTimedOut = false;
     let restorePage = null;
     let savedImageAttrs = [];
     const CAPTURE_TIMEOUT = 90000;
@@ -10428,7 +10430,27 @@
 
       // Target document.body directly to avoid double nesting HTML + BODY frames
       const targetElement = document.body || document.documentElement;
-      const root = await serializeNode(targetElement, assets, fonts, null);
+      let root = await serializeNode(targetElement, assets, fonts, null);
+      if (!root) {
+        root = {
+          nodeType: 1,
+          id: 'root-body',
+          tag: 'BODY',
+          attributes: {},
+          styles: {
+            backgroundColor: '#ffffff',
+            display: 'block',
+            position: 'relative'
+          },
+          rect: {
+            x: 0,
+            y: 0,
+            width: document.documentElement.clientWidth || window.innerWidth || 1440,
+            height: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0, window.innerHeight || 900)
+          },
+          childNodes: []
+        };
+      }
 
       if (targetElement === document.body && document.documentElement) {
         const htmlStyles = window.getComputedStyle(document.documentElement);
@@ -10515,7 +10537,10 @@
       // Splice all iframes (same-origin and cross-origin) into the captured tree
       if (typeof window.__e2fSpliceFrames === 'function') {
         try {
-          payload = await window.__e2fSpliceFrames(payload);
+          const spliced = await window.__e2fSpliceFrames(payload);
+          if (spliced && (typeof spliced === 'string' || spliced.root)) {
+            payload = spliced;
+          }
         } catch (spliceErr) {
           console.warn('[HTML-2-Fig] Splice frames warning:', spliceErr);
         }
