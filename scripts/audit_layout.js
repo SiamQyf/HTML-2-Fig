@@ -489,6 +489,8 @@ async function auditUrl(targetUrl, options = {}) {
               if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
               const p = node.parentElement;
               if (!p || !isElementVisible(p)) return NodeFilter.FILTER_REJECT;
+              const pr = p.getBoundingClientRect();
+              if (pr.width <= 1 || pr.height <= 1) return NodeFilter.FILTER_REJECT;
               if (p.closest('svg, defs, mask, template, noscript, script, style, [aria-hidden="true"]')) return NodeFilter.FILTER_REJECT;
               if (typeof p.className === 'string' && /(?:^|\b)(?:[a-z0-9_-]*(?:visually[-_]?hidden|sr[-_]?only|screen[-_]?reader)|invisible)(?:$|\b)/i.test(p.className)) return NodeFilter.FILTER_REJECT;
               return NodeFilter.FILTER_ACCEPT;
@@ -517,7 +519,8 @@ async function auditUrl(targetUrl, options = {}) {
                 trH = clientH;
                 isElClamped = true;
               }
-              if (tr.width > 0 && tr.height > 0) visualRect = { x: tr.x, y: tr.y, width: tr.width, height: trH };
+              if (tr.width <= 1 || tr.height <= 1) continue;
+              visualRect = { x: tr.x, y: tr.y, width: tr.width, height: trH };
             } catch (_) {}
           } else {
             // Reject elements with no visible text nodes to avoid pulling in scripts/styles/templates
@@ -543,9 +546,11 @@ async function auditUrl(targetUrl, options = {}) {
 
       const parentEl = el.parentElement;
       const parentRect = parentEl ? parentEl.getBoundingClientRect() : null;
-      const clonedSliderParent = el.closest('.slick-cloned, [class*="slick-cloned"], .swiper-slide:not(.swiper-slide-active):not(.swiper-slide-visible), .slick-slide:not(.slick-active)');
+      const clonedSliderParent = el.closest('.slick-cloned, [class*="slick-cloned"], [class*="swiper-slide-duplicate"], .swiper-slide-duplicate, .swiper-slide:not(.swiper-slide-active):not(.swiper-slide-visible), .slick-slide:not(.slick-active)');
       const isPromoModalChild = !!el.closest('.awb-off-canvas-wrap, [class*="newsletter-popup"], [class*="promo-popup"], #onetrust-consent-sdk, [class*="type-popup"]');
-      const isSliderChild = !!clonedSliderParent || isPromoModalChild || (visualRect.x + visualRect.width < -50) || (visualRect.x > 2500);
+      const isDropdownChild = !!el.closest('.nav-sublist-dropdown, [class*="nav-sublist"], .dropdown-menu, .sub-menu, [class*="dropdown-mega"], [class*="dropdowns-"]');
+      const isOffscreen = (visualRect.y < -50) || (visualRect.y > 20000) || (visualRect.x + visualRect.width < -10) || (visualRect.x > 1450);
+      const isSliderChild = !!clonedSliderParent || isPromoModalChild || isDropdownChild || isOffscreen;
       const isInlineInParagraph = el.tagName === 'A' && cs.display.startsWith('inline') &&
         (['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'LABEL', 'BLOCKQUOTE', 'FIGCAPTION', 'DIV', 'SPAN'].includes(parentEl?.tagName) ||
          (parentEl && (parentEl.textContent || '').trim().length > cleanText.length + 5));
@@ -936,6 +941,7 @@ async function auditUrl(targetUrl, options = {}) {
 
     const ancestorCombined = getAncestorCombinedText(figmaNode);
     const isSplitAcrossSiblings = Boolean(ancestorCombined);
+    let isInlineOrUnified = domItem.isInlineInParagraph || isSplitAcrossSiblings || (matched.cleanText !== cleanDom && matched.cleanText.includes(cleanDom));
 
     if (cleanDom.length >= 4 && matched.cleanText !== cleanDom) {
       const isIntentionalClamp = domItem.isClamped || matched.cleanText.endsWith('...') || matched.node.textTruncation === 'ENDING';
@@ -1077,7 +1083,7 @@ async function auditUrl(targetUrl, options = {}) {
 
         const deltaX = Math.abs(figmaVisualX - domItem.relativeVisualPos.x);
         const absDeltaX = Math.abs(matched.absRect.x - domItem.absRect.x);
-        const isInlineOrUnified = domItem.isInlineInParagraph || isSplitAcrossSiblings || (matched.cleanText !== domItem.cleanText && matched.cleanText.includes(domItem.cleanText));
+        isInlineOrUnified = domItem.isInlineInParagraph || isSplitAcrossSiblings || (matched.cleanText !== domItem.cleanText && matched.cleanText.includes(domItem.cleanText));
         if (deltaX > 25 && absDeltaX > 20 && !isInlineOrUnified) {
           geomPass = false;
           anomalies.push({
@@ -1776,7 +1782,8 @@ function escapeHtml(str) {
 
 // CLI entry point
 if (require.main === module) {
-  let targetUrl = process.argv[2] || 'https://stripe.com/';
+  const urlArg = process.argv.slice(2).find(a => !a.startsWith('--') || a.startsWith('--url='));
+  let targetUrl = urlArg ? urlArg.replace(/^--url=/, '') : 'https://stripe.com/';
   if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://') && !targetUrl.startsWith('file://')) {
     const resolved = path.resolve(targetUrl);
     if (fs.existsSync(resolved)) {

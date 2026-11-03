@@ -1,0 +1,24 @@
+{
+  "categories": {
+    "saas_modern": [
+      "https://example.com",
+      "https://stripe.com",
+      "https://linear.app",
+      "https://vercel.com",
+      "https://tailwindcss.com"
+    ],
+    "ecommerce": [
+      "https://shopify.com",
+      "https://store.google.com"
+    ],
+    "documentation": [
+      "https://docs.github.com",
+      "https://developer.mozilla.org/en-US/"
+    ],
+    "typography_rich": [
+      "https://news.ycombinator.com",
+      "https://wikipedia.org"
+    ]
+  }
+}
+
