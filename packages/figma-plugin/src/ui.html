@@ -2695,10 +2695,27 @@
       autoClearTimeout = null;
     }
     if (typeof text === 'object' && text !== null) {
-      if (text.frame && !text.root) text.root = text.frame;
+      if (!text.root && text.frame) text.root = text.frame;
       if (!text.documentTitle && (text.doc?.title || text.name)) text.documentTitle = text.doc?.title || text.name;
-      currentPayloadData = text;
-      showPayloadPreview(text);
+      if (!text.viewportRect) {
+        text.viewportRect = {
+          x: 0,
+          y: 0,
+          width: text.width || text.doc?.innerWidth || text.root?.width || 1440,
+          height: text.doc?.innerHeight || 900
+        };
+      }
+      if (!text.documentRect) {
+        text.documentRect = {
+          x: text.root?.x || 0,
+          y: text.root?.y || 0,
+          width: text.root?.width || text.width || 1440,
+          height: text.root?.height || 900
+        };
+      }
+      if (!text.version) text.version = 2;
+      showPayloadCard(text, 1024 * 1024);
+      executeImport();
       return;
     }
     if (!text || (typeof text === 'string' && text.trim().length < 15)) {
