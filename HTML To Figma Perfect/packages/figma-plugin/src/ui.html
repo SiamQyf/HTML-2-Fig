@@ -3042,17 +3042,24 @@
 
   // Drag & drop support on dropZone & window
   ['dragenter', 'dragover'].forEach(eventName => {
-    dropZone.addEventListener(eventName, (e) => {
+    window.addEventListener(eventName, (e) => {
       e.preventDefault();
-      dropZone.classList.add('dragover');
+      if (dropZone) dropZone.classList.add('dragover');
     });
   });
 
-  ['dragleave', 'drop'].forEach(eventName => {
-    dropZone.addEventListener(eventName, (e) => {
+  ['dragleave'].forEach(eventName => {
+    window.addEventListener(eventName, (e) => {
       e.preventDefault();
-      dropZone.classList.remove('dragover');
+      if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
+        if (dropZone) dropZone.classList.remove('dragover');
+      }
     });
+  });
+
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (dropZone) dropZone.classList.remove('dragover');
   });
 
   async function decodeH2DFile(arrayBuffer) {
@@ -3082,30 +3089,40 @@
     return JSON.parse(jsonStr);
   }
 
-  dropZone.addEventListener('drop', async (e) => {
-    if (isImporting) return;
-    const file = e.dataTransfer?.files?.[0];
-    if (file) {
-      setStatus(`Loading dropped ${file.name}...`, 'info');
-      if (file.name.toLowerCase().endsWith('.h2d')) {
-        try {
-          const ab = await file.arrayBuffer();
-          const decoded = await decodeH2DFile(ab);
-          processPayload(decoded);
-          return;
-        } catch(err) {
-          console.error('[H2D Decode Error]', err);
-          showToast(`❌ Failed to decode .h2d file: ${err.message}`, 'error');
-          return;
-        }
+  async function handleDroppedFile(file) {
+    if (!file || isImporting) return;
+    setStatus(`Loading dropped ${file.name}...`, 'info');
+    if (file.name.toLowerCase().endsWith('.h2d')) {
+      try {
+        const ab = await file.arrayBuffer();
+        const decoded = await decodeH2DFile(ab);
+        processPayload(decoded);
+        return;
+      } catch(err) {
+        console.error('[H2D Decode Error]', err);
+        showToast(`❌ Failed to decode .h2d file: ${err.message}`, 'error');
+        return;
       }
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        const text = evt.target?.result;
-        if (text) processPayload(text);
-      };
-      reader.readAsText(file);
     }
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result;
+      if (text) processPayload(text);
+    };
+    reader.readAsText(file);
+  }
+
+  dropZone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer?.files?.[0];
+    if (file) handleDroppedFile(file);
+  });
+
+  window.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    if (dropZone) dropZone.classList.remove('dragover');
+    const file = e.dataTransfer?.files?.[0];
+    if (file) handleDroppedFile(file);
   });
 
   if (payloadCard) {
