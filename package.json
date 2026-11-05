@@ -16,6 +16,7 @@
     "audit:visual": "node scripts/audit_visual_diff.js",
     "postinstall": "npx puppeteer browsers install chrome",
     "start": "node server/index.js",
+    "agent": "node tools/diagnostics-agent/server.js",
     "audit:batch": "node scripts/batch_audit.js"
   },
   "keywords": [

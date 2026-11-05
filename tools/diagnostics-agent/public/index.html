@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTML-to-Figma Autonomous Diagnostic Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --card-bg: #121824;
+      --card-border: #1e293b;
+      --card-hover: #192334;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --code-bg: #070a0f;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #0f1522;
+      border-bottom: 1px solid var(--card-border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+    .brand-badge {
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .system-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 10px var(--success);
+    }
+    main {
+      flex: 1;
+      max-width: 1280px;
+      margin: 0 auto;
+      width: 100%;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+    .hero-banner {
+      background: linear-gradient(135deg, #131b2e 0%, #1a152e 100%);
+      border: 1px solid #29354d;
+      border-radius: 14px;
+      padding: 24px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+    }
+    .hero-text h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .hero-text p {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      max-width: 750px;
+      line-height: 1.5;
+    }
+    .btn-group {
+      display: flex;
+      gap: 12px;
+    }
+    button, .btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+      text-decoration: none;
+    }
+    button:hover, .btn:hover {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+    }
+    button.btn-secondary {
+      background: #1e293b;
+      color: #cbd5e1;
+      border: 1px solid #334155;
+    }
+    button.btn-secondary:hover {
+      background: #334155;
+      color: #fff;
+    }
+    button.btn-success {
+      background: var(--success);
+    }
+    button.btn-success:hover {
+      background: #059669;
+    }
+    .drop-zone {
+      border: 2px dashed #2d3748;
+      background: #101622;
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--primary);
+      background: #131c2d;
+    }
+    .drop-icon {
+      font-size: 2.2rem;
+    }
+    .drop-title {
+      font-weight: 600;
+      font-size: 1.05rem;
+    }
+    .drop-desc {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .stat-label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .stat-val {
+      font-size: 1.6rem;
+      font-weight: 800;
+    }
+    .val-critical { color: var(--danger); }
+    .val-warning { color: var(--warning); }
+    .val-success { color: var(--success); }
+    .invariants-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+    }
+    .inv-pill {
+      background: #0f1624;
+      border: 1px solid #1e293b;
+      padding: 10px 14px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.83rem;
+    }
+    .inv-status {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .inv-pass { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .inv-fail { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+    .results-container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .section-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .issue-card {
+      background: var(--card-bg);
+      border-left: 4px solid var(--danger);
+      border-top: 1px solid var(--card-border);
+      border-right: 1px solid var(--card-border);
+      border-bottom: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .issue-card.severity-HIGH {
+      border-left-color: var(--warning);
+    }
+    .issue-card.severity-MEDIUM {
+      border-left-color: #38bdf8;
+    }
+    .issue-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .issue-badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .badge-CRITICAL { background: rgba(239, 68, 68, 0.18); color: #ef4444; }
+    .badge-HIGH { background: rgba(245, 158, 11, 0.18); color: #f59e0b; }
+    .badge-MEDIUM { background: rgba(56, 189, 248, 0.18); color: #38bdf8; }
+    .issue-selector {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      color: #93c5fd;
+    }
+    .issue-msg {
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+    .issue-details {
+      background: var(--code-bg);
+      border: 1px solid #1a2333;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      color: #cbd5e1;
+      overflow-x: auto;
+    }
+    .fix-toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #fff;
+      padding: 14px 20px;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      display: none;
+      align-items: center;
+      gap: 12px;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="brand-badge">Autonomous Agent</span>
+      <span>HTML-to-Figma Defect Diagnostic Engine</span>
+    </div>
+    <div class="system-status">
+      <div class="dot"></div>
+      <span>Engine Live & Synchronized</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero-banner">
+      <div class="hero-text">
+        <h1>Autonomous Visual Defect Analyzer & Auto-Healer</h1>
+        <p>
+          Simulates and diagnoses HTML-to-Figma payloads against all 6 visual rendering invariants:
+          missing animated backgrounds, buried fade overlays, low-res placeholders, invisible text, heading staircases, and container stretches.
+        </p>
+      </div>
+      <div class="btn-group">
+        <button id="btnLoadSample" class="btn-secondary">Load Porto Payload</button>
+        <button id="btnHealAll" class="btn-success" style="display:none;">Auto-Heal Payload</button>
+      </div>
+    </div>
+
+    <!-- Drop Zone -->
+    <div id="dropZone" class="drop-zone">
+      <input type="file" id="fileInput" accept=".json" style="display:none;">
+      <div class="drop-icon">📦</div>
+      <div class="drop-title">Drag & drop any captured JSON payload here</div>
+      <div class="drop-desc">or click to browse files from your computer</div>
+    </div>
+
+    <!-- Stats Bar -->
+    <div id="statsBar" class="stats-grid" style="display:none;">
+      <div class="stat-card">
+        <div class="stat-label">Total Invariants Audited</div>
+        <div class="stat-val" id="statInvariants">6 Rules</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Critical Defects</div>
+        <div class="stat-val val-critical" id="statCritical">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">High / Warnings</div>
+        <div class="stat-val val-warning" id="statHigh">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Nodes Inspected</div>
+        <div class="stat-val" id="statNodes">0</div>
+      </div>
+    </div>
+
+    <!-- Invariants Status -->
+    <div id="invariantsBar" class="invariants-bar" style="display:none;">
+      <div class="inv-pill"><div class="inv-status" id="inv-inviewport"></div> In-Viewport Animated Styles</div>
+      <div class="inv-pill"><div class="inv-status" id="inv-overlays"></div> Gradient & Fade Overlays Stack</div>
+      <div class="inv-pill"><div class="inv-status" id="inv-placeholders"></div> Lazy-Loaded Placeholders</div>
+      <div class="inv-pill"><div class="inv-status" id="inv-contrast"></div> Text Contrast & Fill Inheritance</div>
+      <div class="inv-pill"><div class="inv-status" id="inv-staircase"></div> Headline Baseline Alignment</div>
+      <div class="inv-pill"><div class="inv-status" id="inv-parallax"></div> Container Bounds Integrity</div>
+    </div>
+
+    <!-- Issues List -->
+    <div id="resultsArea" class="results-container" style="display:none;">
+      <div class="section-title">
+        <span>Detected Diagnostic Findings</span>
+        <button id="btnDownloadHealed" class="btn-success" style="font-size:0.8rem; padding: 6px 14px;">Download Healed JSON</button>
+      </div>
+      <div id="issuesList" style="display:flex; flex-direction:column; gap:12px;"></div>
+    </div>
+  </main>
+
+  <div id="toast" class="fix-toast">
+    <span id="toastMsg">Fixes applied successfully!</span>
+  </div>
+
+  <script>
+    let currentPayload = null;
+    let healedPayload = null;
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const btnLoadSample = document.getElementById('btnLoadSample');
+    const btnHealAll = document.getElementById('btnHealAll');
+    const btnDownloadHealed = document.getElementById('btnDownloadHealed');
+    const statsBar = document.getElementById('statsBar');
+    const invariantsBar = document.getElementById('invariantsBar');
+    const resultsArea = document.getElementById('resultsArea');
+    const issuesList = document.getElementById('issuesList');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+      }
+    });
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toastMsg').textContent = msg;
+      toast.style.display = 'flex';
+      setTimeout(() => { toast.style.display = 'none'; }, 4000);
+    }
+
+    function handleFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const json = JSON.parse(e.target.result);
+          runAudit(json);
+        } catch (err) {
+          alert('Invalid JSON file: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    btnLoadSample.addEventListener('click', async () => {
+      btnLoadSample.textContent = 'Loading Sample...';
+      try {
+        const res = await fetch('/api/sample-porto');
+        const json = await res.json();
+        runAudit(json);
+      } catch (e) {
+        alert('Could not load sample: ' + e.message);
+      } finally {
+        btnLoadSample.textContent = 'Load Porto Payload';
+      }
+    });
+
+    async function runAudit(payload) {
+      currentPayload = payload;
+      const res = await fetch('/api/audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      renderAuditResults(data);
+    }
+
+    function renderAuditResults(report) {
+      statsBar.style.display = 'grid';
+      invariantsBar.style.display = 'grid';
+      resultsArea.style.display = 'flex';
+      btnHealAll.style.display = 'inline-flex';
+
+      document.getElementById('statCritical').textContent = report.criticalCount;
+      document.getElementById('statHigh').textContent = report.highCount;
+      document.getElementById('statNodes').textContent = report.stats.totalNodes;
+
+      // Invariant checks
+      const hasInviewport = report.issues.some(i => i.type === 'UNRESOLVED_INVIEWPORT_STYLE');
+      const hasOverlay = report.issues.some(i => i.type === 'BURIED_OVERLAY');
+      const hasPlaceholder = report.issues.some(i => i.type === 'LAZY_PLACEHOLDER_IMAGE');
+      const hasContrast = report.issues.some(i => i.type === 'INVISIBLE_TEXT');
+      const hasStaircase = report.issues.some(i => i.type === 'STAIRCASE_HEADLINE');
+      const hasParallax = report.issues.some(i => i.type === 'WARPED_PARALLAX_CONTAINER');
+
+      updateInvBadge('inv-inviewport', !hasInviewport);
+      updateInvBadge('inv-overlays', !hasOverlay);
+      updateInvBadge('inv-placeholders', !hasPlaceholder);
+      updateInvBadge('inv-contrast', !hasContrast);
+      updateInvBadge('inv-staircase', !hasStaircase);
+      updateInvBadge('inv-parallax', !hasParallax);
+
+      issuesList.innerHTML = '';
+      if (report.issues.length === 0) {
+        issuesList.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--success); font-weight: 600;">✨ Zero visual defects detected! Payload satisfies all rendering invariants.</div>';
+        return;
+      }
+
+      report.issues.forEach(iss => {
+        const card = document.createElement('div');
+        card.className = `issue-card severity-${iss.severity}`;
+        card.innerHTML = `
+          <div class="issue-header">
+            <span class="issue-badge badge-${iss.severity}">${iss.severity} · ${iss.type}</span>
+            <span class="issue-selector">${iss.selector || ''}</span>
+          </div>
+          <div class="issue-msg">${iss.message}</div>
+          <div class="issue-details">${JSON.stringify(iss.details, null, 2)}</div>
+        `;
+        issuesList.appendChild(card);
+      });
+    }
+
+    function updateInvBadge(id, passed) {
+      const el = document.getElementById(id);
+      el.className = 'inv-status ' + (passed ? 'inv-pass' : 'inv-fail');
+    }
+
+    async function executeAutoHeal() {
+      if (!currentPayload) return;
+      const res = await fetch('/api/heal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentPayload)
+      });
+      const data = await res.json();
+      healedPayload = data.healedPayload;
+      showToast(`Auto-Healer repaired ${data.fixesCount} defects! Re-auditing...`);
+      // Re-run audit on healed payload
+      runAudit(healedPayload);
+    }
+
+    btnHealAll.addEventListener('click', executeAutoHeal);
+
+    btnDownloadHealed.addEventListener('click', () => {
+      const target = healedPayload || currentPayload;
+      if (!target) return;
+      const blob = new Blob([JSON.stringify(target, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'healed-figma-payload.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
