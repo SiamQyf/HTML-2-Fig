@@ -435,10 +435,12 @@
       }
     });
 
-    // Auto-load Porto demo payload on initial page load
-    window.addEventListener('DOMContentLoaded', () => {
+    // Auto-load Porto demo payload immediately
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', loadSamplePorto);
+    } else {
       loadSamplePorto();
-    });
+    }
 
     async function loadSamplePorto() {
       btnLoadSample.textContent = 'Loading Sample...';
@@ -493,33 +495,54 @@
     btnLoadSample.addEventListener('click', loadSamplePorto);
 
     async function runAudit(payload) {
+      if (!payload) return;
       currentPayload = payload;
-      const res = await fetch('/api/audit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      renderAuditResults(data);
+      issuesList.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">🔍 Running universal invariant simulation across all nodes...</div>';
+      
+      try {
+        const res = await fetch('/api/audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Server responded with ${res.status}`);
+        }
+        
+        const data = await res.json();
+        console.log('[Diagnostic Agent] Audit report received:', data);
+        renderAuditResults(data);
+      } catch (err) {
+        console.error('[Diagnostic Agent] Audit error:', err);
+        issuesList.innerHTML = `<div style="padding: 20px; color: var(--danger); background: rgba(239, 68, 68, 0.1); border-radius: 8px;">❌ Audit Failed: ${err.message}</div>`;
+      }
     }
 
     function renderAuditResults(report) {
+      if (!report || !report.stats) {
+        console.error('Invalid report structure:', report);
+        return;
+      }
       statsBar.style.display = 'grid';
       invariantsBar.style.display = 'grid';
       resultsArea.style.display = 'flex';
       btnHealAll.style.display = 'inline-flex';
 
-      document.getElementById('statCritical').textContent = report.criticalCount;
-      document.getElementById('statHigh').textContent = report.highCount;
-      document.getElementById('statNodes').textContent = report.stats.totalNodes;
+      document.getElementById('statCritical').textContent = report.criticalCount || 0;
+      document.getElementById('statHigh').textContent = report.highCount || 0;
+      document.getElementById('statNodes').textContent = report.stats.totalNodes || 0;
+
+      const issues = report.issues || [];
 
       // Invariant checks
-      const hasInviewport = report.issues.some(i => i.type === 'UNRESOLVED_INVIEWPORT_STYLE');
-      const hasOverlay = report.issues.some(i => i.type === 'BURIED_OVERLAY');
-      const hasPlaceholder = report.issues.some(i => i.type === 'LAZY_PLACEHOLDER_IMAGE');
-      const hasContrast = report.issues.some(i => i.type === 'INVISIBLE_TEXT');
-      const hasStaircase = report.issues.some(i => i.type === 'STAIRCASE_HEADLINE');
-      const hasParallax = report.issues.some(i => i.type === 'WARPED_PARALLAX_CONTAINER');
+      const hasInviewport = issues.some(i => i.type === 'UNRESOLVED_INVIEWPORT_STYLE');
+      const hasOverlay = issues.some(i => i.type === 'BURIED_OVERLAY');
+      const hasPlaceholder = issues.some(i => i.type === 'LAZY_PLACEHOLDER_IMAGE');
+      const hasContrast = issues.some(i => i.type === 'INVISIBLE_TEXT');
+      const hasStaircase = issues.some(i => i.type === 'STAIRCASE_HEADLINE');
+      const hasParallax = issues.some(i => i.type === 'WARPED_PARALLAX_CONTAINER');
 
       updateInvBadge('inv-inviewport', !hasInviewport);
       updateInvBadge('inv-overlays', !hasOverlay);
@@ -529,12 +552,12 @@
       updateInvBadge('inv-parallax', !hasParallax);
 
       issuesList.innerHTML = '';
-      if (report.issues.length === 0) {
-        issuesList.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--success); font-weight: 600;">✨ Zero visual defects detected! Payload satisfies all rendering invariants.</div>';
+      if (issues.length === 0) {
+        issuesList.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--success); font-weight: 600; font-size: 1rem;">✨ Zero visual defects detected! All 6 invariants passed. Ready for Figma.</div>';
         return;
       }
 
-      report.issues.forEach(iss => {
+      issues.forEach(iss => {
         const card = document.createElement('div');
         card.className = `issue-card severity-${iss.severity}`;
         card.innerHTML = `
@@ -555,17 +578,28 @@
     }
 
     async function executeAutoHeal() {
-      if (!currentPayload) return;
-      const res = await fetch('/api/heal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(currentPayload)
-      });
-      const data = await res.json();
-      healedPayload = data.healedPayload;
-      showToast(`Auto-Healer repaired ${data.fixesCount} defects! Re-auditing...`);
-      // Re-run audit on healed payload
-      runAudit(healedPayload);
+      if (!currentPayload) {
+        alert('No payload loaded to heal!');
+        return;
+      }
+      showToast('Curing invariants and auto-reordering layers...');
+      try {
+        const res = await fetch('/api/heal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentPayload)
+        });
+        if (!res.ok) {
+          throw new Error(`Server returned ${res.status}`);
+        }
+        const data = await res.json();
+        healedPayload = data.healedPayload;
+        showToast(`Auto-Healer repaired ${data.fixesCount} defects! Re-auditing...`);
+        // Re-run audit on healed payload
+        runAudit(healedPayload);
+      } catch (e) {
+        alert('Auto-heal error: ' + e.message);
+      }
     }
 
     btnHealAll.addEventListener('click', executeAutoHeal);
