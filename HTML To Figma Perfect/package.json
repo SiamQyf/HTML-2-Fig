@@ -1,6 +1,6 @@
 {
   "name": "html-2-fig",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Convert full web pages into editable native Figma components with high visual fidelity.",
   "private": true,
   "workspaces": [
