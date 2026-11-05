@@ -320,7 +320,8 @@
         </p>
       </div>
       <div class="btn-group">
-        <button id="btnLoadSample" class="btn-secondary">Load Porto Payload</button>
+        <button id="btnPasteClipboard" class="btn">📋 Paste from Clipboard</button>
+        <button id="btnLoadSample" class="btn-secondary">Load Porto Sample</button>
         <button id="btnHealAll" class="btn-success" style="display:none;">Auto-Heal Payload</button>
       </div>
     </div>
@@ -329,8 +330,8 @@
     <div id="dropZone" class="drop-zone">
       <input type="file" id="fileInput" accept=".json" style="display:none;">
       <div class="drop-icon">📦</div>
-      <div class="drop-title">Drag & drop any captured JSON payload here</div>
-      <div class="drop-desc">or click to browse files from your computer</div>
+      <div class="drop-title">Drag & drop JSON, click to browse, or press Ctrl + V anywhere</div>
+      <div class="drop-desc">Copies automatically to clipboard when you capture with the Chrome extension!</div>
     </div>
 
     <!-- Stats Bar -->
@@ -383,6 +384,7 @@
 
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
+    const btnPasteClipboard = document.getElementById('btnPasteClipboard');
     const btnLoadSample = document.getElementById('btnLoadSample');
     const btnHealAll = document.getElementById('btnHealAll');
     const btnDownloadHealed = document.getElementById('btnDownloadHealed');
@@ -390,6 +392,36 @@
     const invariantsBar = document.getElementById('invariantsBar');
     const resultsArea = document.getElementById('resultsArea');
     const issuesList = document.getElementById('issuesList');
+
+    // Paste from Clipboard handling
+    btnPasteClipboard.addEventListener('click', async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (!text) {
+          alert('Clipboard is empty! Capture a page with the Chrome extension first.');
+          return;
+        }
+        const json = JSON.parse(text);
+        showToast('Loaded payload from clipboard!');
+        runAudit(json);
+      } catch (err) {
+        alert('Could not parse clipboard as JSON: ' + err.message);
+      }
+    });
+
+    // Global Ctrl+V listener
+    window.addEventListener('paste', (e) => {
+      const text = e.clipboardData ? e.clipboardData.getData('text') : '';
+      if (text && text.trim().startsWith('{')) {
+        try {
+          const json = JSON.parse(text);
+          showToast('Loaded payload from clipboard!');
+          runAudit(json);
+        } catch (err) {
+          console.warn('Paste was not valid JSON:', err);
+        }
+      }
+    });
 
     dropZone.addEventListener('click', () => fileInput.click());
     dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -532,3 +564,4 @@
   </script>
 </body>
 </html>
+
