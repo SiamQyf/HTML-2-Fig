@@ -183,3 +183,4 @@ module.exports = {
   SEVERITY,
   totalRules: FULL_CATALOG.length
 };
+
