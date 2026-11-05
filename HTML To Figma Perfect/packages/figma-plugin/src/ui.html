@@ -2694,7 +2694,14 @@
       clearTimeout(autoClearTimeout);
       autoClearTimeout = null;
     }
-    if (!text || text.trim().length < 15) {
+    if (typeof text === 'object' && text !== null) {
+      if (text.frame && !text.root) text.root = text.frame;
+      if (!text.documentTitle && (text.doc?.title || text.name)) text.documentTitle = text.doc?.title || text.name;
+      currentPayloadData = text;
+      showPayloadPreview(text);
+      return;
+    }
+    if (!text || (typeof text === 'string' && text.trim().length < 15)) {
       triggerEmptyPasteHighlight();
       showToast('⚠️ No capture data found. Please copy from Chrome extension first.', 'error');
       return;
@@ -3048,11 +3055,50 @@
     });
   });
 
-  dropZone.addEventListener('drop', (e) => {
+  async function decodeH2DFile(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] ^= (1337 & 255);
+    }
+    const ds = new DecompressionStream('deflate-raw');
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const chunks = [];
+    const reader = ds.readable.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
+    const result = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    const jsonStr = new TextDecoder('utf-8').decode(result);
+    return JSON.parse(jsonStr);
+  }
+
+  dropZone.addEventListener('drop', async (e) => {
     if (isImporting) return;
     const file = e.dataTransfer?.files?.[0];
     if (file) {
       setStatus(`Loading dropped ${file.name}...`, 'info');
+      if (file.name.toLowerCase().endsWith('.h2d')) {
+        try {
+          const ab = await file.arrayBuffer();
+          const decoded = await decodeH2DFile(ab);
+          processPayload(decoded);
+          return;
+        } catch(err) {
+          console.error('[H2D Decode Error]', err);
+          showToast(`❌ Failed to decode .h2d file: ${err.message}`, 'error');
+          return;
+        }
+      }
       const reader = new FileReader();
       reader.onload = (evt) => {
         const text = evt.target?.result;
