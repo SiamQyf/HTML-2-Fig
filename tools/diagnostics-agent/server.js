@@ -3,8 +3,25 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
-const { auditPayload } = require('./engine/analyzer');
-const { healPayload } = require('./engine/auto_healer');
+function getAnalyzer() {
+  try {
+    delete require.cache[require.resolve('./engine/analyzer')];
+    return require('./engine/analyzer');
+  } catch (e) {
+    console.error('[Analyzer Load Error]', e);
+    return null;
+  }
+}
+
+function getAutoHealer() {
+  try {
+    delete require.cache[require.resolve('./engine/auto_healer')];
+    return require('./engine/auto_healer');
+  } catch (e) {
+    console.error('[AutoHealer Load Error]', e);
+    return null;
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 4100;
@@ -20,7 +37,11 @@ app.post('/api/audit', (req, res) => {
     if (!payload) {
       return res.status(400).json({ error: 'Payload is empty' });
     }
-    const report = auditPayload(payload);
+    const analyzer = getAnalyzer();
+    if (!analyzer || typeof analyzer.auditPayload !== 'function') {
+      return res.status(500).json({ error: 'Diagnostic analyzer failed to load' });
+    }
+    const report = analyzer.auditPayload(payload);
     res.json(report);
   } catch (err) {
     console.error('[Diagnostic Agent Audit Error]', err);
@@ -35,7 +56,11 @@ app.post('/api/heal', (req, res) => {
     if (!payload) {
       return res.status(400).json({ error: 'Payload is empty' });
     }
-    const result = healPayload(payload);
+    const healer = getAutoHealer();
+    if (!healer || typeof healer.healPayload !== 'function') {
+      return res.status(500).json({ error: 'Auto-healer engine failed to load' });
+    }
+    const result = healer.healPayload(payload);
     res.json(result);
   } catch (err) {
     console.error('[Diagnostic Agent Heal Error]', err);
