@@ -80,9 +80,25 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`=======================================================`);
   console.log(`🤖 HTML-to-Figma Autonomous Diagnostic Agent Web App`);
   console.log(`🚀 Server running on: http://localhost:${PORT}`);
   console.log(`=======================================================`);
 });
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    const fallbackPort = PORT + 1;
+    console.warn(`⚠️ Port ${PORT} in use. Retrying on port ${fallbackPort}...`);
+    app.listen(fallbackPort, () => {
+      console.log(`=======================================================`);
+      console.log(`🤖 HTML-to-Figma Autonomous Diagnostic Agent Web App`);
+      console.log(`🚀 Server running on: http://localhost:${fallbackPort}`);
+      console.log(`=======================================================`);
+    });
+  } else {
+    console.error('Server error:', err);
+  }
+});
+
