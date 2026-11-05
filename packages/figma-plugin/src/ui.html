@@ -2869,7 +2869,27 @@
         return;
       }
 
-      // 0. If triggered by native paste event, use clipboardData directly
+      // 0. Check HTML clipboard first for figh2d encapsulated payloads
+      try {
+        const htmlData = (e?.clipboardData || window.clipboardData)?.getData('text/html');
+        if (htmlData && htmlData.includes('figh2d')) {
+          const match = htmlData.match(/<!--\(figh2d\)([\s\S]*?)\(\/figh2d\)-->/);
+          if (match && match[1]) {
+            const bin = atob(match[1].trim());
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const decodedJson = new TextDecoder('utf-8').decode(bytes);
+            if (e && e.preventDefault) e.preventDefault();
+            if (pasteInput) pasteInput.value = '';
+            processPayload(decodedJson);
+            return;
+          }
+        }
+      } catch (_fErr) {
+        console.warn('Failed decoding figh2d clipboard:', _fErr);
+      }
+
+      // 0b. If triggered by native paste event, use clipboardData directly
       let text = (e?.clipboardData || window.clipboardData)?.getData('text');
       if (text && text.trim().length > 20) {
         if (e && e.preventDefault) e.preventDefault();
@@ -2906,6 +2926,26 @@
           const items = await navigator.clipboard.read();
           for (const item of items) {
             for (const t of item.types) {
+              if (t === 'text/html') {
+                try {
+                  const blob = await item.getType(t);
+                  const hText = await blob.text();
+                  if (hText && hText.includes('figh2d')) {
+                    const match = hText.match(/<!--\(figh2d\)([\s\S]*?)\(\/figh2d\)-->/);
+                    if (match && match[1]) {
+                      const bin = atob(match[1].trim());
+                      const bytes = new Uint8Array(bin.length);
+                      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                      text = new TextDecoder('utf-8').decode(bytes);
+                      if (text && text.trim().length > 20) {
+                        if (pasteInput) pasteInput.value = '';
+                        processPayload(text);
+                        return;
+                      }
+                    }
+                  }
+                } catch (_hErr) {}
+              }
               if (t === 'text/plain') {
                 const blob = await item.getType(t);
                 text = await blob.text();
