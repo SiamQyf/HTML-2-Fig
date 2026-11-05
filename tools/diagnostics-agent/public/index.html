@@ -143,14 +143,14 @@
       border: 2px dashed #2d3748;
       background: #101622;
       border-radius: 12px;
-      padding: 40px 20px;
+      padding: 36px 20px;
       text-align: center;
       cursor: pointer;
       transition: all 0.2s ease;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
     .drop-zone:hover, .drop-zone.dragover {
       border-color: var(--primary);
@@ -214,6 +214,7 @@
       width: 10px;
       height: 10px;
       border-radius: 50%;
+      background: #334155;
     }
     .inv-pass { background: var(--success); box-shadow: 0 0 6px var(--success); }
     .inv-fail { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
@@ -306,7 +307,7 @@
     </div>
     <div class="system-status">
       <div class="dot"></div>
-      <span>Engine Live & Synchronized</span>
+      <span id="engineStatusText">Engine Ready & In-Browser Verified</span>
     </div>
   </header>
 
@@ -321,7 +322,7 @@
       </div>
       <div class="btn-group">
         <button id="btnPasteClipboard" class="btn">📋 Paste from Clipboard</button>
-        <button id="btnLoadSample" class="btn-secondary">Reload Porto Sample</button>
+        <button id="btnLoadSample" class="btn-secondary">Reload Porto Demo</button>
         <button id="btnHealAll" class="btn-success">✨ Auto-Heal Payload</button>
       </div>
     </div>
@@ -385,6 +386,436 @@
   </div>
 
   <script>
+    /* =========================================================================
+     * IN-BROWSER EMBEDDED DIAGNOSTIC & AUTO-HEALING ENGINE
+     * Runs 100% locally with zero server dependency (works on file:/// & http://)
+     * ========================================================================= */
+    function parseRgba(colorStr) {
+      if (!colorStr) return null;
+      const s = String(colorStr).trim().toLowerCase();
+      if (s === 'transparent') return { r: 0, g: 0, b: 0, a: 0 };
+      const mRgba = s.match(/rgba?\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/);
+      if (mRgba) {
+        return {
+          r: parseFloat(mRgba[1]),
+          g: parseFloat(mRgba[2]),
+          b: parseFloat(mRgba[3]),
+          a: mRgba[4] !== undefined ? parseFloat(mRgba[4]) : 1
+        };
+      }
+      const mHex = s.match(/^#([0-9a-f]{3,8})$/i);
+      if (mHex) {
+        let hex = mHex[1];
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        if (hex.length === 6) {
+          return {
+            r: parseInt(hex.slice(0, 2), 16),
+            g: parseInt(hex.slice(2, 4), 16),
+            b: parseInt(hex.slice(4, 6), 16),
+            a: 1
+          };
+        }
+      }
+      return null;
+    }
+
+    function getLuminance(rgb) {
+      if (!rgb) return 1;
+      const a = [rgb.r, rgb.g, rgb.b].map(v => {
+        v /= 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      });
+      return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+    }
+
+    function normalizeNode(node) {
+      if (!node) return null;
+      const tag = (node.tag || node.tagName || '').toLowerCase();
+      let classes = '';
+      if (Array.isArray(node.classList)) {
+        classes = node.classList.join(' ');
+      } else if (typeof node.className === 'string') {
+        classes = node.className;
+      } else if (node.classes) {
+        classes = Array.isArray(node.classes) ? node.classes.join(' ') : String(node.classes);
+      }
+
+      const attrs = node.attr || node.attributes || node.attrs || {};
+      const styles = node.styles || node.style || node.computedStyle || {};
+      const children = node.children || node.childNodes || [];
+      const bounds = node.rect || node.bounds || {
+        x: node.x || 0,
+        y: node.y || 0,
+        width: node.width || 0,
+        height: node.height || 0
+      };
+
+      let text = '';
+      if (node.text !== undefined) text = String(node.text);
+      else if (node.textContent !== undefined) text = String(node.textContent);
+      else if (node.characters !== undefined) text = String(node.characters);
+      else if (node.textValue !== undefined) text = String(node.textValue);
+
+      return {
+        raw: node,
+        id: node.id || node.refId,
+        tag,
+        classes,
+        attrs,
+        styles,
+        children,
+        bounds,
+        text
+      };
+    }
+
+    function isElementFadeOverlay(c) {
+      if (!c) return false;
+      const cBg = c.styles.backgroundImage || c.styles['background-image'] || '';
+      const parsedBg = parseRgba(c.styles.backgroundColor || c.styles['background-color']);
+      const hasSemiTransparentBg = parsedBg && parsedBg.a > 0.05 && parsedBg.a < 0.98;
+      const hasOpacity = c.styles.opacity !== undefined && parseFloat(c.styles.opacity) > 0.05 && parseFloat(c.styles.opacity) < 0.98;
+
+      return /gradient|overlay|fade|mask/i.test(c.classes) ||
+             /linear-gradient|radial-gradient/i.test(cBg) ||
+             (c.styles.position === 'absolute' && (hasOpacity || hasSemiTransparentBg));
+    }
+
+    function runClientAudit(payload) {
+      const issues = [];
+      const stats = {
+        totalNodes: 0,
+        textNodes: 0,
+        imageNodes: 0,
+        overlayNodes: 0,
+        animatedSections: 0
+      };
+
+      const rootCandidate = payload.frame || payload.doc || payload.nodes || payload;
+
+      function traverse(rawNode, ancestors = []) {
+        if (!rawNode) return;
+        stats.totalNodes++;
+
+        const n = normalizeNode(rawNode);
+        if (!n) return;
+
+        // 1. Audit: In-Viewport Animated Styles
+        const pluginOptions = n.attrs['data-plugin-options'] || n.attrs['data-inviewport-style'] || '';
+        if (pluginOptions && /styleIn/i.test(pluginOptions)) {
+          stats.animatedSections++;
+          let targetColor = null;
+          try {
+            const parsed = typeof pluginOptions === 'string' ? JSON.parse(pluginOptions) : pluginOptions;
+            if (parsed && parsed.styleIn && parsed.styleIn['background-color']) {
+              targetColor = parsed.styleIn['background-color'];
+            }
+          } catch (e) {
+            const match = pluginOptions.match(/["']?background-color["']?\s*:\s*["']([^"']+)["']/i);
+            if (match) targetColor = match[1];
+          }
+
+          const currentBg = n.styles.backgroundColor || n.styles['background-color'] || '';
+          const parsedCurrent = parseRgba(currentBg);
+          const isCurrentTransparent = !parsedCurrent || parsedCurrent.a === 0 || currentBg === 'transparent';
+
+          if (targetColor && isCurrentTransparent) {
+            issues.push({
+              id: n.id || 'node-' + stats.totalNodes,
+              type: 'UNRESOLVED_INVIEWPORT_STYLE',
+              severity: 'CRITICAL',
+              selector: `${n.tag}.${n.classes.replace(/\s+/g, '.')}`,
+              message: `Section has animated styleIn background "${targetColor}", but static capture background is transparent. Children white text will render invisible!`,
+              details: { pluginOptions, targetColor, currentBg }
+            });
+          }
+        }
+
+        // 2. Audit: Buried Gradient / Fade Overlays
+        const children = n.children;
+        if (children && children.length > 1) {
+          let mediaIndices = [];
+          let overlayIndices = [];
+
+          children.forEach((cRaw, idx) => {
+            const c = normalizeNode(cRaw);
+            if (!c) return;
+
+            const isMedia = c.tag === 'img' || c.tag === 'video' || /thumb|image|photo|slide/i.test(c.classes);
+            const isFadeOverlay = isElementFadeOverlay(c);
+
+            if (isMedia) mediaIndices.push(idx);
+            if (isFadeOverlay) overlayIndices.push({ index: idx, node: c });
+          });
+
+          overlayIndices.forEach(ov => {
+            const trappedBelowMedia = mediaIndices.some(mIdx => mIdx > ov.index);
+            if (trappedBelowMedia) {
+              issues.push({
+                id: ov.node.id || 'node-' + ov.index,
+                type: 'BURIED_OVERLAY',
+                severity: 'CRITICAL',
+                selector: `${ov.node.tag}.${ov.node.classes.replace(/\s+/g, '.')}`,
+                message: `Gradient/fading overlay at index ${ov.index} is ordered UNDERNEATH image/media (Figma layer inversion). The dark fade will be completely buried!`,
+                details: { overlayIndex: ov.index, mediaIndices }
+              });
+            }
+          });
+        }
+
+        // 3. Audit: Lazy Loaded Placeholders
+        if (n.tag === 'img') {
+          stats.imageNodes++;
+          const src = n.raw.src || n.attrs.src || '';
+          const dataSrc = n.attrs['data-src'] || n.attrs['data-lazy-src'] || n.attrs['data-original'] || '';
+          const isPlaceholder = /placeholder|blank\.gif|data:image\/svg\+xml|100x126/i.test(src);
+
+          if (isPlaceholder && dataSrc) {
+            issues.push({
+              id: n.id || 'img-' + stats.totalNodes,
+              type: 'LAZY_PLACEHOLDER_IMAGE',
+              severity: 'HIGH',
+              selector: `img[src*="${src.slice(0, 30)}"]`,
+              message: `Image uses low-res placeholder "${src}", while crisp asset exists in data-src "${dataSrc}".`,
+              details: { src, dataSrc }
+            });
+          }
+        }
+
+        // 4. Audit: Invisible Text Contrast
+        const textContent = n.text.trim();
+        if (textContent.length > 0) {
+          stats.textNodes++;
+          const textColor = parseRgba(n.styles.color || '#000000');
+          if (textColor && textColor.a > 0.5) {
+            const textLum = getLuminance(textColor);
+            if (textLum > 0.7) {
+              let hasDarkBg = false;
+              let effectiveBg = null;
+
+              for (let i = ancestors.length - 1; i >= 0; i--) {
+                const anc = ancestors[i];
+                const ancBg = anc.styles.backgroundColor || anc.styles['background-color'] || '';
+                const parsedBg = parseRgba(ancBg);
+                if (parsedBg && parsedBg.a > 0.4) {
+                  effectiveBg = parsedBg;
+                  const bgLum = getLuminance(parsedBg);
+                  if (bgLum < 0.5) {
+                    hasDarkBg = true;
+                    break;
+                  }
+                }
+              }
+
+              if (!hasDarkBg) {
+                issues.push({
+                  id: n.id || 'text-' + stats.totalNodes,
+                  type: 'INVISIBLE_TEXT',
+                  severity: 'CRITICAL',
+                  selector: `${n.tag}: "${textContent.slice(0, 35)}..."`,
+                  message: `White or light text (${n.styles.color || '#fff'}) placed without an underlying dark container background. Will render invisible white-on-white!`,
+                  details: {
+                    text: textContent.slice(0, 50),
+                    color: n.styles.color,
+                    effectiveBg: effectiveBg ? `rgba(${effectiveBg.r},${effectiveBg.g},${effectiveBg.b},${effectiveBg.a})` : 'transparent'
+                  }
+                });
+              }
+            }
+          }
+        }
+
+        // 5. Audit: Headline Staircase Stepping
+        if (/^h[1-6]$/i.test(n.tag) || /headline|title|heading/i.test(n.classes)) {
+          if (children.length > 1) {
+            const inlineSpans = children.map(c => normalizeNode(c)).filter(c => c && (c.tag === 'span' || c.tag === 'strong' || c.tag === 'a'));
+            if (inlineSpans.length > 1) {
+              let hasStepping = false;
+              for (let i = 1; i < inlineSpans.length; i++) {
+                const prev = inlineSpans[i - 1].bounds;
+                const curr = inlineSpans[i].bounds;
+                if (prev.y !== undefined && curr.y !== undefined && Math.abs(curr.y - prev.y) > 10) {
+                  if (curr.x > prev.x + 20) {
+                    hasStepping = true;
+                    break;
+                  }
+                }
+              }
+              if (hasStepping) {
+                issues.push({
+                  id: n.id || 'heading-' + stats.totalNodes,
+                  type: 'STAIRCASE_HEADLINE',
+                  severity: 'HIGH',
+                  selector: `${n.tag}.${n.classes.replace(/\s+/g, '.')}`,
+                  message: `Multi-line heading spans break into diagonal staircase layout due to fractured inline position offsets.`,
+                  details: { spanCount: inlineSpans.length }
+                });
+              }
+            }
+          }
+        }
+
+        // Recurse
+        ancestors.push(n);
+        for (const child of children) {
+          traverse(child, ancestors);
+        }
+        ancestors.pop();
+      }
+
+      if (Array.isArray(rootCandidate)) {
+        rootCandidate.forEach(n => traverse(n, []));
+      } else {
+        traverse(rootCandidate, []);
+      }
+
+      return {
+        timestamp: new Date().toISOString(),
+        stats,
+        issuesCount: issues.length,
+        criticalCount: issues.filter(i => i.severity === 'CRITICAL').length,
+        highCount: issues.filter(i => i.severity === 'HIGH').length,
+        mediumCount: issues.filter(i => i.severity === 'MEDIUM').length,
+        issues
+      };
+    }
+
+    function runClientHeal(rawPayload) {
+      const payload = JSON.parse(JSON.stringify(rawPayload));
+      const fixesApplied = [];
+      const rootCandidate = payload.frame || payload.doc || payload.nodes || payload;
+
+      function healNode(rawNode) {
+        if (!rawNode) return;
+        const n = normalizeNode(rawNode);
+        if (!n) return;
+
+        // Fix 1: styleIn dynamic background restoration
+        const pluginOptions = n.attrs['data-plugin-options'] || n.attrs['data-inviewport-style'] || '';
+        if (pluginOptions && /styleIn/i.test(pluginOptions)) {
+          let targetColor = null;
+          try {
+            const parsed = typeof pluginOptions === 'string' ? JSON.parse(pluginOptions) : pluginOptions;
+            if (parsed && parsed.styleIn && parsed.styleIn['background-color']) targetColor = parsed.styleIn['background-color'];
+          } catch (e) {
+            const match = pluginOptions.match(/["']?background-color["']?\s*:\s*["']([^"']+)["']/i);
+            if (match) targetColor = match[1];
+          }
+
+          if (targetColor) {
+            if (!rawNode.styles) rawNode.styles = {};
+            rawNode.styles.backgroundColor = targetColor;
+            rawNode.styles['background-color'] = targetColor;
+            if (rawNode.style) {
+              rawNode.style.backgroundColor = targetColor;
+              rawNode.style['background-color'] = targetColor;
+            }
+            fixesApplied.push({
+              type: 'INVIEWPORT_STYLE_HEALED',
+              target: `${n.tag}.${n.classes.replace(/\s+/g, '.')}`,
+              action: `Applied animated styleIn background "${targetColor}".`
+            });
+          }
+        }
+
+        // Fix 2: Lazy image placeholder resolution
+        if (n.tag === 'img') {
+          const src = rawNode.src || n.attrs.src || '';
+          const dataSrc = n.attrs['data-src'] || n.attrs['data-lazy-src'] || n.attrs['data-original'] || '';
+          if (dataSrc && /placeholder|blank\.gif|data:image\/svg\+xml|100x126/i.test(src)) {
+            rawNode.src = dataSrc;
+            if (rawNode.attr) rawNode.attr.src = dataSrc;
+            if (rawNode.attributes) rawNode.attributes.src = dataSrc;
+            fixesApplied.push({
+              type: 'LAZY_IMAGE_RESOLVED',
+              target: `img`,
+              action: `Replaced low-res placeholder with data-src.`
+            });
+          }
+        }
+
+        // Fix 3: Stacking order repair for buried gradient/fade overlays
+        const rawChildren = rawNode.children || rawNode.childNodes;
+        if (rawChildren && rawChildren.length > 1) {
+          let hasMedia = false;
+          let hasOverlay = false;
+
+          rawChildren.forEach(cRaw => {
+            const c = normalizeNode(cRaw);
+            if (!c) return;
+            if (c.tag === 'img' || c.tag === 'video' || /thumb|image|photo|slide/i.test(c.classes)) hasMedia = true;
+            if (isElementFadeOverlay(c)) hasOverlay = true;
+          });
+
+          if (hasMedia && hasOverlay) {
+            const nonOverlays = [];
+            const overlays = [];
+            rawChildren.forEach(cRaw => {
+              const c = normalizeNode(cRaw);
+              if (isElementFadeOverlay(c)) {
+                overlays.push(cRaw);
+              } else {
+                nonOverlays.push(cRaw);
+              }
+            });
+
+            if (rawNode.children) rawNode.children = [...nonOverlays, ...overlays];
+            else if (rawNode.childNodes) rawNode.childNodes = [...nonOverlays, ...overlays];
+
+            fixesApplied.push({
+              type: 'BURIED_OVERLAY_ELEVATED',
+              target: `${n.tag}.${n.classes.replace(/\s+/g, '.')}`,
+              action: `Elevated ${overlays.length} fading/gradient overlay(s) above image layer stack.`
+            });
+          }
+        }
+
+        // Fix 4: Heading diagonal staircase alignment
+        if (/^h[1-6]$/i.test(n.tag) || /headline|title|heading/i.test(n.classes)) {
+          if (rawChildren && rawChildren.length > 1) {
+            const inlineSpans = rawChildren.map(c => ({ raw: c, norm: normalizeNode(c) }))
+                                           .filter(x => x.norm && (x.norm.tag === 'span' || x.norm.tag === 'strong' || x.norm.tag === 'a'));
+            if (inlineSpans.length > 1) {
+              const firstX = inlineSpans[0].norm.bounds ? inlineSpans[0].norm.bounds.x : null;
+              if (firstX !== null) {
+                inlineSpans.forEach((sp, idx) => {
+                  if (idx > 0 && sp.norm.bounds) {
+                    const prev = inlineSpans[idx - 1].norm;
+                    if (prev.bounds && Math.abs(sp.norm.bounds.y - prev.bounds.y) > 10) {
+                      if (sp.raw.rect) sp.raw.rect.x = firstX;
+                      if (sp.raw.bounds) sp.raw.bounds.x = firstX;
+                      if (sp.raw.x !== undefined) sp.raw.x = firstX;
+                      fixesApplied.push({
+                        type: 'STAIRCASE_HEADLINE_ALIGNED',
+                        target: `${n.tag} span ${idx}`,
+                        action: `Aligned headline span back to starting column (x=${firstX}px).`
+                      });
+                    }
+                  }
+                });
+              }
+            }
+          }
+        }
+
+        if (rawChildren) {
+          for (const child of rawChildren) healNode(child);
+        }
+      }
+
+      if (Array.isArray(rootCandidate)) rootCandidate.forEach(n => healNode(n));
+      else healNode(rootCandidate);
+
+      return {
+        healedPayload: payload,
+        fixesApplied,
+        fixesCount: fixesApplied.length
+      };
+    }
+
+    /* =========================================================================
+     * UI CONTROLLER
+     * ========================================================================= */
     let currentPayload = null;
     let healedPayload = null;
 
@@ -401,7 +832,44 @@
     const resultsArea = document.getElementById('resultsArea');
     const issuesList = document.getElementById('issuesList');
 
-    if (btnAutoHealBottom) btnAutoHealBottom.addEventListener('click', executeAutoHeal);
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+      }
+    });
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toastMsg').textContent = msg;
+      toast.style.display = 'flex';
+      setTimeout(() => { toast.style.display = 'none'; }, 4000);
+    }
+
+    function handleFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const json = JSON.parse(e.target.result);
+          activePayloadBadge.textContent = file.name;
+          showToast(`Loaded "${file.name}"!`);
+          runAudit(json);
+        } catch (err) {
+          alert('Invalid JSON file: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
+    }
 
     // Paste from Clipboard handling
     btnPasteClipboard.addEventListener('click', async () => {
@@ -435,100 +903,47 @@
       }
     });
 
-    // Auto-load Porto demo payload immediately
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', loadSamplePorto);
-    } else {
-      loadSamplePorto();
-    }
+    btnLoadSample.addEventListener('click', loadSamplePorto);
+    btnHealAll.addEventListener('click', executeAutoHeal);
+    if (btnAutoHealBottom) btnAutoHealBottom.addEventListener('click', executeAutoHeal);
 
     async function loadSamplePorto() {
       btnLoadSample.textContent = 'Loading Sample...';
       try {
         const res = await fetch('/api/sample-porto');
+        if (!res.ok) throw new Error('Sample fetch failed');
         const json = await res.json();
         activePayloadBadge.textContent = 'Porto Business Consulting 5 Demo';
         runAudit(json);
       } catch (e) {
-        console.warn('Could not auto-load sample:', e);
+        console.warn('Network sample load failed, checking fallback:', e);
+        issuesList.innerHTML = `<div style="padding: 20px; color: var(--warning); background: rgba(245, 158, 11, 0.1); border-radius: 8px;">
+          ⚠️ To inspect your capture: Drag & drop your JSON file above, or simply press <strong>Ctrl + V</strong> to paste from clipboard!
+        </div>`;
       } finally {
-        btnLoadSample.textContent = 'Reload Porto Sample';
+        btnLoadSample.textContent = 'Reload Porto Demo';
       }
     }
 
-    dropZone.addEventListener('click', () => fileInput.click());
-    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('dragover');
-      if (e.dataTransfer.files.length > 0) {
-        handleFile(e.dataTransfer.files[0]);
-      }
-    });
-    fileInput.addEventListener('change', (e) => {
-      if (e.target.files.length > 0) {
-        handleFile(e.target.files[0]);
-      }
-    });
-
-    function showToast(msg) {
-      const toast = document.getElementById('toast');
-      document.getElementById('toastMsg').textContent = msg;
-      toast.style.display = 'flex';
-      setTimeout(() => { toast.style.display = 'none'; }, 4000);
-    }
-
-    function handleFile(file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const json = JSON.parse(e.target.result);
-          runAudit(json);
-        } catch (err) {
-          alert('Invalid JSON file: ' + err.message);
-        }
-      };
-      reader.readAsText(file);
-    }
-
-    btnLoadSample.addEventListener('click', loadSamplePorto);
-
-    async function runAudit(payload) {
+    // Direct Instant In-Browser Execution (Zero network dependency!)
+    function runAudit(payload) {
       if (!payload) return;
       currentPayload = payload;
-      issuesList.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">🔍 Running universal invariant simulation across all nodes...</div>';
       
       try {
-        const res = await fetch('/api/audit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `Server responded with ${res.status}`);
-        }
-        
-        const data = await res.json();
-        console.log('[Diagnostic Agent] Audit report received:', data);
-        renderAuditResults(data);
+        const report = runClientAudit(payload);
+        console.log('[Diagnostic Agent] Audit report generated locally:', report);
+        renderAuditResults(report);
       } catch (err) {
-        console.error('[Diagnostic Agent] Audit error:', err);
+        console.error('[Diagnostic Agent] In-browser audit error:', err);
         issuesList.innerHTML = `<div style="padding: 20px; color: var(--danger); background: rgba(239, 68, 68, 0.1); border-radius: 8px;">❌ Audit Failed: ${err.message}</div>`;
       }
     }
 
     function renderAuditResults(report) {
-      if (!report || !report.stats) {
-        console.error('Invalid report structure:', report);
-        return;
-      }
       statsBar.style.display = 'grid';
       invariantsBar.style.display = 'grid';
       resultsArea.style.display = 'flex';
-      btnHealAll.style.display = 'inline-flex';
 
       document.getElementById('statCritical').textContent = report.criticalCount || 0;
       document.getElementById('statHigh').textContent = report.highCount || 0;
@@ -536,7 +951,6 @@
 
       const issues = report.issues || [];
 
-      // Invariant checks
       const hasInviewport = issues.some(i => i.type === 'UNRESOLVED_INVIEWPORT_STYLE');
       const hasOverlay = issues.some(i => i.type === 'BURIED_OVERLAY');
       const hasPlaceholder = issues.some(i => i.type === 'LAZY_PLACEHOLDER_IMAGE');
@@ -574,39 +988,31 @@
 
     function updateInvBadge(id, passed) {
       const el = document.getElementById(id);
-      el.className = 'inv-status ' + (passed ? 'inv-pass' : 'inv-fail');
+      if (el) el.className = 'inv-status ' + (passed ? 'inv-pass' : 'inv-fail');
     }
 
-    async function executeAutoHeal() {
+    function executeAutoHeal() {
       if (!currentPayload) {
-        alert('No payload loaded to heal!');
+        alert('No payload loaded to heal! Drag & drop or paste your JSON first.');
         return;
       }
-      showToast('Curing invariants and auto-reordering layers...');
+      showToast('Curing invariants locally in memory...');
       try {
-        const res = await fetch('/api/heal', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(currentPayload)
-        });
-        if (!res.ok) {
-          throw new Error(`Server returned ${res.status}`);
-        }
-        const data = await res.json();
-        healedPayload = data.healedPayload;
-        showToast(`Auto-Healer repaired ${data.fixesCount} defects! Re-auditing...`);
-        // Re-run audit on healed payload
+        const result = runClientHeal(currentPayload);
+        healedPayload = result.healedPayload;
+        showToast(`Auto-Healer repaired ${result.fixesCount} defects! Re-auditing...`);
         runAudit(healedPayload);
       } catch (e) {
         alert('Auto-heal error: ' + e.message);
       }
     }
 
-    btnHealAll.addEventListener('click', executeAutoHeal);
-
     btnDownloadHealed.addEventListener('click', () => {
       const target = healedPayload || currentPayload;
-      if (!target) return;
+      if (!target) {
+        alert('No payload loaded!');
+        return;
+      }
       const blob = new Blob([JSON.stringify(target, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -614,8 +1020,11 @@
       a.download = 'healed-figma-payload.json';
       a.click();
       URL.revokeObjectURL(url);
+      showToast('Downloaded healed-figma-payload.json!');
     });
+
+    // Auto-load on startup
+    loadSamplePorto();
   </script>
 </body>
 </html>
-
