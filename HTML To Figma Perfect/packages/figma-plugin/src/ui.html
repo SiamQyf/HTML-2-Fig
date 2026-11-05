@@ -2694,31 +2694,7 @@
       clearTimeout(autoClearTimeout);
       autoClearTimeout = null;
     }
-    if (typeof text === 'object' && text !== null) {
-      if (!text.root && text.frame) text.root = text.frame;
-      if (!text.documentTitle && (text.doc?.title || text.name)) text.documentTitle = text.doc?.title || text.name;
-      if (!text.viewportRect) {
-        text.viewportRect = {
-          x: 0,
-          y: 0,
-          width: text.width || text.doc?.innerWidth || text.root?.width || 1440,
-          height: text.doc?.innerHeight || 900
-        };
-      }
-      if (!text.documentRect) {
-        text.documentRect = {
-          x: text.root?.x || 0,
-          y: text.root?.y || 0,
-          width: text.root?.width || text.width || 1440,
-          height: text.root?.height || 900
-        };
-      }
-      if (!text.version) text.version = 2;
-      showPayloadCard(text, 1024 * 1024);
-      executeImport();
-      return;
-    }
-    if (!text || (typeof text === 'string' && text.trim().length < 15)) {
+    if (!text || text.trim().length < 15) {
       triggerEmptyPasteHighlight();
       showToast('⚠️ No capture data found. Please copy from Chrome extension first.', 'error');
       return;
@@ -3059,87 +3035,31 @@
 
   // Drag & drop support on dropZone & window
   ['dragenter', 'dragover'].forEach(eventName => {
-    window.addEventListener(eventName, (e) => {
+    dropZone.addEventListener(eventName, (e) => {
       e.preventDefault();
-      if (dropZone) dropZone.classList.add('dragover');
+      dropZone.classList.add('dragover');
     });
   });
 
-  ['dragleave'].forEach(eventName => {
-    window.addEventListener(eventName, (e) => {
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
       e.preventDefault();
-      if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
-        if (dropZone) dropZone.classList.remove('dragover');
-      }
+      dropZone.classList.remove('dragover');
     });
   });
 
-  window.addEventListener('drop', (e) => {
-    e.preventDefault();
-    if (dropZone) dropZone.classList.remove('dragover');
-  });
-
-  async function decodeH2DFile(arrayBuffer) {
-    const bytes = new Uint8Array(arrayBuffer);
-    for (let i = 0; i < bytes.length; i++) {
-      bytes[i] ^= (1337 & 255);
-    }
-    const ds = new DecompressionStream('deflate-raw');
-    const writer = ds.writable.getWriter();
-    writer.write(bytes);
-    writer.close();
-    const chunks = [];
-    const reader = ds.readable.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-    }
-    const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
-    const result = new Uint8Array(totalLen);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.length;
-    }
-    const jsonStr = new TextDecoder('utf-8').decode(result);
-    return JSON.parse(jsonStr);
-  }
-
-  async function handleDroppedFile(file) {
-    if (!file || isImporting) return;
-    setStatus(`Loading dropped ${file.name}...`, 'info');
-    if (file.name.toLowerCase().endsWith('.h2d')) {
-      try {
-        const ab = await file.arrayBuffer();
-        const decoded = await decodeH2DFile(ab);
-        processPayload(decoded);
-        return;
-      } catch(err) {
-        console.error('[H2D Decode Error]', err);
-        showToast(`❌ Failed to decode .h2d file: ${err.message}`, 'error');
-        return;
-      }
-    }
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const text = evt.target?.result;
-      if (text) processPayload(text);
-    };
-    reader.readAsText(file);
-  }
-
-  dropZone.addEventListener('drop', async (e) => {
-    e.preventDefault();
+  dropZone.addEventListener('drop', (e) => {
+    if (isImporting) return;
     const file = e.dataTransfer?.files?.[0];
-    if (file) handleDroppedFile(file);
-  });
-
-  window.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    if (dropZone) dropZone.classList.remove('dragover');
-    const file = e.dataTransfer?.files?.[0];
-    if (file) handleDroppedFile(file);
+    if (file) {
+      setStatus(`Loading dropped ${file.name}...`, 'info');
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const text = evt.target?.result;
+        if (text) processPayload(text);
+      };
+      reader.readAsText(file);
+    }
   });
 
   if (payloadCard) {
