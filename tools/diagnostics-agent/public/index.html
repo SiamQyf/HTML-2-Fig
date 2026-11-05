@@ -321,8 +321,8 @@
       </div>
       <div class="btn-group">
         <button id="btnPasteClipboard" class="btn">📋 Paste from Clipboard</button>
-        <button id="btnLoadSample" class="btn-secondary">Load Porto Sample</button>
-        <button id="btnHealAll" class="btn-success" style="display:none;">Auto-Heal Payload</button>
+        <button id="btnLoadSample" class="btn-secondary">Reload Porto Sample</button>
+        <button id="btnHealAll" class="btn-success">✨ Auto-Heal Payload</button>
       </div>
     </div>
 
@@ -335,27 +335,27 @@
     </div>
 
     <!-- Stats Bar -->
-    <div id="statsBar" class="stats-grid" style="display:none;">
+    <div id="statsBar" class="stats-grid">
       <div class="stat-card">
         <div class="stat-label">Total Invariants Audited</div>
         <div class="stat-val" id="statInvariants">6 Rules</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Critical Defects</div>
-        <div class="stat-val val-critical" id="statCritical">0</div>
+        <div class="stat-val val-critical" id="statCritical">-</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">High / Warnings</div>
-        <div class="stat-val val-warning" id="statHigh">0</div>
+        <div class="stat-val val-warning" id="statHigh">-</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Total Nodes Inspected</div>
-        <div class="stat-val" id="statNodes">0</div>
+        <div class="stat-val" id="statNodes">-</div>
       </div>
     </div>
 
     <!-- Invariants Status -->
-    <div id="invariantsBar" class="invariants-bar" style="display:none;">
+    <div id="invariantsBar" class="invariants-bar">
       <div class="inv-pill"><div class="inv-status" id="inv-inviewport"></div> In-Viewport Animated Styles</div>
       <div class="inv-pill"><div class="inv-status" id="inv-overlays"></div> Gradient & Fade Overlays Stack</div>
       <div class="inv-pill"><div class="inv-status" id="inv-placeholders"></div> Lazy-Loaded Placeholders</div>
@@ -365,10 +365,16 @@
     </div>
 
     <!-- Issues List -->
-    <div id="resultsArea" class="results-container" style="display:none;">
+    <div id="resultsArea" class="results-container">
       <div class="section-title">
-        <span>Detected Diagnostic Findings</span>
-        <button id="btnDownloadHealed" class="btn-success" style="font-size:0.8rem; padding: 6px 14px;">Download Healed JSON</button>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span>Detected Diagnostic Findings</span>
+          <span id="activePayloadBadge" style="font-size:0.75rem; background:#1e293b; color:#94a3b8; padding:3px 8px; border-radius:4px; font-weight:500;">Porto Demo Payload</span>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button id="btnAutoHealBottom" class="btn btn-success" style="font-size:0.8rem; padding: 6px 14px;">✨ Auto-Heal Payload</button>
+          <button id="btnDownloadHealed" class="btn btn-secondary" style="font-size:0.8rem; padding: 6px 14px;">💾 Download Healed JSON</button>
+        </div>
       </div>
       <div id="issuesList" style="display:flex; flex-direction:column; gap:12px;"></div>
     </div>
@@ -387,11 +393,15 @@
     const btnPasteClipboard = document.getElementById('btnPasteClipboard');
     const btnLoadSample = document.getElementById('btnLoadSample');
     const btnHealAll = document.getElementById('btnHealAll');
+    const btnAutoHealBottom = document.getElementById('btnAutoHealBottom');
     const btnDownloadHealed = document.getElementById('btnDownloadHealed');
+    const activePayloadBadge = document.getElementById('activePayloadBadge');
     const statsBar = document.getElementById('statsBar');
     const invariantsBar = document.getElementById('invariantsBar');
     const resultsArea = document.getElementById('resultsArea');
     const issuesList = document.getElementById('issuesList');
+
+    if (btnAutoHealBottom) btnAutoHealBottom.addEventListener('click', executeAutoHeal);
 
     // Paste from Clipboard handling
     btnPasteClipboard.addEventListener('click', async () => {
@@ -402,6 +412,7 @@
           return;
         }
         const json = JSON.parse(text);
+        activePayloadBadge.textContent = 'Clipboard Payload (' + (json.name || json.title || 'Page') + ')';
         showToast('Loaded payload from clipboard!');
         runAudit(json);
       } catch (err) {
@@ -415,6 +426,7 @@
       if (text && text.trim().startsWith('{')) {
         try {
           const json = JSON.parse(text);
+          activePayloadBadge.textContent = 'Pasted Payload (' + (json.name || json.title || 'Page') + ')';
           showToast('Loaded payload from clipboard!');
           runAudit(json);
         } catch (err) {
@@ -422,6 +434,25 @@
         }
       }
     });
+
+    // Auto-load Porto demo payload on initial page load
+    window.addEventListener('DOMContentLoaded', () => {
+      loadSamplePorto();
+    });
+
+    async function loadSamplePorto() {
+      btnLoadSample.textContent = 'Loading Sample...';
+      try {
+        const res = await fetch('/api/sample-porto');
+        const json = await res.json();
+        activePayloadBadge.textContent = 'Porto Business Consulting 5 Demo';
+        runAudit(json);
+      } catch (e) {
+        console.warn('Could not auto-load sample:', e);
+      } finally {
+        btnLoadSample.textContent = 'Reload Porto Sample';
+      }
+    }
 
     dropZone.addEventListener('click', () => fileInput.click());
     dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -459,18 +490,7 @@
       reader.readAsText(file);
     }
 
-    btnLoadSample.addEventListener('click', async () => {
-      btnLoadSample.textContent = 'Loading Sample...';
-      try {
-        const res = await fetch('/api/sample-porto');
-        const json = await res.json();
-        runAudit(json);
-      } catch (e) {
-        alert('Could not load sample: ' + e.message);
-      } finally {
-        btnLoadSample.textContent = 'Load Porto Payload';
-      }
-    });
+    btnLoadSample.addEventListener('click', loadSamplePorto);
 
     async function runAudit(payload) {
       currentPayload = payload;
