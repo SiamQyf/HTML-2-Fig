@@ -380,11 +380,12 @@ function parseLinearGradient(css, styles = null, nodeW = 100, nodeH = 100) {
     inner = inner.replace(/\bin\s+(?:srgb(?:-linear)?|display-p3|a98-rgb|prophoto-rgb|rec2020|lab|oklab|xyz(?:-d50|-d65)?|hsl|hwb|lch|oklch)\b/gi, '').trim();
 
     let angleDeg = 180;
+    let angleExpr = '';
     let stopsStr = inner;
 
     const angleMatch = inner.match(/^((?:to\s+(?:top|bottom|left|right)(?:\s+(?:top|bottom|left|right))?)|(?:-?[\d.]+(?:deg|rad|turn|grad))|(?:top|bottom|left|right)(?:\s+(?:top|bottom|left|right))?)\s*,\s*(.*)$/is);
     if (angleMatch) {
-      const angleExpr = angleMatch[1].toLowerCase().trim();
+      angleExpr = angleMatch[1].toLowerCase().trim();
       stopsStr = angleMatch[2];
 
       if (angleExpr.includes('deg')) {
@@ -534,18 +535,46 @@ function parseLinearGradient(css, styles = null, nodeW = 100, nodeH = 100) {
       }
     }
 
-    const rad = ((angleDeg - 90) * Math.PI) / 180;
-    const dx = Math.cos(rad);
-    const dy = Math.sin(rad);
+    let x0, y0, x1, y1;
+    if (angleExpr === 'to bottom right' || angleExpr === 'to right bottom') {
+      x0 = 0; y0 = 0; x1 = 1; y1 = 1;
+    } else if (angleExpr === 'to top right' || angleExpr === 'to right top') {
+      x0 = 0; y0 = 1; x1 = 1; y1 = 0;
+    } else if (angleExpr === 'to bottom left' || angleExpr === 'to left bottom') {
+      x0 = 1; y0 = 0; x1 = 0; y1 = 1;
+    } else if (angleExpr === 'to top left' || angleExpr === 'to left top') {
+      x0 = 1; y0 = 1; x1 = 0; y1 = 0;
+    } else {
+      const angleRad = (angleDeg * Math.PI) / 180;
+      const dx = Math.sin(angleRad);
+      const dy = -Math.cos(angleRad);
+      const w = Math.max(1, nodeW || 100);
+      const h = Math.max(1, nodeH || 100);
+      const length = Math.abs(w * Math.sin(angleRad)) + Math.abs(h * Math.cos(angleRad));
+      const sPx_x = (w / 2) - (dx * length) / 2;
+      const sPx_y = (h / 2) - (dy * length) / 2;
+      const ePx_x = (w / 2) + (dx * length) / 2;
+      const ePx_y = (h / 2) + (dy * length) / 2;
+      x0 = sPx_x / w;
+      y0 = sPx_y / h;
+      x1 = ePx_x / w;
+      y1 = ePx_y / h;
+    }
 
-    const length = Math.abs((nodeW || 100) * dx) + Math.abs((nodeH || 100) * dy);
-    
-    let A = length > 0 ? ((nodeW || 100) * dx) / length : dx;
-    let B = length > 0 ? ((nodeH || 100) * dy) / length : dy;
-    let C = 0.5 - 0.5 * (A + B);
-    let A2 = -B;
-    let B2 = A;
-    let C2 = 0.5 - 0.5 * (A2 + B2);
+    const gDx = x1 - x0;
+    const gDy = y1 - y0;
+    const D2 = gDx * gDx + gDy * gDy;
+    let m00 = 0, m01 = 0, m02 = 0;
+    let m10 = 0, m11 = 0, m12 = 0.5;
+    if (D2 > 0.000001) {
+      m00 = gDx / D2;
+      m01 = gDy / D2;
+      m02 = -(x0 * gDx + y0 * gDy) / D2;
+
+      m10 = -gDy / D2;
+      m11 = gDx / D2;
+      m12 = 0.5 - (-x0 * gDy + y0 * gDx) / D2;
+    }
 
     if (styles && styles._bgClipRect) {
       const origW = Math.max(1, styles._bgClipRect.width);
@@ -555,34 +584,26 @@ function parseLinearGradient(css, styles = null, nodeW = 100, nodeH = 100) {
       const fragW = Math.max(1, nodeW || 100);
       const fragH = Math.max(1, nodeH || 100);
 
-      const origLength = Math.abs(origW * dx) + Math.abs(origH * dy);
-      const A_orig = origLength > 0 ? (origW * dx) / origLength : dx;
-      const B_orig = origLength > 0 ? (origH * dy) / origLength : dy;
-      const C_orig = 0.5 - 0.5 * (A_orig + B_orig);
+      const sx = fragW / origW;
+      const sy = fragH / origH;
+      const ox = (fragX - styles._bgClipRect.x) / origW;
+      const oy = (fragY - styles._bgClipRect.y) / origH;
 
-      const scaleX = fragW / origW;
-      const scaleY = fragH / origH;
-      const transX = (fragX - styles._bgClipRect.x) / origW;
-      const transY = (fragY - styles._bgClipRect.y) / origH;
-
-      A = A_orig * scaleX;
-      B = B_orig * scaleY;
-      C = A_orig * transX + B_orig * transY + C_orig;
-      
-      const A2_orig = -B_orig;
-      const B2_orig = A_orig;
-      const C2_orig = 0.5 - 0.5 * (A2_orig + B2_orig);
-
-      A2 = A2_orig * scaleX;
-      B2 = B2_orig * scaleY;
-      C2 = A2_orig * transX + B2_orig * transY + C2_orig;
+      const new_m02 = m00 * ox + m01 * oy + m02;
+      const new_m12 = m10 * ox + m11 * oy + m12;
+      m00 = m00 * sx;
+      m01 = m01 * sy;
+      m02 = new_m02;
+      m10 = m10 * sx;
+      m11 = m11 * sy;
+      m12 = new_m12;
     }
 
     return {
       type: 'GRADIENT_LINEAR',
       gradientTransform: [
-        [A, B, C],
-        [A2, B2, C2]
+        [m00, m01, m02],
+        [m10, m11, m12]
       ],
       gradientStops: fixPremultipliedStops(stops)
     };
