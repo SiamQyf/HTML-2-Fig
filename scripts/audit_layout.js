@@ -1354,10 +1354,16 @@ async function auditUrl(targetUrl, options = {}) {
   let mediaMatchedCount = 0;
   const topFigma = figmaMediaList.filter(fm => fm.absRect.y < 100);
   console.log(`🖼️ Total figma media indexed: ${figmaMediaList.length}, Top header media (<100px): ${topFigma.length}`);
+
+
   for (const media of domTruth.imageElements) {
     if (media.isSlider) continue;
     const match = figmaMediaList.find(fm => {
-      const dx = Math.abs(fm.absRect.x - media.absRect.x);
+      let dx = Math.abs(fm.absRect.x - media.absRect.x);
+      if ((media.absRect.width >= 1000 || fm.absRect.width >= 1000) && Math.abs(fm.absRect.width - media.absRect.width) > 50) {
+        const centeredX = media.absRect.x - (fm.absRect.width - media.absRect.width) / 2;
+        dx = Math.min(dx, Math.abs(fm.absRect.x - centeredX));
+      }
       const dy = Math.abs(fm.absRect.y - media.absRect.y);
       const maxDy = Math.max(100, media.absRect.y * 0.025);
       if (dx <= 80 && dy <= maxDy) {
